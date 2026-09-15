@@ -1,0 +1,90 @@
+#!/bin/bash
+# =========================================================
+# GameLand CS 1.6 - Mix System 5v5 Installer & Compiler
+# =========================================================
+
+set -e
+
+if [ "$EUID" -ne 0 ]; then
+  echo "[ERROR] Please run as root: sudo bash install_mix.sh"
+  exit 1
+fi
+
+PROJECT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+SCRIPTING_DIR="${PROJECT_DIR}/cstrike/addons/amxmodx/scripting"
+PLUGINS_DIR="${PROJECT_DIR}/cstrike/addons/amxmodx/plugins"
+CONFIGS_DIR="${PROJECT_DIR}/cstrike/addons/amxmodx/configs"
+PLUGINS_INI="${CONFIGS_DIR}/plugins.ini"
+
+echo "================================================="
+echo "   GameLand 5v5 Mix System - Setup & Compiler   "
+echo "   Directory: ${PROJECT_DIR}"
+echo "================================================="
+
+# ─── 1. Ensure Compiler Execution Permission ────────────
+echo "[1/5] Checking AMXX compiler..."
+chmod +x "${SCRIPTING_DIR}/amxxpc" || true
+chmod +x "${SCRIPTING_DIR}/amxxpc32.so" || true
+
+# ─── 2. Compile mix_system.sma ──────────────────────────
+echo "[2/5] Compiling mix_system.sma..."
+cd "${SCRIPTING_DIR}"
+
+if [ ! -f "mix_system.sma" ]; then
+    echo "[ERROR] mix_system.sma not found in ${SCRIPTING_DIR}!"
+    exit 1
+fi
+
+# Run amxxpc compiler
+./amxxpc mix_system.sma -o"${PLUGINS_DIR}/mix_system.amxx"
+if [ ! -f "${PLUGINS_DIR}/mix_system.amxx" ]; then
+    echo "[ERROR] Failed to compile mix_system.sma!"
+    exit 1
+fi
+echo "  -> mix_system.amxx compiled successfully!"
+
+# ─── 3. Compile mix_system_voice_chat.sma ───────────────
+echo "[3/5] Compiling mix_system_voice_chat.sma..."
+if [ -f "mix_system_voice_chat.sma" ]; then
+    ./amxxpc mix_system_voice_chat.sma -o"${PLUGINS_DIR}/mix_system_voice_chat.amxx"
+    echo "  -> mix_system_voice_chat.amxx compiled successfully!"
+fi
+
+cd "${PROJECT_DIR}"
+
+# ─── 4. Register in plugins.ini ─────────────────────────
+echo "[4/5] Registering plugins in plugins.ini..."
+if ! grep -q "mix_system.amxx" "${PLUGINS_INI}"; then
+    echo "" >> "${PLUGINS_INI}"
+    echo "; ─── GameLand 5v5 AutoMix System ─────────" >> "${PLUGINS_INI}"
+    echo "mix_system.amxx" >> "${PLUGINS_INI}"
+    echo "mix_system_voice_chat.amxx" >> "${PLUGINS_INI}"
+    echo "  -> Added mix plugins to plugins.ini"
+else
+    echo "  -> mix_system.amxx already present in plugins.ini"
+fi
+
+# ─── 5. Adjust start.sh for 5v5 Match (12 Slots) ───────
+echo "[5/5] Optimizing server config for 5v5..."
+sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="12"/' "${PROJECT_DIR}/start.sh"
+
+echo ""
+echo "================================================="
+echo "   [SUCCESS] 5v5 Mix System Ready!              "
+echo "================================================="
+echo " Commands for Admins in-game:"
+echo "   say /start     -> Start the 5v5 Match (Knife round first)"
+echo "   say /stop      -> Stop Match and return to WarmUp"
+echo "   say /warm      -> Start WarmUp"
+echo "   say /knife     -> Start Knife Round"
+echo "   say /score     -> View current match score"
+echo "   say /pause     -> Pause match"
+echo "   say /specall   -> Move all players to spectator"
+echo "   amx_ct <nick>  -> Move player to CT"
+echo "   amx_t <nick>   -> Move player to Terrorist"
+echo "   amx_spec <nick>-> Move player to Spectator"
+echo "================================================="
+echo " Restarting gameland.service to load plugins..."
+systemctl restart gameland.service
+sleep 2
+systemctl status gameland.service --no-pager

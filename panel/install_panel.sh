@@ -88,13 +88,27 @@ www-data ALL=(ALL) NOPASSWD: /bin/systemctl start gameland*, /bin/systemctl stop
 EOF
 chmod 0440 "${SUDOERS_FILE}"
 
-# ─── 4. Fix file permissions for users.ini and logs ──────
-echo "[4/5] Fixing permissions for AMX Mod X configs and logs..."
-# Make sure www-data can read/write to users.ini for adding admins
-if [ -f "${SERVER_DIR}/cstrike/addons/amxmodx/configs/users.ini" ]; then
-    chown www-data:www-data "${SERVER_DIR}/cstrike/addons/amxmodx/configs/users.ini"
-    chmod 664 "${SERVER_DIR}/cstrike/addons/amxmodx/configs/users.ini"
-fi
+# ─── 4. Fix file permissions for AMX configs, plugins, and logs ───
+echo "[4/5] Fixing permissions for AMX Mod X configs, plugins, and logs..."
+# Make sure www-data can read/write to users.ini and plugins.ini
+for cfg_file in "users.ini" "plugins.ini"; do
+    if [ -f "${SERVER_DIR}/cstrike/addons/amxmodx/configs/${cfg_file}" ]; then
+        chown www-data:www-data "${SERVER_DIR}/cstrike/addons/amxmodx/configs/${cfg_file}"
+        chmod 664 "${SERVER_DIR}/cstrike/addons/amxmodx/configs/${cfg_file}"
+    fi
+done
+
+# Allow www-data to write compiled plugins into plugins/ dir
+chown -R www-data:www-data "${SERVER_DIR}/cstrike/addons/amxmodx/plugins"
+chmod -R 775 "${SERVER_DIR}/cstrike/addons/amxmodx/plugins"
+
+# Allow executing compiler from panel
+chmod +x "${SERVER_DIR}/cstrike/addons/amxmodx/scripting/amxxpc" || true
+chmod +x "${SERVER_DIR}/cstrike/addons/amxmodx/scripting/amxxpc32.so" || true
+
+# Allow editing start.sh for maxplayers switch
+chown www-data:www-data "${SERVER_DIR}/start.sh" || true
+chmod 775 "${SERVER_DIR}/start.sh" || true
 
 # Make sure logs dir is readable
 mkdir -p "${SERVER_DIR}/logs"

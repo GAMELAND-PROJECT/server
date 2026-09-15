@@ -40,6 +40,7 @@ $serverStatus = ServerCmd::getServiceStatus($activeServer['service_name']);
 
     <div class="nav-menu">
         <a href="dashboard.php" class="nav-link <?php echo ($activeNav ?? '') === 'dashboard' ? 'active' : ''; ?>">Dashboard</a>
+        <a href="plugins.php" class="nav-link <?php echo ($activeNav ?? '') === 'plugins' ? 'active' : ''; ?>" style="color: var(--accent);">Plugins & Modes</a>
         <a href="console.php" class="nav-link <?php echo ($activeNav ?? '') === 'console' ? 'active' : ''; ?>">RCON Console</a>
         <a href="maps.php" class="nav-link <?php echo ($activeNav ?? '') === 'maps' ? 'active' : ''; ?>">Maps & Players</a>
         <a href="admins.php" class="nav-link <?php echo ($activeNav ?? '') === 'admins' ? 'active' : ''; ?>">Admin Manager</a>

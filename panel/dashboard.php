@@ -20,7 +20,7 @@ $info = $rcon->getInfo();
 
     <div class="action-bar" style="margin-bottom: 0;">
         <button onclick="controlService('start')" class="btn btn-success" <?php echo ($serverStatus === 'running') ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''; ?>>
-            ▶ Start
+            ▶ Start Server
         </button>
         <button onclick="controlService('restart')" class="btn btn-warning">
             ↻ Restart
@@ -28,8 +28,17 @@ $info = $rcon->getInfo();
         <button onclick="controlService('stop')" class="btn btn-danger" <?php echo ($serverStatus !== 'running') ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''; ?>>
             ⏹ Stop
         </button>
-        <button onclick="restartRound()" class="btn btn-secondary">
-            ⟳ Restart Round
+        <button onclick="runRcon('say /start')" class="btn btn-primary" title="Start 5v5 Mix Match">
+            ⚡ Start 5v5 Mix
+        </button>
+        <button onclick="runRcon('say /knife')" class="btn btn-secondary" title="Start Knife Round">
+            🔪 Knife Round
+        </button>
+        <button onclick="runRcon('say /warm')" class="btn btn-secondary" title="Start WarmUp">
+            🔥 WarmUp
+        </button>
+        <button onclick="runRcon('say /stop')" class="btn btn-danger" title="Stop Match">
+            🛑 Stop Mix
         </button>
     </div>
 </div>

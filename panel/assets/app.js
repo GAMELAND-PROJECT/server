@@ -43,6 +43,19 @@ async function controlService(action) {
     }
 }
 
+// Quick helper to run any RCON command with confirmation or notification
+async function runRcon(cmd, promptMsg = '') {
+    if (promptMsg && !confirm(promptMsg)) {
+        return;
+    }
+    const res = await postApi('rcon_command', { command: cmd });
+    if (res.success) {
+        alert('Command [' + cmd + '] sent successfully!');
+    } else {
+        alert('Error: ' + res.message);
+    }
+}
+
 // Send RCON Command from Console
 async function sendRconCommand() {
     const input = document.getElementById('rconCommandInput');
