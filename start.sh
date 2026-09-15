@@ -4,7 +4,11 @@
 # =========================================================
 
 # Configuration
-SERVER_IP="185.236.38.83"
+# Auto-detect the primary IPv4 address of the server
+SERVER_IP=$(hostname -I | awk '{print $1}')
+if [ -z "$SERVER_IP" ]; then
+    SERVER_IP="0.0.0.0" # Fallback if detection fails
+fi
 SERVER_PORT="27015"
 MAX_PLAYERS="12"
 MAP="de_dust2"
