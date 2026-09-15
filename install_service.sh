@@ -17,6 +17,16 @@ cp gameland.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable gameland.service
 
+# Install the SVGL Global Manager
+cp svgl.sh /usr/local/bin/SVGL
+cp svgl.sh /usr/local/bin/svgl
+chmod +x /usr/local/bin/SVGL
+chmod +x /usr/local/bin/svgl
+
 echo "[SUCCESS] GameLand service installed and enabled on boot!"
 echo "If you restart the whole Linux VPS, the server will turn on automatically."
-echo "You can still access the console anytime with: tmux attach -t gameland_server"
+echo ""
+echo "=========================================================="
+echo "   YOU CAN NOW TYPE 'SVGL' OR 'svgl' ANYWHERE TO MANAGE   "
+echo "=========================================================="
+
