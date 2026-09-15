@@ -30,12 +30,15 @@ else
     echo "  -> tmux: OK"
 fi
 
-# ─── تنظیم مسیر پروژه در فایل سرویس ───────────────
+# ─── نوشتن مسیر واقعی پروژه داخل فایل سرویس ───────
 echo "[2/5] Setting PROJECT_ROOT to: ${PROJECT_DIR}"
-# کپی فایل سرویس به مقصد و جایگزینی مسیر
-sed "s|Environment=\"PROJECT_ROOT=.*\"|Environment=\"PROJECT_ROOT=${PROJECT_DIR}\"|" \
+# systemd متغیر Environment= رو در WorkingDirectory و ExecStart expand نمی‌کنه
+# بنابراین همه ${PROJECT_ROOT} ها رو مستقیم با مسیر واقعی جایگزین می‌کنیم
+sed "s|\${PROJECT_ROOT}|${PROJECT_DIR}|g" \
     "${SERVICE_SRC}" > "${SERVICE_DEST}"
 echo "  -> Service file written to ${SERVICE_DEST}"
+echo "  -> Verify:"
+grep -E "WorkingDirectory|ExecStart|ExecStop|PIDFile" "${SERVICE_DEST}" | sed 's/^/     /'
 
 # ─── دسترسی اجرایی ──────────────────────────────────
 echo "[3/5] Setting execute permissions..."
