@@ -2,61 +2,82 @@
 # =========================================================
 # GameLand CS 1.6 - Startup Script
 # =========================================================
+set -e
 
-# Configuration
-# Auto-detect the primary IPv4 address of the server
-SERVER_IP=$(hostname -I | awk '{print $1}')
-if [ -z "$SERVER_IP" ]; then
-    SERVER_IP="0.0.0.0" # Fallback if detection fails
-fi
+# مسیر واقعی این اسکریپت رو پیدا می‌کنه (بدون توجه به جایی که از اونجا صدا زده شده)
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# ─── تنظیمات سرور ──────────────────────────────────────
 SERVER_PORT="27015"
 MAX_PLAYERS="12"
 MAP="de_dust2"
+# ────────────────────────────────────────────────────────
 
-# SteamCMD Path (if installed globally as per handoff)
+# آی‌پی رو از سیستم می‌خونه
+SERVER_IP=$(hostname -I | awk '{print $1}')
+if [ -z "$SERVER_IP" ]; then
+    SERVER_IP="0.0.0.0"
+fi
+
+# مسیر SteamCMD (توسط install.sh نصب میشه)
 STEAMCMD_LINUX32="/opt/steamcmd/linux32"
 
 echo "================================================="
 echo " Starting GameLand CS 1.6 Server...              "
 echo " IP: $SERVER_IP | Port: $SERVER_PORT             "
+echo " Dir: $SCRIPT_DIR                                "
 echo "================================================="
 
-# Important: Setup the LD_LIBRARY_PATH correctly as noted in the handoff document.
-# The server needs 32-bit steamclient.so. We include the current directory and steamcmd dir.
-export LD_LIBRARY_PATH="$(pwd):${STEAMCMD_LINUX32}:${LD_LIBRARY_PATH}"
+# تنظیم کتابخانه‌های ۳۲ بیتی
+export LD_LIBRARY_PATH="${SCRIPT_DIR}:${STEAMCMD_LINUX32}:${LD_LIBRARY_PATH:-}"
 
-# Kill any leftover tmux session (if exists)
+# کشتن session قبلی tmux اگر وجود داشته باشه
 if tmux has-session -t gameland_server 2>/dev/null; then
-    echo "Killing existing tmux session..."
+    echo "[*] Killing old tmux session..."
     tmux kill-session -t gameland_server
+    sleep 1
 fi
 
-# Release port 27015 (udp/tcp) if still bound
+# آزاد کردن پورت اگر هنوز در حال استفاده باشه
 if command -v fuser >/dev/null 2>&1; then
-    fuser -k 27015/udp 2>/dev/null || true
-    fuser -k 27015/tcp 2>/dev/null || true
+    fuser -k "${SERVER_PORT}/udp" 2>/dev/null || true
+    fuser -k "${SERVER_PORT}/tcp" 2>/dev/null || true
 fi
 
-# Launch the server in a detached tmux session with an auto‑restart loop!
-# This ensures that if the server crashes or map changes fail, it turns back on immediately.
-# -------------------------------------------------------------------
-# Pull latest code from GitHub before starting the server
-# This ensures the server always runs the newest version.
-# We reset any local changes and clean untracked files.
-cd "$(pwd)"
-if command -v git >/dev/null 2>&1; then
-    echo "Fetching latest code from GitHub..."
-    git fetch --all
-    git reset --hard origin/main
-    git clean -fd
-else
-    echo "WARNING: git not found – cannot update code automatically."
+# ایجاد پوشه logs اگر وجود نداشته باشه
+mkdir -p "${SCRIPT_DIR}/logs"
+
+# چرخش لاگ اگر بزرگتر از ۱۰ مگابایت باشه
+LOG_FILE="${SCRIPT_DIR}/logs/server.log"
+if [ -f "$LOG_FILE" ] && [ "$(stat -c%s "$LOG_FILE")" -gt 10485760 ]; then
+    mv "$LOG_FILE" "${LOG_FILE}.1"
+    echo "[*] Log rotated to server.log.1"
 fi
-# -------------------------------------------------------------------
 
-tmux new-session -d -s gameland_server "while true; do ./hlds_linux -game cstrike -console -ip ${SERVER_IP} +port ${SERVER_PORT} +map ${MAP} +maxplayers ${MAX_PLAYERS} +sv_lan 0; echo 'Server crashed or stopped! Restarting in 3 seconds...'; sleep 3; done"
+# راه‌اندازی سرور داخل tmux با حلقه auto-restart
+tmux new-session -d -s gameland_server \
+    "cd '${SCRIPT_DIR}' && while true; do \
+        echo '[START] Launching hlds_linux...'; \
+        ./hlds_linux -game cstrike -console \
+            -ip ${SERVER_IP} \
+            +port ${SERVER_PORT} \
+            +map ${MAP} \
+            +maxplayers ${MAX_PLAYERS} \
+            +sv_lan 0 \
+            2>&1 | tee -a '${LOG_FILE}'; \
+        echo '[CRASH] Server stopped! Restarting in 3s...'; \
+        sleep 3; \
+    done"
 
-echo "[SUCCESS] Server started in background via tmux!"
-echo "-> To view the live console, run: tmux attach -t gameland_server"
-echo "-> To detach from the console without stopping the server, press: Ctrl+B, then D"
+# ذخیره PID پروسه tmux برای systemd
+tmux_pid=$(tmux display-message -t gameland_server -p '#{pid}' 2>/dev/null || echo "")
+if [ -n "$tmux_pid" ]; then
+    echo "$tmux_pid" > "${SCRIPT_DIR}/gameland.pid"
+    echo "[*] PID $tmux_pid saved to gameland.pid"
+fi
 
+echo "[SUCCESS] Server started in tmux session 'gameland_server'!"
+echo "-> Live console : tmux attach -t gameland_server"
+echo "-> Detach       : Ctrl+B then D"
+echo "-> Logs         : tail -f ${LOG_FILE}"

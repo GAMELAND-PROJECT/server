@@ -4,14 +4,23 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=forking
+# ─── مسیر پروژه ── در صورت نیاز تغییر بدین ────────────────────
+Environment="PROJECT_ROOT=/opt/gameland/server"
+# ───────────────────────────────────────────────────────────────
+
+Type=oneshot
+RemainAfterExit=yes
 User=root
-WorkingDirectory=/opt/gameland/server
-ExecStart=/opt/gameland/server/start.sh
-ExecStop=/usr/bin/tmux kill-session -t gameland_server
-Restart=always
-RestartSec=10
+WorkingDirectory=${PROJECT_ROOT}
+
+# راه‌اندازی: start.sh ، session tmux رو می‌سازه و بلافاصله exit می‌کنه
+ExecStart=/bin/bash ${PROJECT_ROOT}/start.sh
+
+# استاپ: session رو می‌کشه + فایل pid رو پاک می‌کنه
+ExecStop=/bin/bash -c 'tmux kill-session -t gameland_server 2>/dev/null; rm -f ${PROJECT_ROOT}/gameland.pid; true'
+
+# ریستارت دستی (systemctl restart) کار می‌کنه
+ExecReload=/bin/bash -c 'tmux kill-session -t gameland_server 2>/dev/null; sleep 2; /bin/bash ${PROJECT_ROOT}/start.sh'
 
 [Install]
 WantedBy=multi-user.target
-
