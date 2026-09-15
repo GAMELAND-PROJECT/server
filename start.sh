@@ -39,6 +39,21 @@ fi
 
 # Launch the server in a detached tmux session with an auto‑restart loop!
 # This ensures that if the server crashes or map changes fail, it turns back on immediately.
+# -------------------------------------------------------------------
+# Pull latest code from GitHub before starting the server
+# This ensures the server always runs the newest version.
+# We reset any local changes and clean untracked files.
+cd "$(pwd)"
+if command -v git >/dev/null 2>&1; then
+    echo "Fetching latest code from GitHub..."
+    git fetch --all
+    git reset --hard origin/main
+    git clean -fd
+else
+    echo "WARNING: git not found – cannot update code automatically."
+fi
+# -------------------------------------------------------------------
+
 tmux new-session -d -s gameland_server "while true; do ./hlds_linux -game cstrike -console -ip ${SERVER_IP} +port ${SERVER_PORT} +map ${MAP} +maxplayers ${MAX_PLAYERS} +sv_lan 0; echo 'Server crashed or stopped! Restarting in 3 seconds...'; sleep 3; done"
 
 echo "[SUCCESS] Server started in background via tmux!"
