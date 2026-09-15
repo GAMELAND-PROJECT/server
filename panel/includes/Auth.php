@@ -17,7 +17,23 @@ class Auth {
     }
 
     public static function login($username, $password) {
-        if ($username === PANEL_USER && password_verify($password, PANEL_PASS_HASH)) {
+        if ($username !== PANEL_USER) {
+            return false;
+        }
+
+        $valid = false;
+        if (defined('PANEL_PASS')) {
+            // Check plain text comparison or hash
+            if ($password === PANEL_PASS || (str_starts_with(PANEL_PASS, '$2y$') && password_verify($password, PANEL_PASS))) {
+                $valid = true;
+            }
+        } elseif (defined('PANEL_PASS_HASH')) {
+            if (password_verify($password, PANEL_PASS_HASH)) {
+                $valid = true;
+            }
+        }
+
+        if ($valid) {
             $_SESSION['gameland_logged_in'] = true;
             $_SESSION['gameland_user'] = $username;
             $_SESSION['last_activity'] = time();

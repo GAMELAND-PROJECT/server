@@ -10,12 +10,11 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // -------------------------------------------------------------
 // Web Panel Authentication
-// Default username: admin
-// Default password: changeme123 (change this on first login!)
+// Username & Password
+// You can set plain text password or bcrypt hash here
 // -------------------------------------------------------------
 define('PANEL_USER', 'admin');
-// Hash for 'changeme123'
-define('PANEL_PASS_HASH', '$2y$10$tZ2R7RjU8Y0sL5oM9eJ/1.FzFkZ6oG4Vv8B4uW9tG4lA3Q8n9XJqS');
+define('PANEL_PASS', 'changeme123'); // Change this to your preferred password!
 
 // Session security timeout (30 minutes)
 define('SESSION_TIMEOUT', 1800);
