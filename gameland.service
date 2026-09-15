@@ -4,11 +4,11 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=forking
+Type=simple
 User=root
-WorkingDirectory=/opt/gameland/server
-# Create a tmux session in detached mode
-ExecStart=/usr/bin/tmux new-session -d -s gameland_server '/opt/gameland/server/start_loop.sh'
+ExecStartPre=/usr/bin/tmux start-server
+# Directly launch the startup script (it creates its own tmux session)
+ExecStart=/opt/gameland/server/start.sh
 ExecStop=/usr/bin/tmux kill-session -t gameland_server
 Restart=always
 RestartSec=10
