@@ -4,11 +4,14 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=forking
 User=root
-ExecStartPre=/usr/bin/tmux start-server
-# Directly launch the startup script (it creates its own tmux session)
-ExecStart=/opt/gameland/server/start.sh
+WorkingDirectory=/opt/gameland/server
+# Ensure tmux socket directory exists (tmux uses /tmp/tmux-0 by default when run as root)
+ExecStartPre=/bin/mkdir -p /tmp/tmux-0
+ExecStartPre=/bin/chmod 777 /tmp/tmux-0
+# Launch the startup script inside a detached tmux session
+ExecStart=/usr/bin/tmux new-session -d -s gameland_server '/opt/gameland/server/start.sh'
 ExecStop=/usr/bin/tmux kill-session -t gameland_server
 Restart=always
 RestartSec=10
