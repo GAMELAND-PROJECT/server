@@ -17,6 +17,16 @@ cp gameland.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable gameland.service
 
+# Install tmux if missing (required by the service)
+if ! command -v tmux >/dev/null 2>&1; then
+    echo "Installing tmux..."
+    apt-get update && apt-get install -y tmux
+fi
+
+# Ensure startup scripts are executable
+chmod +x start.sh
+chmod +x start_loop.sh
+
 # Install the SVGL Global Manager
 cp svgl.sh /usr/local/bin/SVGL
 cp svgl.sh /usr/local/bin/svgl

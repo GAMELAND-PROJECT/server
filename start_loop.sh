@@ -13,3 +13,4 @@ cd "$(dirname "$0")"
 
 # Call the main startup script
 ./start.sh
+
