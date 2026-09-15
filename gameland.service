@@ -1,0 +1,17 @@
+[Unit]
+Description=GameLand CS 1.6 Dedicated Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=root
+WorkingDirectory=/opt/gameland/server
+# Create a tmux session in detached mode
+ExecStart=/usr/bin/tmux new-session -d -s gameland_server '/opt/gameland/server/start_loop.sh'
+ExecStop=/usr/bin/tmux kill-session -t gameland_server
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

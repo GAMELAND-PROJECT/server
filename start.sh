@@ -25,8 +25,9 @@ echo "================================================="
 # The server needs 32-bit steamclient.so. We include the current directory and steamcmd dir.
 export LD_LIBRARY_PATH="$(pwd):${STEAMCMD_LINUX32}:${LD_LIBRARY_PATH}"
 
-# Launch the server in a detached tmux session so it stays alive when you disconnect
-tmux new-session -d -s gameland_server "./hlds_linux -game cstrike -console -ip ${SERVER_IP} +port ${SERVER_PORT} +map ${MAP} +maxplayers ${MAX_PLAYERS} +sv_lan 0"
+# Launch the server in a detached tmux session with an auto-restart loop!
+# This ensures that if the server crashes or map changes fail, it turns back on immediately.
+tmux new-session -d -s gameland_server "while true; do ./hlds_linux -game cstrike -console -ip ${SERVER_IP} +port ${SERVER_PORT} +map ${MAP} +maxplayers ${MAX_PLAYERS} +sv_lan 0; echo 'Server crashed or stopped! Restarting in 3 seconds...'; sleep 3; done"
 
 echo "[SUCCESS] Server started in background via tmux!"
 echo "-> To view the live console, run: tmux attach -t gameland_server"
