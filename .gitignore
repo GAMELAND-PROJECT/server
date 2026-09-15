@@ -1,0 +1,71 @@
+# Local runtime output
+*.log
+*.mdmp
+*.dmp
+*.dem
+*.ztmp
+*.tmp
+*.bak
+*.old
+*.swp
+*~
+sys_error.log
+
+# HLDS / Steam runtime caches
+steamapps/
+Steam/
+linux64/
+cstrike/downloads/
+cstrike/downloaded/
+cstrike/logs/
+cstrike/SAVE/
+cstrike/cache/
+cstrike/tmp/
+
+# Stock game content; install/sync these through SteamCMD instead of Git.
+valve/
+cstrike/maps/
+cstrike/models/
+cstrike/sound/
+cstrike/sprites/
+cstrike/gfx/
+cstrike/media/
+cstrike/overviews/
+cstrike/resource/
+cstrike/cl_dlls/
+cstrike/dlls/
+cstrike/events/
+cstrike/classes/
+cstrike/manual/
+cstrike/*.wad
+cstrike/*.bsp
+cstrike/*.res
+cstrike/*.nav
+
+# AMX Mod X runtime data
+cstrike/addons/amxmodx/logs/
+cstrike/addons/amxmodx/data/lang/custom.txt
+cstrike/addons/amxmodx/data/vault.ini
+cstrike/addons/amxmodx/data/*.vault
+cstrike/addons/amxmodx/data/*.sqlite
+cstrike/addons/amxmodx/data/*.db
+cstrike/addons/amxmodx/data/*.log
+
+# ReGameDLL / Metamod / plugin runtime files
+cstrike/addons/rechecker/logs/
+cstrike/addons/rechecker/*.log
+cstrike/addons/metamod/logs/
+
+# Server binaries from SteamCMD/HLDS installs
+*.so
+hlds_linux
+hltv
+steamclient.so
+libsteam*.so
+libstdc++.so*
+libgcc_s.so*
+core.*
+
+# Keep project-owned scripts and config files trackable.
+!install.sh
+!start.sh
