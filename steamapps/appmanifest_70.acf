@@ -1,0 +1,37 @@
+"AppState"
+{
+	"appid"		"70"
+	"Universe"		"1"
+	"name"		"Half-Life"
+	"StateFlags"		"68"
+	"installdir"		"Half-Life"
+	"LastUpdated"		"1789430523"
+	"LastPlayed"		"0"
+	"SizeOnDisk"		"529827940"
+	"StagingSize"		"0"
+	"buildid"		"15961492"
+	"LastOwner"		"0"
+	"DownloadType"		"0"
+	"AutoUpdateBehavior"		"0"
+	"AllowOtherDownloadsWhileRunning"		"0"
+	"ScheduledAutoUpdate"		"0"
+	"InstalledDepots"
+	{
+		"1"
+		{
+			"manifest"		"2667117727132184734"
+			"size"		"513399519"
+		}
+		"71"
+		{
+			"manifest"		"3982364535202188842"
+			"size"		"16428421"
+		}
+	}
+	"UserConfig"
+	{
+	}
+	"MountedConfig"
+	{
+	}
+}
