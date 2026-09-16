@@ -196,6 +196,32 @@ class ServerCmd {
     }
 
     /**
+     * Send live commands to server to reload admins and refresh connected players' rights
+     */
+    public static function reloadAdminsLive($serverInfo) {
+        try {
+            $rcon = new GoldSourceRcon(
+                $serverInfo['ip'],
+                $serverInfo['port'],
+                $serverInfo['rcon_password'],
+                1.5
+            );
+            // In AMX Mod X the command is amx_reloadadmins (with an 's')
+            $r1 = $rcon->execute('amx_reloadadmins');
+            return [
+                'success' => true,
+                'output' => trim($r1),
+                'message' => 'Admins reloaded live on server instantly!'
+            ];
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'RCON error while reloading admins: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
      * Get all plugins registered in plugins.ini, plus unlisted plugins in plugins/ dir
      */
     public static function getPluginsList($serverInfo) {
@@ -372,6 +398,108 @@ class ServerCmd {
     }
 
     /**
+     * Get the latest commit information from the GitHub repository
+     */
+    public static function getGitRepoStatus($repo = 'GAMELAND-PROJECT/MixSystem_SV_PL', $branch = 'main') {
+        $url = "https://api.github.com/repos/{$repo}/commits/{$branch}";
+        $opts = [
+            'http' => [
+                'method' => 'GET',
+                'header' => "User-Agent: GameLand-WebPanel/2.0\r\nAccept: application/vnd.github.v3+json\r\n",
+                'timeout' => 5
+            ]
+        ];
+        $context = stream_context_create($opts);
+        $res = @file_get_contents($url, false, $context);
+        if ($res === false) {
+            return null;
+        }
+
+        $data = json_decode($res, true);
+        if (!$data || !isset($data['sha'])) {
+            return null;
+        }
+
+        return [
+            'sha'        => substr($data['sha'], 0, 7),
+            'full_sha'   => $data['sha'],
+            'message'    => $data['commit']['message'] ?? '',
+            'author'     => $data['commit']['author']['name'] ?? '',
+            'date'       => $data['commit']['author']['date'] ?? '',
+        ];
+    }
+
+    /**
+     * Download the latest files from GitHub repo and update server files
+     */
+    public static function syncMixFromGitHub($serverInfo) {
+        $baseUrl = 'https://raw.githubusercontent.com/GAMELAND-PROJECT/MixSystem_SV_PL/main/';
+        $cstrike = $serverInfo['cstrike_dir'];
+
+        // File mapping: GitHub relative path => local destination relative to cstrike
+        $fileMap = [
+            'scripting/include/mix_system.inc'    => 'addons/amxmodx/scripting/include/mix_system.inc',
+            'scripting/mix_system.sma'            => 'addons/amxmodx/scripting/mix_system.sma',
+            'scripting/mix_system_voice_chat.sma' => 'addons/amxmodx/scripting/mix_system_voice_chat.sma',
+            'scripting/player_drop.sma'           => 'addons/amxmodx/scripting/player_drop.sma',
+            'scripting/mix_database_stats.sma'    => 'addons/amxmodx/scripting/mix_database_stats.sma',
+            'configs/MixSettings.ini'             => 'addons/amxmodx/configs/MixSettings.ini',
+            'configs/start.cfg'                   => 'addons/amxmodx/configs/start.cfg',
+            'configs/stop.cfg'                    => 'addons/amxmodx/configs/stop.cfg',
+            'configs/overtime.cfg'                => 'addons/amxmodx/configs/overtime.cfg',
+            'data/lang/mix_system.txt'            => 'addons/amxmodx/data/lang/mix_system.txt',
+        ];
+
+        $updatedFiles = [];
+        $failedFiles = [];
+
+        $opts = [
+            'http' => [
+                'method' => 'GET',
+                'header' => "User-Agent: GameLand-WebPanel/2.0\r\n",
+                'timeout' => 10
+            ]
+        ];
+        $context = stream_context_create($opts);
+
+        foreach ($fileMap as $remotePath => $localRelPath) {
+            $destFile = $cstrike . '/' . $localRelPath;
+            $destDir = dirname($destFile);
+            if (!is_dir($destDir)) {
+                @mkdir($destDir, 0775, true);
+            }
+
+            $content = @file_get_contents($baseUrl . $remotePath, false, $context);
+            if ($content !== false && strlen($content) > 0) {
+                if (@file_put_contents($destFile, $content) !== false) {
+                    $updatedFiles[] = basename($destFile);
+                } else {
+                    $failedFiles[] = basename($destFile) . ' (write permission error)';
+                }
+            } else {
+                $failedFiles[] = basename($destFile) . ' (download failed)';
+            }
+        }
+
+        // Save last sync metadata
+        $commit = self::getGitRepoStatus();
+        if ($commit) {
+            @file_put_contents($cstrike . '/addons/amxmodx/configs/.mix_last_sync.json', json_encode([
+                'commit' => $commit,
+                'sync_time' => date('Y-m-d H:i:s'),
+                'files' => $updatedFiles
+            ], JSON_PRETTY_PRINT));
+        }
+
+        return [
+            'success' => count($updatedFiles) > 0,
+            'updated' => $updatedFiles,
+            'failed'  => $failedFiles,
+            'commit'  => $commit
+        ];
+    }
+
+    /**
      * Compile plugins using the server's amxxpc compiler
      */
     public static function compilePlugins($serverInfo) {
@@ -386,19 +514,74 @@ class ServerCmd {
         @chmod($compiler, 0755);
         @chmod($scriptingDir . '/amxxpc32.so', 0755);
 
-        $cmd = "cd " . escapeshellarg($scriptingDir) . " && ./amxxpc mix_system.sma -o" . escapeshellarg($pluginsDir . '/mix_system.amxx') . " 2>&1";
-        $output = @shell_exec($cmd);
+        $targets = [
+            'mix_system.sma'            => 'mix_system.amxx',
+            'mix_system_voice_chat.sma' => 'mix_system_voice_chat.amxx',
+            'player_drop.sma'           => 'player_drop.amxx',
+            'mix_database_stats.sma'    => 'mix_database_stats.amxx',
+        ];
 
-        if (file_exists($scriptingDir . '/mix_system_voice_chat.sma')) {
-            $cmd2 = "cd " . escapeshellarg($scriptingDir) . " && ./amxxpc mix_system_voice_chat.sma -o" . escapeshellarg($pluginsDir . '/mix_system_voice_chat.amxx') . " 2>&1";
-            $output .= "\n" . @shell_exec($cmd2);
+        $output = '';
+        $compiledCount = 0;
+
+        foreach ($targets as $src => $bin) {
+            $srcPath = $scriptingDir . '/' . $src;
+            if (file_exists($srcPath)) {
+                $cmd = "cd " . escapeshellarg($scriptingDir) . " && ./amxxpc " . escapeshellarg($src) . " -o" . escapeshellarg($pluginsDir . '/' . $bin) . " 2>&1";
+                $res = @shell_exec($cmd);
+                $output .= "=== Compiling {$src} ===\n" . trim((string)$res) . "\n\n";
+
+                if (file_exists($pluginsDir . '/' . $bin)) {
+                    $compiledCount++;
+                }
+            }
         }
 
-        $isOk = file_exists($pluginsDir . '/mix_system.amxx');
+        $mainOk = file_exists($pluginsDir . '/mix_system.amxx');
+
+        // Ensure plugins are activated in plugins.ini if not present
+        if ($mainOk) {
+            self::ensureMixRegistered($serverInfo);
+        }
+
         return [
-            'success' => $isOk,
-            'output'  => trim((string)$output),
-            'message' => $isOk ? 'Compilation completed successfully!' : 'Compilation failed or completed with errors.'
+            'success' => $mainOk,
+            'output'  => trim($output),
+            'compiled_count' => $compiledCount,
+            'message' => $mainOk 
+                ? "Successfully compiled {$compiledCount} mix plugin binaries (.amxx)!" 
+                : 'Compilation finished with errors. Check the compiler log below.'
         ];
     }
+
+    /**
+     * Ensure mix plugins are listed and active in plugins.ini
+     */
+    public static function ensureMixRegistered($serverInfo) {
+        $pluginsIni = $serverInfo['cstrike_dir'] . '/addons/amxmodx/configs/plugins.ini';
+        if (!file_exists($pluginsIni)) {
+            return;
+        }
+
+        $mixFiles = ['mix_system.amxx', 'mix_system_voice_chat.amxx', 'player_drop.amxx'];
+        $content = file_get_contents($pluginsIni);
+        $modified = false;
+
+        foreach ($mixFiles as $mf) {
+            if (preg_match('/^;\s*' . preg_quote($mf, '/') . '/m', $content)) {
+                // Uncomment if commented out
+                $content = preg_replace('/^;\s*' . preg_quote($mf, '/') . '(.*)$/m', $mf . '$1', $content);
+                $modified = true;
+            } elseif (!preg_match('/' . preg_quote($mf, '/') . '/', $content)) {
+                // Add to plugins.ini
+                $content .= "\n" . $mf . " ; AutoMix 5v5 System";
+                $modified = true;
+            }
+        }
+
+        if ($modified) {
+            @file_put_contents($pluginsIni, $content);
+        }
+    }
 }
+

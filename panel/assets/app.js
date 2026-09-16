@@ -43,16 +43,82 @@ async function controlService(action) {
     }
 }
 
-// Quick helper to run any RCON command with confirmation or notification
+// Modern Floating Toast Notification
+function showToast(message, type = 'info', duration = 3500) {
+    let toast = document.getElementById('panelToast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'panelToast';
+        document.body.appendChild(toast);
+    }
+    toast.className = 'show ' + (type === 'success' ? 'toast-success' : (type === 'error' ? 'toast-error' : ''));
+    toast.innerHTML = (type === 'success' ? '✔ ' : (type === 'error' ? '✖ ' : 'ℹ ')) + escapeHtml(message);
+
+    clearTimeout(window.toastTimeout);
+    window.toastTimeout = setTimeout(() => {
+        toast.className = toast.className.replace('show', '').trim();
+    }, duration);
+}
+
+// Quick helper to run any RCON command with immediate toast feedback
 async function runRcon(cmd, promptMsg = '') {
     if (promptMsg && !confirm(promptMsg)) {
         return;
     }
+    showToast('Executing: ' + cmd + '...', 'info', 1500);
     const res = await postApi('rcon_command', { command: cmd });
     if (res.success) {
-        alert('Command [' + cmd + '] sent successfully!');
+        showToast('Command [' + cmd + '] executed successfully!', 'success');
     } else {
-        alert('Error: ' + res.message);
+        showToast('Error: ' + res.message, 'error', 4500);
+    }
+}
+
+// High-level AutoMix Match Controls (Sends primary command + fallback commands)
+async function sendMixAction(actionType) {
+    let cmd = '';
+    let label = '';
+    switch (actionType) {
+        case 'start':
+            cmd = 'say /start';
+            label = 'Start Match (/start)';
+            break;
+        case 'knife':
+            cmd = 'say /knife';
+            label = 'Knife Round (/knife)';
+            break;
+        case 'warm':
+            cmd = 'say /warm';
+            label = 'Warmup (/warm)';
+            break;
+        case 'stop':
+            cmd = 'say /stop';
+            label = 'Stop Match (/stop)';
+            break;
+        case 'restart_round':
+            cmd = 'sv_restart 1';
+            label = 'Round Restart (sv_restart 1)';
+            break;
+        case 'overtime':
+            cmd = 'say /overtime';
+            label = 'Overtime (/overtime)';
+            break;
+        case 'pause':
+            cmd = 'say /pause';
+            label = 'Pause Match (/pause)';
+            break;
+        default:
+            cmd = actionType;
+            label = actionType;
+            break;
+    }
+
+    showToast('Triggering ' + label + '...', 'info', 1500);
+    const res = await postApi('rcon_command', { command: cmd });
+    if (res.success) {
+        showToast('✔ ' + label + ' executed successfully!', 'success');
+    } else {
+        showToast('✖ Failed: ' + res.message, 'error', 4500);
     }
 }
 

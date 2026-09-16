@@ -88,19 +88,20 @@ www-data ALL=(ALL) NOPASSWD: /bin/systemctl start gameland*, /bin/systemctl stop
 EOF
 chmod 0440 "${SUDOERS_FILE}"
 
-# ─── 4. Fix file permissions for AMX configs, plugins, and logs ───
-echo "[4/5] Fixing permissions for AMX Mod X configs, plugins, and logs..."
-# Make sure www-data can read/write to users.ini and plugins.ini
-for cfg_file in "users.ini" "plugins.ini"; do
-    if [ -f "${SERVER_DIR}/cstrike/addons/amxmodx/configs/${cfg_file}" ]; then
-        chown www-data:www-data "${SERVER_DIR}/cstrike/addons/amxmodx/configs/${cfg_file}"
-        chmod 664 "${SERVER_DIR}/cstrike/addons/amxmodx/configs/${cfg_file}"
-    fi
-done
+# ─── 4. Fix file permissions for AMX configs, plugins, scripting, and logs ───
+echo "[4/5] Fixing permissions for AMX Mod X configs, plugins, scripting, and logs..."
+# Allow www-data to write and manage configs, plugins, scripting, and data/lang
+chown -R www-data:www-data "${SERVER_DIR}/cstrike/addons/amxmodx/configs" || true
+chmod -R 775 "${SERVER_DIR}/cstrike/addons/amxmodx/configs" || true
 
-# Allow www-data to write compiled plugins into plugins/ dir
-chown -R www-data:www-data "${SERVER_DIR}/cstrike/addons/amxmodx/plugins"
-chmod -R 775 "${SERVER_DIR}/cstrike/addons/amxmodx/plugins"
+chown -R www-data:www-data "${SERVER_DIR}/cstrike/addons/amxmodx/plugins" || true
+chmod -R 775 "${SERVER_DIR}/cstrike/addons/amxmodx/plugins" || true
+
+chown -R www-data:www-data "${SERVER_DIR}/cstrike/addons/amxmodx/scripting" || true
+chmod -R 775 "${SERVER_DIR}/cstrike/addons/amxmodx/scripting" || true
+
+chown -R www-data:www-data "${SERVER_DIR}/cstrike/addons/amxmodx/data" || true
+chmod -R 775 "${SERVER_DIR}/cstrike/addons/amxmodx/data" || true
 
 # Allow executing compiler from panel
 chmod +x "${SERVER_DIR}/cstrike/addons/amxmodx/scripting/amxxpc" || true
@@ -113,6 +114,7 @@ chmod 775 "${SERVER_DIR}/start.sh" || true
 # Make sure logs dir is readable
 mkdir -p "${SERVER_DIR}/logs"
 chmod -R 755 "${SERVER_DIR}/logs"
+
 
 # ─── 5. Open Firewall if UFW is active ───────────────────
 echo "[5/5] Checking firewall..."

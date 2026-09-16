@@ -24,11 +24,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_admin'])) {
 
         // Auto reload admins in live server if online
         if ($res['success'] && $serverStatus === 'running') {
-            try {
-                $rcon = new GoldSourceRcon($activeServer['ip'], $activeServer['port'], $activeServer['rcon_password'], 1.0);
-                $rcon->execute('amx_reloadadmin');
-                $msg .= ' (Admins reloaded live on server!)';
-            } catch (Exception $e) {}
+            $reloadRes = ServerCmd::reloadAdminsLive($activeServer);
+            if ($reloadRes['success']) {
+                $msg .= ' ⚡ (Admins instantly reloaded on server - No restart needed!)';
+            } else {
+                $msg .= ' (Warning: Live reload failed: ' . $reloadRes['message'] . ')';
+            }
         }
     }
 }
@@ -45,11 +46,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_admin'])) {
         $msgType = $res['success'] ? 'success' : 'danger';
 
         if ($res['success'] && $serverStatus === 'running') {
-            try {
-                $rcon = new GoldSourceRcon($activeServer['ip'], $activeServer['port'], $activeServer['rcon_password'], 1.0);
-                $rcon->execute('amx_reloadadmin');
-            } catch (Exception $e) {}
+            $reloadRes = ServerCmd::reloadAdminsLive($activeServer);
+            if ($reloadRes['success']) {
+                $msg .= ' ⚡ (Admins instantly reloaded on server!)';
+            }
         }
+    }
+}
+
+// Handle Manual Live Reload Admins Action
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reload_admins'])) {
+    if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
+        $msg = 'Invalid security token!';
+        $msgType = 'danger';
+    } else {
+        $reloadRes = ServerCmd::reloadAdminsLive($activeServer);
+        $msg = $reloadRes['message'];
+        $msgType = $reloadRes['success'] ? 'success' : 'danger';
     }
 }
 
@@ -60,12 +73,21 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
     <div class="alert alert-<?php echo $msgType; ?>"><?php echo htmlspecialchars($msg); ?></div>
 <?php endif; ?>
 
+
 <div class="grid-cols-2">
     <!-- Existing Admins List -->
     <div class="card">
         <div class="card-title">
             <span>Server Admins (<?php echo count($admins); ?>)</span>
-            <button onclick="location.reload()" class="btn btn-secondary btn-sm">Refresh</button>
+            <div style="display: flex; gap: 0.5rem;">
+                <form method="POST" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
+                    <button type="submit" name="reload_admins" class="btn btn-warning btn-sm" title="Send amx_reloadadmins to live server immediately">
+                        ⚡ Reload on Server
+                    </button>
+                </form>
+                <button onclick="location.reload()" class="btn btn-secondary btn-sm">Refresh</button>
+            </div>
         </div>
 
         <div class="table-responsive">

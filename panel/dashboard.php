@@ -20,24 +20,33 @@ $info = $rcon->getInfo();
 
     <div class="action-bar" style="margin-bottom: 0;">
         <button onclick="controlService('start')" class="btn btn-success" <?php echo ($serverStatus === 'running') ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''; ?>>
-            ▶ Start Server
+            ▶ Start
         </button>
-        <button onclick="controlService('restart')" class="btn btn-warning">
-            ↻ Restart
+        <button onclick="controlService('restart')" class="btn btn-warning" title="Restart CS 1.6 systemd service">
+            ↻ Restart Service
         </button>
         <button onclick="controlService('stop')" class="btn btn-danger" <?php echo ($serverStatus !== 'running') ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''; ?>>
             ⏹ Stop
         </button>
-        <button onclick="runRcon('say /start')" class="btn btn-primary" title="Start 5v5 Mix Match">
-            ⚡ Start 5v5 Mix
+        <a href="plugins.php" class="btn btn-primary" style="background: linear-gradient(135deg, #06b6d4, #4f46e5); font-weight: 600;" title="Download Latest Mix from GitHub, Compile & Restart">
+            🔄 Update AutoMix
+        </a>
+        <button onclick="sendMixAction('restart_round')" class="btn btn-secondary" style="border-color: #3b82f6;" title="Restart Current Round (sv_restart 1)">
+            🔄 Restart Round
         </button>
-        <button onclick="runRcon('say /knife')" class="btn btn-secondary" title="Start Knife Round">
+        <button onclick="sendMixAction('start')" class="btn btn-secondary" title="Start 5v5 Mix Match (/start)">
+            ⚡ Start Mix
+        </button>
+        <button onclick="sendMixAction('knife')" class="btn btn-secondary" title="Start Knife Round (/knife)">
             🔪 Knife Round
         </button>
-        <button onclick="runRcon('say /warm')" class="btn btn-secondary" title="Start WarmUp">
+        <button onclick="sendMixAction('warm')" class="btn btn-secondary" title="Start WarmUp (/warm)">
             🔥 WarmUp
         </button>
-        <button onclick="runRcon('say /stop')" class="btn btn-danger" title="Stop Match">
+        <button onclick="sendMixAction('pause')" class="btn btn-secondary" title="Pause/Unpause Match (/pause)">
+            ⏸ Pause
+        </button>
+        <button onclick="sendMixAction('stop')" class="btn btn-danger" title="Stop Match & Reset (/stop)">
             🛑 Stop Mix
         </button>
     </div>

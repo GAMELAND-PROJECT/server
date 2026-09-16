@@ -65,7 +65,42 @@ switch ($action) {
         echo json_encode(['success' => true, 'logs' => $logs]);
         break;
 
+    case 'sync_mix':
+        $compile = isset($_POST['compile']) && $_POST['compile'] == '1';
+        $restart = isset($_POST['restart']) && $_POST['restart'] == '1';
+
+        $syncRes = ServerCmd::syncMixFromGitHub($activeServer);
+        if (!$syncRes['success']) {
+            echo json_encode(['success' => false, 'message' => 'Failed to download files from GitHub.']);
+            exit;
+        }
+
+        $compileRes = null;
+        if ($compile) {
+            $compileRes = ServerCmd::compilePlugins($activeServer);
+        }
+
+        $restartRes = null;
+        if ($restart) {
+            $restartRes = ServerCmd::controlService($activeServer['service_name'], 'restart');
+        }
+
+        echo json_encode([
+            'success'     => true,
+            'sync'        => $syncRes,
+            'compile'     => $compileRes,
+            'restart'     => $restartRes,
+            'message'     => 'GitHub sync and deploy finished successfully!'
+        ]);
+        break;
+
+    case 'compile_mix':
+        $res = ServerCmd::compilePlugins($activeServer);
+        echo json_encode($res);
+        break;
+
     default:
         echo json_encode(['success' => false, 'message' => 'Invalid action']);
         break;
 }
+
