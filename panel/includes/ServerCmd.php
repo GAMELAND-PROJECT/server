@@ -477,7 +477,6 @@ class ServerCmd {
             'scripting/mix_system.sma'            => 'addons/amxmodx/scripting/mix_system.sma',
             'scripting/mix_system_voice_chat.sma' => 'addons/amxmodx/scripting/mix_system_voice_chat.sma',
             'scripting/player_drop.sma'           => 'addons/amxmodx/scripting/player_drop.sma',
-            'scripting/mix_database_stats.sma'    => 'addons/amxmodx/scripting/mix_database_stats.sma',
             'configs/MixSettings.ini'             => 'addons/amxmodx/configs/MixSettings.ini',
             'configs/start.cfg'                   => 'addons/amxmodx/configs/start.cfg',
             'configs/stop.cfg'                    => 'addons/amxmodx/configs/stop.cfg',
@@ -566,7 +565,6 @@ class ServerCmd {
             'mix_system.sma'            => 'mix_system.amxx',
             'mix_system_voice_chat.sma' => 'mix_system_voice_chat.amxx',
             'player_drop.sma'           => 'player_drop.amxx',
-            'mix_database_stats.sma'    => 'mix_database_stats.amxx',
         ];
 
         $output       = '';
@@ -644,7 +642,6 @@ class ServerCmd {
             'mix_system.amxx'            => 'AutoMix 5v5 System (main)',
             'mix_system_voice_chat.amxx' => 'AutoMix Voice Chat',
             'player_drop.amxx'           => 'AutoMix Player Drop Handler',
-            'mix_database_stats.amxx'    => 'AutoMix Database Stats',
         ];
         foreach ($candidates as $f => $desc) {
             if (file_exists($pluginsDir . '/' . $f)) {
