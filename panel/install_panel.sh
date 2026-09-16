@@ -26,7 +26,7 @@ echo "================================================="
 # ─── 1. Install Nginx and PHP-FPM ────────────────────────
 echo "[1/5] Installing Nginx and PHP-FPM..."
 apt-get update -q
-apt-get install -y nginx php-fpm php-cli
+apt-get install -y nginx php-fpm php-cli php-mbstring php-curl
 
 # Detect PHP-FPM version socket (e.g. php8.3-fpm on Ubuntu 24.04)
 PHP_SOCK=$(ls -1 /run/php/php*-fpm.sock 2>/dev/null | head -n 1)

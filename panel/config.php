@@ -24,6 +24,9 @@ define('SESSION_TIMEOUT', 1800);
 // Each server has its own RCON credentials, port, and file paths.
 // You can add as many servers as you want!
 // -------------------------------------------------------------
+// Auto-detect default server root dir (e.g. parent of panel/ or /opt/gameland/server)
+$detectedServerDir = is_dir('/opt/gameland/server') ? '/opt/gameland/server' : dirname(__DIR__);
+
 $SERVERS = [
     'cs_main' => [
         'id'            => 'cs_main',
@@ -32,12 +35,13 @@ $SERVERS = [
         'port'          => 27015,
         'rcon_password' => 'GameLand@Rcon2026',
         'service_name'  => 'gameland.service',
-        'server_dir'    => '/opt/gameland/server',
-        'cstrike_dir'   => '/opt/gameland/server/cstrike',
-        'users_ini'     => '/opt/gameland/server/cstrike/addons/amxmodx/configs/users.ini',
-        'maps_ini'      => '/opt/gameland/server/cstrike/addons/amxmodx/configs/maps.ini',
-        'log_file'      => '/opt/gameland/server/logs/server.log',
+        'server_dir'    => $detectedServerDir,
+        'cstrike_dir'   => $detectedServerDir . '/cstrike',
+        'users_ini'     => $detectedServerDir . '/cstrike/addons/amxmodx/configs/users.ini',
+        'maps_ini'      => $detectedServerDir . '/cstrike/addons/amxmodx/configs/maps.ini',
+        'log_file'      => $detectedServerDir . '/logs/server.log',
     ],
+
     /*
     // Example for a 2nd server instance in the future:
     'cs_public' => [

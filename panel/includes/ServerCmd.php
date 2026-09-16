@@ -504,15 +504,31 @@ class ServerCmd {
      */
     public static function compilePlugins($serverInfo) {
         $scriptingDir = $serverInfo['cstrike_dir'] . '/addons/amxmodx/scripting';
-        $pluginsDir = $serverInfo['cstrike_dir'] . '/addons/amxmodx/plugins';
+        $pluginsDir   = $serverInfo['cstrike_dir'] . '/addons/amxmodx/plugins';
 
         if (!is_dir($scriptingDir)) {
-            return ['success' => false, 'message' => 'Scripting directory not found.'];
+            return ['success' => false, 'message' => 'Scripting directory not found: ' . $scriptingDir, 'output' => '', 'compiled_count' => 0];
         }
 
         $compiler = $scriptingDir . '/amxxpc';
-        @chmod($compiler, 0755);
-        @chmod($scriptingDir . '/amxxpc32.so', 0755);
+
+        // Ensure compiler is executable
+        if (file_exists($compiler)) {
+            @chmod($compiler, 0755);
+        } else {
+            return [
+                'success'        => false,
+                'compiled_count' => 0,
+                'output'         => '',
+                'message'        => 'Compiler not found: ' . $compiler . ". Make sure amxxpc binary exists in the scripting/ directory."
+            ];
+        }
+
+        // Also make shared library executable
+        foreach (['amxxpc32.so', 'amxxpc64.so'] as $lib) {
+            $libPath = $scriptingDir . '/' . $lib;
+            if (file_exists($libPath)) @chmod($libPath, 0755);
+        }
 
         $targets = [
             'mix_system.sma'            => 'mix_system.amxx',
@@ -521,60 +537,102 @@ class ServerCmd {
             'mix_database_stats.sma'    => 'mix_database_stats.amxx',
         ];
 
-        $output = '';
+        $output       = '';
         $compiledCount = 0;
+        $errorCount    = 0;
 
         foreach ($targets as $src => $bin) {
             $srcPath = $scriptingDir . '/' . $src;
-            if (file_exists($srcPath)) {
-                $cmd = "cd " . escapeshellarg($scriptingDir) . " && ./amxxpc " . escapeshellarg($src) . " -o" . escapeshellarg($pluginsDir . '/' . $bin) . " 2>&1";
-                $res = @shell_exec($cmd);
-                $output .= "=== Compiling {$src} ===\n" . trim((string)$res) . "\n\n";
+            $binPath = $pluginsDir   . '/' . $bin;
 
-                if (file_exists($pluginsDir . '/' . $bin)) {
-                    $compiledCount++;
-                }
+            if (!file_exists($srcPath)) {
+                $output .= "=== SKIP {$src} === (source file not found)\n\n";
+                continue;
+            }
+
+            // Build command: cd into scripting dir so includes resolve correctly
+            $cmd = "cd " . escapeshellarg($scriptingDir)
+                 . " && ./amxxpc " . escapeshellarg($src)
+                 . " -o" . escapeshellarg($binPath)
+                 . " 2>&1";
+
+            $res = @shell_exec($cmd);
+            $output .= "=== Compiling {$src} ===\n" . trim((string)$res) . "\n\n";
+
+            // Verify the .amxx was actually created and is non-zero
+            if (file_exists($binPath) && filesize($binPath) > 100) {
+                $compiledCount++;
+            } else {
+                $errorCount++;
             }
         }
 
-        $mainOk = file_exists($pluginsDir . '/mix_system.amxx');
+        $mainOk = file_exists($pluginsDir . '/mix_system.amxx')
+               && filesize($pluginsDir . '/mix_system.amxx') > 100;
 
-        // Ensure plugins are activated in plugins.ini if not present
+        // If main plugin compiled OK, register it in plugins.ini
         if ($mainOk) {
             self::ensureMixRegistered($serverInfo);
         }
 
+        if ($compiledCount === 0 && $errorCount === 0) {
+            $message = 'No .sma source files found to compile.';
+        } elseif ($mainOk) {
+            $message = "Compiled {$compiledCount} mix plugin(s) successfully!" . ($errorCount > 0 ? " ({$errorCount} had errors — check log)" : '');
+        } else {
+            $message = "Compilation failed. mix_system.amxx was not produced. Check compiler output below.";
+        }
+
         return [
-            'success' => $mainOk,
-            'output'  => trim($output),
+            'success'        => $mainOk,
+            'output'         => trim($output),
             'compiled_count' => $compiledCount,
-            'message' => $mainOk 
-                ? "Successfully compiled {$compiledCount} mix plugin binaries (.amxx)!" 
-                : 'Compilation finished with errors. Check the compiler log below.'
+            'message'        => $message
         ];
     }
 
     /**
-     * Ensure mix plugins are listed and active in plugins.ini
+     * Ensure mix plugins are listed and ENABLED in plugins.ini
      */
     public static function ensureMixRegistered($serverInfo) {
         $pluginsIni = $serverInfo['cstrike_dir'] . '/addons/amxmodx/configs/plugins.ini';
+        $pluginsDir = $serverInfo['cstrike_dir'] . '/addons/amxmodx/plugins';
+
         if (!file_exists($pluginsIni)) {
             return;
         }
 
-        $mixFiles = ['mix_system.amxx', 'mix_system_voice_chat.amxx', 'player_drop.amxx'];
-        $content = file_get_contents($pluginsIni);
+        // Only register files that actually exist as binaries
+        $mixFiles = [];
+        $candidates = [
+            'mix_system.amxx'            => 'AutoMix 5v5 System (main)',
+            'mix_system_voice_chat.amxx' => 'AutoMix Voice Chat',
+            'player_drop.amxx'           => 'AutoMix Player Drop Handler',
+            'mix_database_stats.amxx'    => 'AutoMix Database Stats',
+        ];
+        foreach ($candidates as $f => $desc) {
+            if (file_exists($pluginsDir . '/' . $f)) {
+                $mixFiles[$f] = $desc;
+            }
+        }
+
+        if (empty($mixFiles)) return;
+
+        $content  = file_get_contents($pluginsIni);
         $modified = false;
 
-        foreach ($mixFiles as $mf) {
-            if (preg_match('/^;\s*' . preg_quote($mf, '/') . '/m', $content)) {
-                // Uncomment if commented out
-                $content = preg_replace('/^;\s*' . preg_quote($mf, '/') . '(.*)$/m', $mf . '$1', $content);
+        foreach ($mixFiles as $mf => $desc) {
+            // If it exists but is commented out → uncomment it
+            if (preg_match('/^\s*;+\s*' . preg_quote($mf, '/') . '/m', $content)) {
+                $content  = preg_replace('/^\s*;+\s*(' . preg_quote($mf, '/') . '.*)$/m', '$1', $content);
                 $modified = true;
-            } elseif (!preg_match('/' . preg_quote($mf, '/') . '/', $content)) {
-                // Add to plugins.ini
-                $content .= "\n" . $mf . " ; AutoMix 5v5 System";
+            } elseif (!preg_match('/^\s*' . preg_quote($mf, '/') . '/m', $content)) {
+                // Not present at all → add it
+                // Ensure we have a section header
+                if (!str_contains($content, '; 5v5 AutoMix System')) {
+                    $content .= "\n; 5v5 AutoMix System\n";
+                }
+                $content .= $mf . " ; " . $desc . "\n";
                 $modified = true;
             }
         }

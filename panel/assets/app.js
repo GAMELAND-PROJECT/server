@@ -74,51 +74,27 @@ async function runRcon(cmd, promptMsg = '') {
     }
 }
 
-// High-level AutoMix Match Controls (Sends primary command + fallback commands)
+// High-level AutoMix Match Controls via dedicated mix_command API action
+// Uses correct AMX Mod X server-side commands (not say /cmd which requires a player)
 async function sendMixAction(actionType) {
-    let cmd = '';
-    let label = '';
-    switch (actionType) {
-        case 'start':
-            cmd = 'say /start';
-            label = 'Start Match (/start)';
-            break;
-        case 'knife':
-            cmd = 'say /knife';
-            label = 'Knife Round (/knife)';
-            break;
-        case 'warm':
-            cmd = 'say /warm';
-            label = 'Warmup (/warm)';
-            break;
-        case 'stop':
-            cmd = 'say /stop';
-            label = 'Stop Match (/stop)';
-            break;
-        case 'restart_round':
-            cmd = 'sv_restart 1';
-            label = 'Round Restart (sv_restart 1)';
-            break;
-        case 'overtime':
-            cmd = 'say /overtime';
-            label = 'Overtime (/overtime)';
-            break;
-        case 'pause':
-            cmd = 'say /pause';
-            label = 'Pause Match (/pause)';
-            break;
-        default:
-            cmd = actionType;
-            label = actionType;
-            break;
-    }
+    const labels = {
+        start:         'Start AutoMix (amx_mixa)',
+        stop:          'Stop Match (amx_mixstop)',
+        knife:         'Knife Round (amx_knife)',
+        warm:          'WarmUp (amx_warm)',
+        pause:         'Pause/Unpause (amx_pause)',
+        restart_round: 'Restart Round (sv_restart 1)',
+        stop_round:    'End Round Now (amx_mixstop)',
+    };
+    const label = labels[actionType] || actionType;
 
-    showToast('Triggering ' + label + '...', 'info', 1500);
-    const res = await postApi('rcon_command', { command: cmd });
+    showToast('⏳ Sending: ' + label + '...', 'info', 1500);
+    const res = await postApi('mix_command', { mix_action: actionType });
     if (res.success) {
-        showToast('✔ ' + label + ' executed successfully!', 'success');
+        const respTxt = res.response ? ' → ' + res.response : '';
+        showToast('✅ ' + label + ' sent!' + respTxt, 'success');
     } else {
-        showToast('✖ Failed: ' + res.message, 'error', 4500);
+        showToast('❌ RCON Error: ' + (res.message || 'Server offline or wrong RCON password'), 'error', 5000);
     }
 }
 
