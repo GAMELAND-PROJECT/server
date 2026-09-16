@@ -158,7 +158,7 @@ foreach ($plugins as $p) {
                     [<?php echo htmlspecialchars($gitStatus['sha']); ?>]
                     <?php
                     $msg2 = $gitStatus['message'];
-                    echo htmlspecialchars(mb_strlen($msg2)>55 ? mb_substr($msg2,0,52).'...' : $msg2);
+                    echo htmlspecialchars(strlen($msg2)>55 ? substr($msg2,0,52).'...' : $msg2);
                     ?>
                 </div>
                 <div style="font-size:0.77rem; color:var(--text-muted); margin-top:0.25rem;">
