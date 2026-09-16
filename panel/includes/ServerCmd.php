@@ -398,42 +398,77 @@ class ServerCmd {
     }
 
     /**
+     * Build a GitHub API HTTP context with optional auth token
+     */
+    private static function githubHttpContext($timeout = 8) {
+        $token = defined('GITHUB_TOKEN') ? GITHUB_TOKEN : '';
+        $headers = "User-Agent: GameLand-WebPanel/2.0\r\n"
+                 . "Accept: application/vnd.github.v3+json\r\n";
+        if (!empty($token)) {
+            $headers .= "Authorization: Bearer {$token}\r\n";
+        }
+        return stream_context_create([
+            'http' => [
+                'method'  => 'GET',
+                'header'  => $headers,
+                'timeout' => $timeout,
+                'ignore_errors' => true,
+            ]
+        ]);
+    }
+
+    /**
+     * Build a GitHub raw-content HTTP context (no JSON accept header needed)
+     */
+    private static function githubRawContext($timeout = 10) {
+        $token = defined('GITHUB_TOKEN') ? GITHUB_TOKEN : '';
+        $headers = "User-Agent: GameLand-WebPanel/2.0\r\n";
+        if (!empty($token)) {
+            $headers .= "Authorization: Bearer {$token}\r\n";
+        }
+        return stream_context_create([
+            'http' => [
+                'method'  => 'GET',
+                'header'  => $headers,
+                'timeout' => $timeout,
+                'ignore_errors' => true,
+            ]
+        ]);
+    }
+
+    /**
      * Get the latest commit information from the GitHub repository
      */
-    public static function getGitRepoStatus($repo = 'GAMELAND-PROJECT/MixSystem_SV_PL', $branch = 'main') {
-        $url = "https://api.github.com/repos/{$repo}/commits/{$branch}";
-        $opts = [
-            'http' => [
-                'method' => 'GET',
-                'header' => "User-Agent: GameLand-WebPanel/2.0\r\nAccept: application/vnd.github.v3+json\r\n",
-                'timeout' => 5
-            ]
-        ];
-        $context = stream_context_create($opts);
-        $res = @file_get_contents($url, false, $context);
-        if ($res === false) {
-            return null;
-        }
+    public static function getGitRepoStatus($repo = null, $branch = null) {
+        $repo   = $repo   ?? (defined('GITHUB_REPO')   ? GITHUB_REPO   : 'GAMELAND-PROJECT/MixSystem_SV_PL');
+        $branch = $branch ?? (defined('GITHUB_BRANCH') ? GITHUB_BRANCH : 'main');
+
+        $url  = "https://api.github.com/repos/{$repo}/commits/{$branch}";
+        $ctx  = self::githubHttpContext(6);
+        $res  = @file_get_contents($url, false, $ctx);
+        if ($res === false) return null;
 
         $data = json_decode($res, true);
-        if (!$data || !isset($data['sha'])) {
-            return null;
-        }
+        if (!$data || !isset($data['sha'])) return null;
 
         return [
-            'sha'        => substr($data['sha'], 0, 7),
-            'full_sha'   => $data['sha'],
-            'message'    => $data['commit']['message'] ?? '',
-            'author'     => $data['commit']['author']['name'] ?? '',
-            'date'       => $data['commit']['author']['date'] ?? '',
+            'sha'      => substr($data['sha'], 0, 7),
+            'full_sha' => $data['sha'],
+            'message'  => $data['commit']['message'] ?? '',
+            'author'   => $data['commit']['author']['name'] ?? '',
+            'date'     => $data['commit']['author']['date'] ?? '',
         ];
     }
 
     /**
-     * Download the latest files from GitHub repo and update server files
+     * Download the latest source files from GitHub repo and update server files
+     * Downloads .sma sources + configs + lang files.
+     * Does NOT download .amxx (they are gitignored and must be compiled).
      */
     public static function syncMixFromGitHub($serverInfo) {
-        $baseUrl = 'https://raw.githubusercontent.com/GAMELAND-PROJECT/MixSystem_SV_PL/main/';
+        $repo    = defined('GITHUB_REPO')   ? GITHUB_REPO   : 'GAMELAND-PROJECT/MixSystem_SV_PL';
+        $branch  = defined('GITHUB_BRANCH') ? GITHUB_BRANCH : 'main';
+        $baseUrl = "https://raw.githubusercontent.com/{$repo}/{$branch}/";
         $cstrike = $serverInfo['cstrike_dir'];
 
         // File mapping: GitHub relative path => local destination relative to cstrike
@@ -451,51 +486,48 @@ class ServerCmd {
         ];
 
         $updatedFiles = [];
-        $failedFiles = [];
-
-        $opts = [
-            'http' => [
-                'method' => 'GET',
-                'header' => "User-Agent: GameLand-WebPanel/2.0\r\n",
-                'timeout' => 10
-            ]
-        ];
-        $context = stream_context_create($opts);
+        $failedFiles  = [];
+        $context      = self::githubRawContext(12);
 
         foreach ($fileMap as $remotePath => $localRelPath) {
             $destFile = $cstrike . '/' . $localRelPath;
-            $destDir = dirname($destFile);
+            $destDir  = dirname($destFile);
             if (!is_dir($destDir)) {
                 @mkdir($destDir, 0775, true);
             }
 
-            $content = @file_get_contents($baseUrl . $remotePath, false, $context);
-            if ($content !== false && strlen($content) > 0) {
+            $url     = $baseUrl . $remotePath;
+            $content = @file_get_contents($url, false, $context);
+
+            if ($content !== false && strlen($content) > 10) {
                 if (@file_put_contents($destFile, $content) !== false) {
                     $updatedFiles[] = basename($destFile);
                 } else {
-                    $failedFiles[] = basename($destFile) . ' (write permission error)';
+                    $failedFiles[] = basename($destFile) . ' (write error — check permissions)';
                 }
             } else {
-                $failedFiles[] = basename($destFile) . ' (download failed)';
+                $failedFiles[] = basename($destFile) . ' (download failed from ' . $url . ')';
             }
         }
 
-        // Save last sync metadata
+        // Save last sync metadata (commit SHA + time + file list)
         $commit = self::getGitRepoStatus();
-        if ($commit) {
-            @file_put_contents($cstrike . '/addons/amxmodx/configs/.mix_last_sync.json', json_encode([
-                'commit' => $commit,
-                'sync_time' => date('Y-m-d H:i:s'),
-                'files' => $updatedFiles
-            ], JSON_PRETTY_PRINT));
-        }
+        $syncMeta = [
+            'commit'    => $commit,
+            'sync_time' => date('Y-m-d H:i:s'),
+            'files'     => $updatedFiles,
+            'failed'    => $failedFiles,
+        ];
+        @file_put_contents(
+            $cstrike . '/addons/amxmodx/configs/.mix_last_sync.json',
+            json_encode($syncMeta, JSON_PRETTY_PRINT)
+        );
 
         return [
             'success' => count($updatedFiles) > 0,
             'updated' => $updatedFiles,
             'failed'  => $failedFiles,
-            'commit'  => $commit
+            'commit'  => $commit,
         ];
     }
 
@@ -551,9 +583,13 @@ class ServerCmd {
             }
 
             // Build command: cd into scripting dir so includes resolve correctly
+            // IMPORTANT: -i"include" is required for reapi.inc and mix_system.inc to be found
+            $includeDir = escapeshellarg($scriptingDir . '/include');
             $cmd = "cd " . escapeshellarg($scriptingDir)
                  . " && ./amxxpc " . escapeshellarg($src)
                  . " -o" . escapeshellarg($binPath)
+                 . " -i\"include\""
+                 . " -i" . $includeDir
                  . " 2>&1";
 
             $res = @shell_exec($cmd);

@@ -236,6 +236,99 @@ switch ($action) {
         echo json_encode(['success' => true, 'builds' => $statusList]);
         break;
 
+    // ─── Full Build Pipeline Diagnostic ──────────────────────────────────────
+    case 'diagnose_build':
+        $scriptingDir = $activeServer['cstrike_dir'] . '/addons/amxmodx/scripting';
+        $pluginsDir   = $activeServer['cstrike_dir'] . '/addons/amxmodx/plugins';
+        $includeDir   = $scriptingDir . '/include';
+        $compiler     = $scriptingDir . '/amxxpc';
+
+        $diag = [];
+
+        // 1. Compiler binary
+        $compilerExists = file_exists($compiler);
+        $diag[] = ['check' => 'Compiler (amxxpc) exists', 'ok' => $compilerExists, 'detail' => $compiler];
+
+        if ($compilerExists) {
+            // Make executable
+            @chmod($compiler, 0755);
+            foreach (['amxxpc32.so', 'amxxpc64.so'] as $lib) {
+                if (file_exists($scriptingDir.'/'.$lib)) @chmod($scriptingDir.'/'.$lib, 0755);
+            }
+
+            // Test compiler version
+            $verOut = @shell_exec('cd ' . escapeshellarg($scriptingDir) . ' && ./amxxpc --version 2>&1');
+            $diag[] = ['check' => 'Compiler --version test', 'ok' => !empty($verOut), 'detail' => trim((string)$verOut)];
+        }
+
+        // 2. Include directory
+        $diag[] = ['check' => 'Include dir exists', 'ok' => is_dir($includeDir), 'detail' => $includeDir];
+
+        // Key includes
+        foreach (['reapi.inc', 'mix_system.inc', 'cstrike.inc', 'amxmodx.inc'] as $inc) {
+            $incPath = $includeDir . '/' . $inc;
+            // Also check default amxmodx include path
+            $sysIncPath = $scriptingDir . '/../include/' . $inc;
+            $found = file_exists($incPath) || file_exists($sysIncPath);
+            $diag[] = [
+                'check'  => "Include: {$inc}",
+                'ok'     => $found,
+                'detail' => $found ? ($incPath) : 'NOT FOUND in ' . $includeDir,
+            ];
+        }
+
+        // 3. Source files
+        $srcFiles = ['mix_system.sma', 'mix_system_voice_chat.sma', 'player_drop.sma', 'mix_database_stats.sma'];
+        foreach ($srcFiles as $sma) {
+            $p = $scriptingDir . '/' . $sma;
+            $exists = file_exists($p);
+            $diag[] = [
+                'check'  => "Source: {$sma}",
+                'ok'     => $exists,
+                'detail' => $exists ? date('Y-m-d H:i:s', filemtime($p)) . ' (' . number_format(filesize($p)) . ' bytes)' : 'MISSING',
+            ];
+        }
+
+        // 4. Binary status
+        $binFiles = ['mix_system.amxx', 'mix_system_voice_chat.amxx', 'player_drop.amxx', 'mix_database_stats.amxx'];
+        foreach ($binFiles as $amxx) {
+            $p = $pluginsDir . '/' . $amxx;
+            $exists = file_exists($p) && filesize($p) > 100;
+            $diag[] = [
+                'check'  => "Binary: {$amxx}",
+                'ok'     => $exists,
+                'detail' => $exists ? date('Y-m-d H:i:s', filemtime($p)) . ' (' . number_format(filesize($p)) . ' bytes)' : 'MISSING or empty',
+            ];
+        }
+
+        // 5. plugins.ini check
+        $pluginsIni = $activeServer['cstrike_dir'] . '/addons/amxmodx/configs/plugins.ini';
+        $iniContent = file_exists($pluginsIni) ? file_get_contents($pluginsIni) : '';
+        $mixRegistered = str_contains($iniContent, 'mix_system.amxx') && !preg_match('/^\s*;+\s*mix_system\.amxx/m', $iniContent);
+        $diag[] = ['check' => 'mix_system.amxx in plugins.ini (enabled)', 'ok' => $mixRegistered, 'detail' => $pluginsIni];
+
+        // 6. Try a real test compile of mix_system.sma
+        $testOut = '';
+        if ($compilerExists && file_exists($scriptingDir . '/mix_system.sma')) {
+            $testBin  = $pluginsDir . '/mix_system.amxx';
+            $incArg   = escapeshellarg($includeDir);
+            $testCmd  = 'cd ' . escapeshellarg($scriptingDir)
+                      . ' && ./amxxpc mix_system.sma'
+                      . ' -o' . escapeshellarg($testBin)
+                      . ' -i"include" -i' . $incArg
+                      . ' 2>&1';
+            $testOut  = @shell_exec($testCmd);
+            $compiled = file_exists($testBin) && filesize($testBin) > 100;
+            $diag[]   = [
+                'check'  => 'LIVE TEST: Compile mix_system.sma',
+                'ok'     => $compiled,
+                'detail' => trim((string)$testOut),
+            ];
+        }
+
+        echo json_encode(['success' => true, 'diagnostics' => $diag]);
+        break;
+
     default:
         echo json_encode(['success' => false, 'message' => 'Invalid action']);
         break;

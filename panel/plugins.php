@@ -277,8 +277,94 @@ foreach ($plugins as $p) {
                 🔨 Compile Only
             </button>
         </form>
+
+        <!-- Build Diagnostic -->
+        <button onclick="runBuildDiagnostic()" class="btn btn-secondary"
+                style="padding:0.8rem 1.2rem; border-color:#8b5cf6; color:#a78bfa;"
+                title="Run full build pipeline check: compiler, includes, source files, binaries">
+            🔍 Build Diagnostic
+        </button>
     </div>
 </div>
+
+
+<!-- ══════════════════════════════════════════════════════
+     BUILD PIPELINE DIAGNOSTIC MODAL
+═══════════════════════════════════════════════════════════ -->
+<div id="diagModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:9999; justify-content:center; align-items:center; padding:1rem;">
+    <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; max-width:700px; width:100%; max-height:85vh; overflow-y:auto; padding:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
+            <h2 style="font-size:1.1rem; font-weight:700;">🔍 Build Pipeline Diagnostic</h2>
+            <button onclick="document.getElementById('diagModal').style.display='none'" class="btn btn-secondary btn-sm">✕ Close</button>
+        </div>
+        <div id="diagLoading" style="text-align:center; padding:2rem; color:var(--text-muted);">⏳ Running diagnostics...</div>
+        <div id="diagResults" style="display:none;"></div>
+    </div>
+</div>
+
+<script>
+function runBuildDiagnostic() {
+    const modal   = document.getElementById('diagModal');
+    const loading = document.getElementById('diagLoading');
+    const results = document.getElementById('diagResults');
+
+    modal.style.display   = 'flex';
+    loading.style.display = 'block';
+    results.style.display = 'none';
+    results.innerHTML     = '';
+
+    const fd = new FormData();
+    fd.append('csrf_token', window.CSRF_TOKEN);
+    fd.append('action', 'diagnose_build');
+
+    fetch('api.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            loading.style.display = 'none';
+            results.style.display = 'block';
+
+            if (!data.success) {
+                results.innerHTML = '<div style="color:var(--danger);">❌ Diagnostic failed: ' + escHtml(data.message || 'Unknown error') + '</div>';
+                return;
+            }
+
+            let html = '<table style="width:100%; border-collapse:collapse;">';
+            html += '<thead><tr>';
+            html += '<th style="text-align:left; padding:0.5rem 0.75rem; border-bottom:1px solid var(--border-color); font-size:0.8rem; color:var(--text-muted);">Check</th>';
+            html += '<th style="width:70px; text-align:center; padding:0.5rem 0.75rem; border-bottom:1px solid var(--border-color); font-size:0.8rem; color:var(--text-muted);">Status</th>';
+            html += '<th style="text-align:left; padding:0.5rem 0.75rem; border-bottom:1px solid var(--border-color); font-size:0.8rem; color:var(--text-muted);">Detail</th>';
+            html += '</tr></thead><tbody>';
+
+            data.diagnostics.forEach(d => {
+                const icon = d.ok ? '✅' : '❌';
+                const rowBg = d.ok ? '' : 'background:rgba(239,68,68,0.07);';
+                const detailColor = d.ok ? 'color:var(--text-muted)' : 'color:var(--danger); font-weight:600';
+                html += `<tr style="${rowBg}">`;
+                html += `<td style="padding:0.5rem 0.75rem; font-size:0.85rem; border-bottom:1px solid rgba(255,255,255,0.04);">${escHtml(d.check)}</td>`;
+                html += `<td style="text-align:center; padding:0.5rem 0.75rem; font-size:1rem; border-bottom:1px solid rgba(255,255,255,0.04);">${icon}</td>`;
+                html += `<td style="padding:0.5rem 0.75rem; font-size:0.78rem; font-family:var(--font-mono); ${detailColor}; border-bottom:1px solid rgba(255,255,255,0.04); max-width:300px; overflow-wrap:break-word; white-space:pre-wrap;">${escHtml(d.detail || '')}</td>`;
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+
+            const failCount = data.diagnostics.filter(d => !d.ok).length;
+            const summary = failCount === 0
+                ? '<div style="margin-top:1rem; padding:0.75rem; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); border-radius:8px; color:var(--success); font-weight:600;">✅ All checks passed! If the server still runs old code, make sure you restarted the service (not just sv_restart).</div>'
+                : `<div style="margin-top:1rem; padding:0.75rem; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.4); border-radius:8px; color:var(--danger); font-weight:600;">❌ ${failCount} check(s) failed. Fix the issues above then retry compiling.</div>`;
+
+            results.innerHTML = html + summary;
+        })
+        .catch(e => {
+            loading.style.display = 'none';
+            results.style.display = 'block';
+            results.innerHTML = '<div style="color:var(--danger);">❌ Network error: ' + e.message + '</div>';
+        });
+}
+
+function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
 
 
 <!-- ══════════════════════════════════════════════════════

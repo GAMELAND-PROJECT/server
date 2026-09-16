@@ -20,6 +20,20 @@ define('PANEL_PASS', 'changeme123'); // Change this to your preferred password!
 define('SESSION_TIMEOUT', 1800);
 
 // -------------------------------------------------------------
+// GitHub Integration (for AutoMix plugin auto-deploy)
+// Set your GitHub Personal Access Token here to enable:
+//   - Triggering GitHub Actions builds remotely
+//   - Downloading pre-built .amxx artifacts (recommended!)
+//   - No need for local compilation
+// Create token at: https://github.com/settings/tokens
+// Required scope: repo (or just actions:read for public repos)
+// Leave empty to use local amxxpc compiler instead.
+// -------------------------------------------------------------
+define('GITHUB_TOKEN', '');  // e.g. 'ghp_xxxxxxxxxxxx'
+define('GITHUB_REPO', 'GAMELAND-PROJECT/MixSystem_SV_PL');
+define('GITHUB_BRANCH', 'main');
+
+// -------------------------------------------------------------
 // Multi-Server Instances List
 // Each server has its own RCON credentials, port, and file paths.
 // You can add as many servers as you want!
