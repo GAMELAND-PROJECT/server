@@ -14,11 +14,8 @@ MAX_PLAYERS="12"
 MAP="de_dust2"
 # ────────────────────────────────────────────────────────
 
-# آی‌پی رو از سیستم می‌خونه
-SERVER_IP=$(hostname -I | awk '{print $1}')
-if [ -z "$SERVER_IP" ]; then
-    SERVER_IP="0.0.0.0"
-fi
+# آی‌پی رو به صورت پیش‌فرض 0.0.0.0 می‌ذاریم تا روی همه کارت شبکه‌ها (از جمله لوکال هاست برای HLTV) لیسن کنه
+SERVER_IP="0.0.0.0"
 
 # مسیر SteamCMD (توسط install.sh نصب میشه)
 STEAMCMD_LINUX32="/opt/steamcmd/linux32"
