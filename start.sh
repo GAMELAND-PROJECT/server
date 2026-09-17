@@ -36,6 +36,11 @@ if tmux has-session -t gameland_server 2>/dev/null; then
     sleep 1
 fi
 
+# کشتن session های قبلی HLTV و compressor
+screen -X -S gameland_hltv quit 2>/dev/null || true
+screen -X -S demo_compressor quit 2>/dev/null || true
+
+
 # آزاد کردن پورت اگر هنوز در حال استفاده باشه
 if command -v fuser >/dev/null 2>&1; then
     fuser -k "${SERVER_PORT}/udp" 2>/dev/null || true
@@ -74,7 +79,16 @@ if [ -n "$tmux_pid" ]; then
     echo "[*] PID $tmux_pid saved to gameland.pid"
 fi
 
+# راه‌اندازی اتوماتیک HLTV و فشرده‌ساز دمو
+echo "[*] Initializing HLTV Proxy and Demo Compressor..."
+sleep 2
+/bin/bash "${SCRIPT_DIR}/start_hltv.sh"
+screen -X -S demo_compressor quit 2>/dev/null || true
+screen -A -m -d -S demo_compressor /bin/bash "${SCRIPT_DIR}/compress_demos.sh"
+echo "[*] HLTV and Demo Compressor successfully launched!"
+
 echo "[SUCCESS] Server started in tmux session 'gameland_server'!"
 echo "-> Live console : tmux attach -t gameland_server"
 echo "-> Detach       : Ctrl+B then D"
 echo "-> Logs         : tail -f ${LOG_FILE}"
+
