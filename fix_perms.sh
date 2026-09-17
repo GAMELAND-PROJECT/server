@@ -3,10 +3,15 @@
 # Fix Permissions Script for GameLand Server
 # =========================================================
 
-echo "🔧 Fixing permissions for server binaries and scripts..."
+echo "🔧 Fixing permissions for server binaries, demo folders and scripts..."
 
-# Define project directory
-PROJECT_ROOT="/opt/gameland/server"
+PROJECT_ROOT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+
+# 0. Ensure zip and unzip tools are installed for demo compression
+if ! command -v zip >/dev/null 2>&1; then
+    echo "[*] Installing zip/unzip..."
+    apt-get update -qq && apt-get install -y -qq zip unzip 2>/dev/null || true
+fi
 
 # 1. Give execution permission to the main HLDS binaries
 if [ -f "$PROJECT_ROOT/hlds_linux" ]; then
@@ -35,8 +40,13 @@ if [ -f "/usr/local/bin/SVGL" ]; then
     echo "✅ Fixed: /usr/local/bin/SVGL"
 fi
 
-# 5. Fix write permissions so the Web Panel (PHP) can download and update files
+# 5. Fix permissions for Web Panel, Demos and AMXX folders
+mkdir -p "$PROJECT_ROOT/panel/demos"
+chmod -R 777 "$PROJECT_ROOT/panel/demos" 2>/dev/null
+chmod 777 "$PROJECT_ROOT/cstrike" 2>/dev/null
 chmod -R 777 "$PROJECT_ROOT/cstrike/addons/amxmodx" 2>/dev/null
-echo "✅ Fixed: Web Panel write permissions for amxmodx folder"
+touch "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
+chmod 666 "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
+echo "✅ Fixed: Web Panel & Demos write permissions"
 
 echo "🎉 All permissions have been successfully fixed!"

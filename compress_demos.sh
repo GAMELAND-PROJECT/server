@@ -1,6 +1,6 @@
 #!/bin/bash
 # =========================================================
-# GameLand CS 1.6 - Ultra Smart HLTV Demo Compressor
+# GameLand CS 1.6 - Ultra Smart HLTV Demo Controller & Compressor
 # =========================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
@@ -8,73 +8,145 @@ SERVER_DIR="$SCRIPT_DIR"
 CSTRIKE_DIR="$SERVER_DIR/cstrike"
 PANEL_DIR="$SERVER_DIR/panel/demos"
 QUEUE_FILE="$CSTRIKE_DIR/ready_to_compress.txt"
+LOG_FILE="$SERVER_DIR/hltv_controller.log"
 
-# Ensure output directory exists with full permissions
 mkdir -p "$PANEL_DIR"
 chmod 777 "$PANEL_DIR" 2>/dev/null || true
+touch "$LOG_FILE"
+chmod 666 "$LOG_FILE" 2>/dev/null || true
+
+log_msg() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
 
 compress_demo_file() {
     local src_file="$1"
+    [ -f "$src_file" ] || return
     local base_name="$(basename "$src_file" .dem)"
     local zip_file="$PANEL_DIR/${base_name}.zip"
 
-    # Make sure the file is not currently being written by checking size stability
-    local size1=$(stat -c%s "$src_file" 2>/dev/null || echo 0)
-    sleep 2
-    local size2=$(stat -c%s "$src_file" 2>/dev/null || echo 0)
-    if [ "$size1" -ne "$size2" ] || [ "$size2" -eq 0 ]; then
-        echo "[WAIT] File $src_file is still being written or empty. Skipping for now."
+    # Already compressed in panel? Clean up raw source
+    if [ -f "$zip_file" ]; then
+        rm -f "$src_file"
         return
     fi
 
-    echo "[COMPRESS] Processing: $base_name.dem ($(numfmt --to=iec-i --suffix=B "$size2" 2>/dev/null || echo "${size2} bytes"))"
-    
+    # Don't touch if recording marker exists (match/record in progress)
+    if [ -f "$CSTRIKE_DIR/hltv_recording.txt" ]; then
+        return
+    fi
+
+    # Check if any process has file open
+    if command -v fuser >/dev/null 2>&1; then
+        if fuser "$src_file" >/dev/null 2>&1; then
+            return
+        fi
+    fi
+
+    # Check size stability over 2 seconds
+    local size1=$(stat -c%s "$src_file" 2>/dev/null || echo 0)
+    if [ "$size1" -le 0 ]; then
+        return
+    fi
+    sleep 2
+    local size2=$(stat -c%s "$src_file" 2>/dev/null || echo 0)
+    if [ "$size1" -ne "$size2" ] || [ "$size2" -le 0 ]; then
+        return
+    fi
+
+    log_msg "[COMPRESS] Processing finished demo: ${base_name}.dem ($(numfmt --to=iec-i --suffix=B "$size2" 2>/dev/null || echo "${size2} bytes"))"
+
+    mkdir -p "$PANEL_DIR"
+    chmod 777 "$PANEL_DIR" 2>/dev/null || true
+
     if command -v zip >/dev/null 2>&1; then
         zip -j -9 "$zip_file" "$src_file" >/dev/null 2>&1
         if [ $? -eq 0 ] && [ -f "$zip_file" ]; then
-            echo "[SUCCESS] Compressed to $zip_file"
+            log_msg "[SUCCESS] Demo compressed to $zip_file"
             rm -f "$src_file"
             chmod 666 "$zip_file" 2>/dev/null || true
         else
-            echo "[FALLBACK] zip failed, moving raw .dem directly to panel..."
+            log_msg "[FALLBACK] zip failed, moving raw .dem directly to panel..."
             mv "$src_file" "$PANEL_DIR/${base_name}.dem"
             chmod 666 "$PANEL_DIR/${base_name}.dem" 2>/dev/null || true
         fi
     else
-        echo "[NOTICE] 'zip' not found. Moving raw .dem directly to panel..."
+        log_msg "[NOTICE] 'zip' command not found, moving raw .dem to panel..."
         mv "$src_file" "$PANEL_DIR/${base_name}.dem"
         chmod 666 "$PANEL_DIR/${base_name}.dem" 2>/dev/null || true
     fi
 }
 
-echo "[*] Demo Compressor service started..."
-
-while true; do
-    # 1. Process explicit queue file
-    if [ -f "$QUEUE_FILE" ]; then
-        while IFS= read -r demo_name; do
-            demo_name="$(echo "$demo_name" | tr -d '\r\n ')"
-            if [ -n "$demo_name" ]; then
-                # Search in cstrike then root
-                if [ -f "$CSTRIKE_DIR/${demo_name}.dem" ]; then
-                    compress_demo_file "$CSTRIKE_DIR/${demo_name}.dem"
-                elif [ -f "$SERVER_DIR/${demo_name}.dem" ]; then
-                    compress_demo_file "$SERVER_DIR/${demo_name}.dem"
-                fi
-            fi
-        done < "$QUEUE_FILE"
-        > "$QUEUE_FILE"
-    fi
-
-    # 2. Autonomous sweep: check for any finished GL_*.dem in root or cstrike older than 10 seconds
-    for d in "$SERVER_DIR" "$CSTRIKE_DIR"; do
-        for f in "$d"/GL_*.dem; do
+sweep_demos() {
+    for d in "$CSTRIKE_DIR" "$SERVER_DIR"; do
+        for f in "$d"/GL_*.dem "$d"/gl_*.dem; do
             if [ -f "$f" ]; then
                 compress_demo_file "$f"
             fi
         done
     done
+}
 
-    sleep 5
+# Single run flag (useful for web panel sync)
+if [ "$1" = "--once" ]; then
+    sweep_demos
+    exit 0
+fi
+
+# Ensure only one background daemon runs
+PID_FILE="/tmp/gameland_compressor.pid"
+if [ -f "$PID_FILE" ]; then
+    OLD_PID=$(cat "$PID_FILE" 2>/dev/null)
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        echo "[*] Demo compressor daemon is already running (PID $OLD_PID)."
+        exit 0
+    fi
+fi
+echo $$ > "$PID_FILE"
+trap 'rm -f "$PID_FILE"' EXIT
+
+log_msg "[*] HLTV Demo Controller & Compressor daemon started successfully."
+
+LOOP_COUNT=0
+
+while true; do
+    LOOP_COUNT=$((LOOP_COUNT + 1))
+
+    # 0. Dispatch any pending commands to HLTV screen session
+    for cmd_file in "$CSTRIKE_DIR/hltv_cmd.txt" "$SERVER_DIR/hltv_cmd.txt"; do
+        if [ -f "$cmd_file" ]; then
+            CMD=$(head -n 1 "$cmd_file" | tr -d '\r\n')
+            rm -f "$cmd_file"
+            if [ -n "$CMD" ]; then
+                log_msg "[DISPATCH] Sending command to HLTV screen: '$CMD'"
+                if [ "$CMD" = "stop" ] || [ "$CMD" = "stoprecording" ]; then
+                    screen -S gameland_hltv -X stuff "stoprecording$(printf '\r')"
+                    screen -S gameland_hltv -X stuff "stop$(printf '\r')"
+                else
+                    screen -S gameland_hltv -X stuff "${CMD}$(printf '\r')"
+                fi
+            fi
+        fi
+    done
+
+    # 1. Check queue file
+    if [ -f "$QUEUE_FILE" ]; then
+        rm -f "$QUEUE_FILE"
+        sweep_demos
+    fi
+
+    # 2. Sweep for any completed demos every 5 iterations (~5s)
+    if [ $((LOOP_COUNT % 5)) -eq 0 ]; then
+        sweep_demos
+    fi
+
+    # 3. Check if HLTV screen session is alive every 15 iterations (~15s)
+    if [ $((LOOP_COUNT % 15)) -eq 0 ]; then
+        if ! screen -list | grep -q "gameland_hltv"; then
+            log_msg "[WATCHDOG] HLTV session 'gameland_hltv' died! Restarting..."
+            /bin/bash "$SERVER_DIR/start_hltv.sh" >/dev/null 2>&1
+        fi
+    fi
+
+    sleep 1
 done
-

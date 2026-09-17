@@ -13,3 +13,7 @@ screen -X -S gameland_hltv quit 2>/dev/null || true
 screen -A -m -d -S gameland_hltv ./hltv -port 27020 +connect 127.0.0.1:27015 +exec cstrike/hltv.cfg
 echo "[SUCCESS] HLTV started in screen session 'gameland_hltv'."
 
+# Also start/restart demo compressor daemon
+screen -X -S demo_compressor quit 2>/dev/null || true
+screen -A -m -d -S demo_compressor /bin/bash "${SCRIPT_DIR}/compress_demos.sh"
+echo "[SUCCESS] Demo compressor started in screen session 'demo_compressor'."
