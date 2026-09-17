@@ -35,4 +35,8 @@ if [ -f "/usr/local/bin/SVGL" ]; then
     echo "✅ Fixed: /usr/local/bin/SVGL"
 fi
 
+# 5. Fix write permissions so the Web Panel (PHP) can download and update files
+chmod -R 777 "$PROJECT_ROOT/cstrike/addons/amxmodx" 2>/dev/null
+echo "✅ Fixed: Web Panel write permissions for amxmodx folder"
+
 echo "🎉 All permissions have been successfully fixed!"
