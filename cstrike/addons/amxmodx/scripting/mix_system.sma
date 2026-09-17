@@ -1347,21 +1347,7 @@ public clcmd_startmix(id, bool:bKnife)
 				client_print_color(iPlayer, iPlayer, "^4%s %L", g_ePluginSettings[szPrefix], LANG_SERVER, "MIX_STARTED_BY_X", g_szName[g_eInformations[MIX_STARTER]])
 			}
 
-			if(g_eDemoSettings[iDemoAuto])
-			{
-				switch(g_eDemoSettings[iDemoType])
-				{
-					case DEMO_MAPNAME:
-					{
-						client_cmd(iPlayer, "record ^"%s_%i_%i_%i^"", szMapName, iDate[iYear], iDate[iMonth], iDate[iDay])
-					}
-					case DEMO_CUSTOM_NAME:
-					{
-						client_cmd(iPlayer, "record ^"%s_%s^"", g_eDemoSettings[szDemoName], szMapName)
-					}
-				}
-				client_print_color(iPlayer, iPlayer, "^4%s %L", g_ePluginSettings[szPrefix], LANG_PLAYER, "DEMO_STARTED_ON_YOU")
-			}
+			// Client POV demo recording disabled - HLTV records the match centrally on the server
 			
 			iTeam = cs_get_user_team(iPlayer)
 
@@ -1459,8 +1445,6 @@ public clcmd_stopmix(id)
 		if(iTeam == CS_TEAM_CT || iTeam == CS_TEAM_T)
 		{
 					}
-
-		client_cmd(iPlayer, "stop")
 
 			}
 
@@ -2547,7 +2531,7 @@ public task_show_score()
 			client_print_color(iPlayer, iPlayer, "^4%s %L", g_ePluginSettings[szPrefix], LANG_SERVER, "MIX_WON_BY_X_TEAM", szTemp)
 			client_print_color(iPlayer, iPlayer, "^4%s %L", g_ePluginSettings[szPrefix], LANG_PLAYER, "MIX_END_SCORE", LANG_SERVER, "CT_TEAM", g_iScore[CT_SCORE], LANG_SERVER, "TERO_TEAM", g_iScore[TERO_SCORE])
 		
-			client_cmd(iPlayer, "stop")
+			// client_cmd(iPlayer, "stop") - client recording disabled
 		}
 
 		if(g_eOvertime[FirstOvertime] && !IsHalf() && !OvertimeFinished())
@@ -2579,7 +2563,7 @@ public task_show_score()
 			client_print_color(iPlayer, iPlayer, "^4%s %L", g_ePluginSettings[szPrefix], LANG_SERVER, "MIX_WON_BY_X_TEAM_IN_OVERTIME", szTemp)
 			client_print_color(iPlayer, iPlayer, "^4%s %L", g_ePluginSettings[szPrefix], LANG_PLAYER, "MIX_OVERTIME_END_SCORE", LANG_SERVER, "CT_TEAM", g_iOvertimeScore[CT_OVER_SCORE], LANG_SERVER, "TERO_TEAM", g_iOvertimeScore[TERO_OVER_SCORE])
 		
-			client_cmd(iPlayer, "stop")
+			// client_cmd(iPlayer, "stop") - client recording disabled
 		}
 
 		g_iPlayerKills[iPlayer] = 0
