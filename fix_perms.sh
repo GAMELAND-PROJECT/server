@@ -30,8 +30,13 @@ if [ -f "$PROJECT_ROOT/hltv" ]; then
     echo "✅ Fixed: hltv"
 fi
 
-# 3. Give execution permission to all bash scripts
+# 3. Give execution permission to all bash scripts and AMXX compiler
 chmod +x "$PROJECT_ROOT"/*.sh
+if [ -f "$PROJECT_ROOT/cstrike/addons/amxmodx/scripting/amxxpc" ]; then
+    chmod +x "$PROJECT_ROOT/cstrike/addons/amxmodx/scripting/amxxpc"
+    chmod +x "$PROJECT_ROOT/cstrike/addons/amxmodx/scripting/compile.sh" 2>/dev/null || true
+    echo "✅ Fixed: amxxpc compiler"
+fi
 echo "✅ Fixed: All .sh scripts in $PROJECT_ROOT"
 
 # 4. Give execution permission to the global SVGL command if it exists
