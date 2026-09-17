@@ -23,6 +23,23 @@ if (isset($_GET['sync'])) {
     }
 }
 
+// Handle delete request
+$deleteMessage = '';
+$deleteError = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_demo'])) {
+    $demoToDelete = basename($_POST['delete_demo']); // basename for security
+    $demoPath = $demosDir . $demoToDelete;
+    if (file_exists($demoPath) && is_file($demoPath)) {
+        if (@unlink($demoPath)) {
+            $deleteMessage = htmlspecialchars($demoToDelete) . ' was successfully deleted.';
+        } else {
+            $deleteError = 'Failed to delete ' . htmlspecialchars($demoToDelete) . '.';
+        }
+    } else {
+        $deleteError = 'File not found or invalid.';
+    }
+}
+
 // Check live recording status
 $isRecording = false;
 $activeDemoName = '';
@@ -80,6 +97,20 @@ usort($demos, function($a, $b) {
 <?php if ($syncMessage): ?>
 <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
     <i class="fas fa-check-circle me-2"></i> <?= htmlspecialchars($syncMessage) ?>
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+<?php endif; ?>
+
+<?php if ($deleteMessage): ?>
+<div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
+    <i class="fas fa-trash-alt me-2"></i> <?= $deleteMessage ?>
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+<?php endif; ?>
+
+<?php if ($deleteError): ?>
+<div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+    <i class="fas fa-exclamation-triangle me-2"></i> <?= $deleteError ?>
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
 </div>
 <?php endif; ?>
@@ -167,9 +198,17 @@ usort($demos, function($a, $b) {
                                     <td><span class="badge bg-dark"><?= $demo['size'] ?></span></td>
                                     <td><small class="text-muted"><?= $demo['time'] ?></small></td>
                                     <td>
-                                        <a href="demos/<?= urlencode($demo['name']) ?>" class="btn btn-sm btn-success shadow-sm px-3" download>
-                                            <i class="fas fa-download me-1"></i> Download
-                                        </a>
+                                        <div class="d-flex justify-content-center gap-2">
+                                            <a href="demos/<?= urlencode($demo['name']) ?>" class="btn btn-sm btn-success shadow-sm px-3" download>
+                                                <i class="fas fa-download me-1"></i> Download
+                                            </a>
+                                            <form method="post" action="demos.php" onsubmit="return confirm('Are you sure you want to delete this demo?');" class="d-inline m-0">
+                                                <input type="hidden" name="delete_demo" value="<?= htmlspecialchars($demo['name']) ?>">
+                                                <button type="submit" class="btn btn-sm btn-danger shadow-sm px-3">
+                                                    <i class="fas fa-trash-alt me-1"></i> Delete
+                                                </button>
+                                            </form>
+                                        </div>
                                     </td>
                                 </tr>
                                 <?php endforeach; ?>
