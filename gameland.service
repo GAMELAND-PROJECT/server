@@ -16,11 +16,15 @@ WorkingDirectory=${PROJECT_ROOT}
 # راه‌اندازی: start.sh ، session tmux رو می‌سازه و بلافاصله exit می‌کنه
 ExecStart=/bin/bash ${PROJECT_ROOT}/start.sh
 
-# استاپ: session رو می‌کشه + فایل pid رو پاک می‌کنه
-ExecStop=/bin/bash -c 'tmux kill-session -t gameland_server 2>/dev/null; rm -f ${PROJECT_ROOT}/gameland.pid; true'
+# راه‌اندازی اتوماتیک ربات HLTV و اسکریپت فشرده‌ساز بعد از استارت سرور
+ExecStartPost=/bin/bash -c 'screen -A -m -d -S gameland_hltv ${PROJECT_ROOT}/hltv +connect 127.0.0.1:27015 +exec hltv.cfg'
+ExecStartPost=/bin/bash -c 'screen -A -m -d -S demo_compressor ${PROJECT_ROOT}/compress_demos.sh'
+
+# استاپ: session سرور و اسکرین‌های وابسته رو می‌کشه + فایل pid رو پاک می‌کنه
+ExecStop=/bin/bash -c 'tmux kill-session -t gameland_server 2>/dev/null; screen -X -S gameland_hltv quit 2>/dev/null; screen -X -S demo_compressor quit 2>/dev/null; rm -f ${PROJECT_ROOT}/gameland.pid; true'
 
 # ریستارت دستی (systemctl restart) کار می‌کنه
-ExecReload=/bin/bash -c 'tmux kill-session -t gameland_server 2>/dev/null; sleep 2; /bin/bash ${PROJECT_ROOT}/start.sh'
+ExecReload=/bin/bash -c 'tmux kill-session -t gameland_server 2>/dev/null; screen -X -S gameland_hltv quit 2>/dev/null; screen -X -S demo_compressor quit 2>/dev/null; sleep 2; /bin/bash ${PROJECT_ROOT}/start.sh; sleep 1; screen -A -m -d -S gameland_hltv ${PROJECT_ROOT}/hltv +connect 127.0.0.1:27015 +exec hltv.cfg; screen -A -m -d -S demo_compressor ${PROJECT_ROOT}/compress_demos.sh'
 
 [Install]
 WantedBy=multi-user.target
