@@ -1217,12 +1217,8 @@ stock HLTV_StartRecording(const szDemoPrefix[])
 
 	formatex(g_szHltvDemoName, charsmax(g_szHltvDemoName), "%s_%04d-%02d-%02d_%02d-%02d", szDemoPrefix, iDate[iYear], iDate[iMonth], iDate[iDay], iTime[iHour], iTime[iMin])
 
-	new fp = fopen("hltv_cmd.txt", "wt")
-	if(fp)
-	{
-		fprintf(fp, "record %s^n", g_szHltvDemoName)
-		fclose(fp)
-	}
+	// Native ReHLDS/ReDemo record command
+	server_cmd("record %s", g_szHltvDemoName)
 
 	new fp_rec = fopen("hltv_recording.txt", "wt")
 	if(fp_rec)
@@ -1231,18 +1227,14 @@ stock HLTV_StartRecording(const szDemoPrefix[])
 		fclose(fp_rec)
 	}
 
-	client_print_color(0, print_team_default, "^4[GAMELAND HLTV] ^1Demo recording ^3STARTED^1: ^4%s", g_szHltvDemoName)
-	server_print("[GAMELAND HLTV] Demo recording STARTED: %s", g_szHltvDemoName)
+	client_print_color(0, print_team_default, "^4[GAMELAND] ^1Demo recording ^3STARTED^1: ^4%s", g_szHltvDemoName)
+	server_print("[GAMELAND] Demo recording STARTED: %s", g_szHltvDemoName)
 }
 
 stock HLTV_StopRecording()
 {
-	new fp = fopen("hltv_cmd.txt", "wt")
-	if(fp)
-	{
-		fprintf(fp, "stoprecording^n")
-		fclose(fp)
-	}
+	// Native ReHLDS/ReDemo stop command
+	server_cmd("stop")
 
 	if(file_exists("hltv_recording.txt"))
 	{
