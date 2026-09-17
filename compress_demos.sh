@@ -7,6 +7,17 @@ CSTRIKE_DIR="$SERVER_DIR/cstrike"
 PANEL_DIR="$SERVER_DIR/panel/demos"
 QUEUE_FILE="$CSTRIKE_DIR/ready_to_compress.txt"
 
+# Ensure zip is installed
+if ! command -v zip &> /dev/null; then
+    echo "ERROR: 'zip' command is not installed! Please run: apt-get install zip"
+    sleep 30
+    exit 1
+fi
+
+# Ensure output directory exists
+mkdir -p "$PANEL_DIR"
+chmod 777 "$PANEL_DIR"
+
 # Loop indefinitely if run manually, or just run once if cron
 while true; do
     if [ -f "$QUEUE_FILE" ]; then
