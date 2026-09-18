@@ -112,6 +112,23 @@ LOOP_COUNT=0
 while true; do
     LOOP_COUNT=$((LOOP_COUNT + 1))
 
+    # 0. Dispatch any pending commands to HLTV screen session
+    for cmd_file in "$CSTRIKE_DIR/hltv_cmd.txt" "$SERVER_DIR/hltv_cmd.txt"; do
+        if [ -f "$cmd_file" ]; then
+            CMD=$(head -n 1 "$cmd_file" | tr -d '\r\n')
+            rm -f "$cmd_file"
+            if [ -n "$CMD" ]; then
+                log_msg "[DISPATCH] Sending command to HLTV screen: '$CMD'"
+                if [ "$CMD" = "stop" ] || [ "$CMD" = "stoprecording" ]; then
+                    screen -S gameland_hltv -X stuff "stoprecording$(printf '\r')"
+                    screen -S gameland_hltv -X stuff "stop$(printf '\r')"
+                else
+                    screen -S gameland_hltv -X stuff "${CMD}$(printf '\r')"
+                fi
+            fi
+        fi
+    done
+
     # 1. Check queue file
     if [ -f "$QUEUE_FILE" ]; then
         rm -f "$QUEUE_FILE"
@@ -121,6 +138,14 @@ while true; do
     # 2. Sweep for any completed demos every 5 iterations (~5s)
     if [ $((LOOP_COUNT % 5)) -eq 0 ]; then
         sweep_demos
+    fi
+
+    # 3. Check if HLTV screen session is alive every 15 iterations (~15s)
+    if [ $((LOOP_COUNT % 15)) -eq 0 ]; then
+        if ! screen -list | grep -q "gameland_hltv"; then
+            log_msg "[WATCHDOG] HLTV session 'gameland_hltv' died! Restarting..."
+            /bin/bash "$SERVER_DIR/start_hltv.sh" >/dev/null 2>&1
+        fi
     fi
 
     sleep 1
