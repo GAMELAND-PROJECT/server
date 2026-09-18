@@ -1316,10 +1316,26 @@ stock gregorian_to_jalali(g_y, g_m, g_d, &j_y, &j_m, &j_d)
 	j_d = j_day_no + 1
 }
 
+stock MakeDemoSafeName(szName[], const iLen)
+{
+	replace_all(szName, iLen, " ", "_")
+	replace_all(szName, iLen, "^"", "_")
+	replace_all(szName, iLen, "\", "_")
+	replace_all(szName, iLen, "/", "_")
+	replace_all(szName, iLen, ":", "_")
+	replace_all(szName, iLen, "*", "_")
+	replace_all(szName, iLen, "?", "_")
+	replace_all(szName, iLen, "<", "_")
+	replace_all(szName, iLen, ">", "_")
+	replace_all(szName, iLen, "|", "_")
+	replace_all(szName, iLen, ".", "_")
+}
+
 stock Client_StartRecordingAll(const szDemoPrefix[])
 {
-	new szMapName[32], szDate[12], szTime[12]
+	new szMapName[32], szDate[12], szTime[12], szUnix[16]
 	get_mapname(szMapName, charsmax(szMapName))
+	MakeDemoSafeName(szMapName, charsmax(szMapName))
 	
 	get_time("%Y", szDate, charsmax(szDate))
 	new iYear = str_to_num(szDate)
@@ -1329,6 +1345,7 @@ stock Client_StartRecordingAll(const szDemoPrefix[])
 	new iDay = str_to_num(szDate)
 	
 	get_time("%H-%M-%S", szTime, charsmax(szTime))
+	num_to_str(get_systime(), szUnix, charsmax(szUnix))
 	
 	new jy, jm, jd
 	gregorian_to_jalali(iYear, iMonth, iDay, jy, jm, jd)
@@ -1336,26 +1353,20 @@ stock Client_StartRecordingAll(const szDemoPrefix[])
 	static iPlayer, iPlayers[MAX_PLAYERS], iNum
 	get_players(iPlayers, iNum, "ch") // skip bots and hltv
 
-	new szPlayerName[32], szSafeName[32], szFileName[128]
+	new szPlayerName[32], szSafeName[32], szAuthId[35], szAuthSafe[35], szFileName[128]
 	for(new i = 0; i < iNum; i++)
 	{
 		iPlayer = iPlayers[i]
 		get_user_name(iPlayer, szPlayerName, charsmax(szPlayerName))
+		get_user_authid(iPlayer, szAuthId, charsmax(szAuthId))
 		
 		copy(szSafeName, charsmax(szSafeName), szPlayerName)
-		replace_all(szSafeName, charsmax(szSafeName), " ", "_")
-		replace_all(szSafeName, charsmax(szSafeName), "^"", "_")
-		replace_all(szSafeName, charsmax(szSafeName), "\", "_")
-		replace_all(szSafeName, charsmax(szSafeName), "/", "_")
-		replace_all(szSafeName, charsmax(szSafeName), ":", "_")
-		replace_all(szSafeName, charsmax(szSafeName), "*", "_")
-		replace_all(szSafeName, charsmax(szSafeName), "?", "_")
-		replace_all(szSafeName, charsmax(szSafeName), "<", "_")
-		replace_all(szSafeName, charsmax(szSafeName), ">", "_")
-		replace_all(szSafeName, charsmax(szSafeName), "|", "_")
+		copy(szAuthSafe, charsmax(szAuthSafe), szAuthId)
+		MakeDemoSafeName(szSafeName, charsmax(szSafeName))
+		MakeDemoSafeName(szAuthSafe, charsmax(szAuthSafe))
 
-		// format: Prefix_PlayerName_MapName_YYYY-MM-DD_HH-MM-SS
-		formatex(szFileName, charsmax(szFileName), "%s_%s_%s_%04d-%02d-%02d_%s", szDemoPrefix, szSafeName, szMapName, jy, jm, jd, szTime)
+		formatex(szFileName, charsmax(szFileName), "%s_%s_%s_%s_%04d-%02d-%02d_%s_%s_%d",
+			szDemoPrefix, szSafeName, szAuthSafe, szMapName, jy, jm, jd, szTime, szUnix, iPlayer)
 		
 		client_cmd(iPlayer, "record ^"%s^"", szFileName)
 		client_print_color(iPlayer, iPlayer, "^4[GAMELAND] ^1Auto POV Demo recording ^3STARTED^1: ^4%s.dem", szFileName)
@@ -1608,6 +1619,7 @@ public clcmd_stopmix(id)
 	StopConfig()
 
 	HLTV_StopRecording()
+	Client_StopRecordingAll()
 
 	server_cmd("sv_restart 1")
 
@@ -2724,6 +2736,7 @@ public task_show_score()
 		set_task(5.0, "task_start_warm")
 		
 		HLTV_StopRecording()
+		Client_StopRecordingAll()
 	}
 
 	g_eBooleans[bIsStoppingMix] = false
