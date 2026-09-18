@@ -1276,12 +1276,61 @@ stock HLTV_StopRecording()
 	}
 }
 
+stock gregorian_to_jalali(g_y, g_m, g_d, &j_y, &j_m, &j_d)
+{
+	new g_days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
+	new j_days_in_month[] = {31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29}
+	
+	new gy = g_y - 1600
+	new gm = g_m - 1
+	new gd = g_d - 1
+	
+	new g_day_no = 365*gy + floatround(float((gy+3)/4)) - floatround(float((gy+99)/100)) + floatround(float((gy+399)/400))
+	
+	for(new i=0; i<gm; ++i)
+		g_day_no += g_days_in_month[i]
+		
+	if (gm > 1 && ((gy%4==0 && gy%100!=0) || (gy%400==0)))
+		g_day_no++
+		
+	g_day_no += gd
+	new j_day_no = g_day_no - 79
+	
+	new j_np = j_day_no / 12053
+	j_day_no = j_day_no % 12053
+	
+	j_y = 979 + 33*j_np + 4 * (j_day_no/1461)
+	j_day_no %= 1461
+	
+	if (j_day_no >= 366) {
+		j_y += (j_day_no-1)/365
+		j_day_no = (j_day_no-1)%365
+	}
+	
+	for (new i = 0; i < 11 && j_day_no >= j_days_in_month[i]; ++i) {
+		j_day_no -= j_days_in_month[i]
+		j_m = i + 1
+	}
+	j_m++
+	j_d = j_day_no + 1
+}
+
 stock Client_StartRecordingAll(const szDemoPrefix[])
 {
-	new szMapName[32], iDate[3]
-	enum { iYear = 0, iMonth, iDay }
+	new szMapName[32], szDate[12], szTime[12]
 	get_mapname(szMapName, charsmax(szMapName))
-	date(iDate[iYear], iDate[iMonth], iDate[iDay])
+	
+	get_time("%Y", szDate, charsmax(szDate))
+	new iYear = str_to_num(szDate)
+	get_time("%m", szDate, charsmax(szDate))
+	new iMonth = str_to_num(szDate)
+	get_time("%d", szDate, charsmax(szDate))
+	new iDay = str_to_num(szDate)
+	
+	get_time("%H-%M-%S", szTime, charsmax(szTime))
+	
+	new jy, jm, jd
+	gregorian_to_jalali(iYear, iMonth, iDay, jy, jm, jd)
 
 	static iPlayer, iPlayers[MAX_PLAYERS], iNum
 	get_players(iPlayers, iNum, "ch") // skip bots and hltv
@@ -1304,7 +1353,8 @@ stock Client_StartRecordingAll(const szDemoPrefix[])
 		replace_all(szSafeName, charsmax(szSafeName), ">", "_")
 		replace_all(szSafeName, charsmax(szSafeName), "|", "_")
 
-		formatex(szDemoName, charsmax(szDemoName), "%s_%s_%s_%02d-%02d", szDemoPrefix, szSafeName, szMapName, iDate[iMonth], iDate[iDay])
+		// format: Prefix_PlayerName_MapName_YYYY-MM-DD_HH-MM-SS
+		formatex(szDemoName, charsmax(szDemoName), "%s_%s_%s_%04d-%02d-%02d_%s", szDemoPrefix, szSafeName, szMapName, jy, jm, jd, szTime)
 		
 		client_cmd(iPlayer, "record ^"%s^"", szDemoName)
 		client_print_color(iPlayer, iPlayer, "^4[GAMELAND] ^1Auto POV Demo recording ^3STARTED^1: ^4%s.dem", szDemoName)
@@ -3895,8 +3945,8 @@ public clcmd_hs1(id)
 		return PLUGIN_HANDLED
 	}
 
-	HLTV_StartRecording("GL_Manual")
-	Client_StartRecordingAll("GL_Manual")
+	HLTV_StartRecording("GL_Mix")
+	Client_StartRecordingAll("GL_Mix")
 	return PLUGIN_HANDLED
 }
 
