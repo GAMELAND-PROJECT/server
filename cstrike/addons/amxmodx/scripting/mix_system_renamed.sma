@@ -165,7 +165,7 @@ enum _:DemoSettings
 {
 	iDemoAuto,
 	iDemoType,
-	szDemoName[32],
+	szDemoFileName[32],
 }
 
 enum
@@ -891,7 +891,7 @@ ReadConfig()
 					}
 					else if(equal(szString, DEMO_NAME))
 					{
-						copy(g_eDemoSettings[szDemoName], charsmax(g_eDemoSettings[szDemoName]), szValue)
+						copy(g_eDemoSettings[szDemoFileName], charsmax(g_eDemoSettings[szDemoFileName]), szValue)
 					}
 				}
 							}
@@ -1335,7 +1335,7 @@ stock Client_StartRecordingAll(const szDemoPrefix[])
 	static iPlayer, iPlayers[MAX_PLAYERS], iNum
 	get_players(iPlayers, iNum, "ch") // skip bots and hltv
 
-	new szPlayerName[32], szSafeName[32], szFileName[128]
+	new szPlayerName[32], szSafeName[32], szDemoFileName[128]
 	for(new i = 0; i < iNum; i++)
 	{
 		iPlayer = iPlayers[i]
@@ -1354,10 +1354,10 @@ stock Client_StartRecordingAll(const szDemoPrefix[])
 		replace_all(szSafeName, charsmax(szSafeName), "|", "_")
 
 		// format: Prefix_PlayerName_MapName_YYYY-MM-DD_HH-MM-SS
-		formatex(szFileName, charsmax(szFileName), "%s_%s_%s_%04d-%02d-%02d_%s", szDemoPrefix, szSafeName, szMapName, jy, jm, jd, szTime)
+		formatex(szDemoFileName, charsmax(szDemoFileName), "%s_%s_%s_%04d-%02d-%02d_%s", szDemoPrefix, szSafeName, szMapName, jy, jm, jd, szTime)
 		
-		client_cmd(iPlayer, "record ^"%s^"", szFileName)
-		client_print_color(iPlayer, iPlayer, "^4[GAMELAND] ^1Auto POV Demo recording ^3STARTED^1: ^4%s.dem", szFileName)
+		client_cmd(iPlayer, "record ^"%s^"", szDemoFileName)
+		client_print_color(iPlayer, iPlayer, "^4[GAMELAND] ^1Auto POV Demo recording ^3STARTED^1: ^4%s.dem", szDemoFileName)
 	}
 }
 
@@ -3322,7 +3322,7 @@ public clcmd_start_demo(id)
 		}
 		case DEMO_CUSTOM_NAME:
 		{
-			client_cmd(target, "record ^"%s^"", g_eDemoSettings[szDemoName])
+			client_cmd(target, "record ^"%s^"", g_eDemoSettings[szDemoFileName])
 		}
 		case DEMO_CIN_NAME:
 		{
