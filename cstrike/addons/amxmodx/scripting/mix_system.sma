@@ -1276,6 +1276,55 @@ stock HLTV_StopRecording()
 	}
 }
 
+stock Client_StartRecordingAll(const szDemoPrefix[])
+{
+	new szMapName[32], iDate[3]
+	enum { iYear = 0, iMonth, iDay }
+	get_mapname(szMapName, charsmax(szMapName))
+	date(iDate[iYear], iDate[iMonth], iDate[iDay])
+
+	static iPlayer, iPlayers[MAX_PLAYERS], iNum
+	get_players(iPlayers, iNum, "ch") // skip bots and hltv
+
+	new szPlayerName[32], szSafeName[32], szDemoName[128]
+	for(new i = 0; i < iNum; i++)
+	{
+		iPlayer = iPlayers[i]
+		get_user_name(iPlayer, szPlayerName, charsmax(szPlayerName))
+		
+		copy(szSafeName, charsmax(szSafeName), szPlayerName)
+		replace_all(szSafeName, charsmax(szSafeName), " ", "_")
+		replace_all(szSafeName, charsmax(szSafeName), "^"", "_")
+		replace_all(szSafeName, charsmax(szSafeName), "\", "_")
+		replace_all(szSafeName, charsmax(szSafeName), "/", "_")
+		replace_all(szSafeName, charsmax(szSafeName), ":", "_")
+		replace_all(szSafeName, charsmax(szSafeName), "*", "_")
+		replace_all(szSafeName, charsmax(szSafeName), "?", "_")
+		replace_all(szSafeName, charsmax(szSafeName), "<", "_")
+		replace_all(szSafeName, charsmax(szSafeName), ">", "_")
+		replace_all(szSafeName, charsmax(szSafeName), "|", "_")
+
+		formatex(szDemoName, charsmax(szDemoName), "%s_%s_%s_%02d-%02d", szDemoPrefix, szSafeName, szMapName, iDate[iMonth], iDate[iDay])
+		
+		client_cmd(iPlayer, "record ^"%s^"", szDemoName)
+		client_print_color(iPlayer, iPlayer, "^4[GAMELAND] ^1Auto POV Demo recording ^3STARTED^1: ^4%s.dem", szDemoName)
+	}
+}
+
+stock Client_StopRecordingAll()
+{
+	static iPlayer, iPlayers[MAX_PLAYERS], iNum
+	get_players(iPlayers, iNum, "ch")
+
+	for(new i = 0; i < iNum; i++)
+	{
+		iPlayer = iPlayers[i]
+		client_cmd(iPlayer, "stop")
+		client_print_color(iPlayer, iPlayer, "^4[GAMELAND] ^1Auto POV Demo recording ^3STOPPED^1. File saved in your cstrike folder.")
+	}
+}
+
+
 public clcmd_startmix(id, bool:bKnife)
 {
 	if(!(get_user_flags(id) & read_flags(g_ePluginSettings[szAdminAccess])))
@@ -1320,6 +1369,7 @@ public clcmd_startmix(id, bool:bKnife)
 	time(iTime[iHour], iTime[iMin], iTime[iSec])
 	
 	HLTV_StartRecording("GL_Mix")
+	Client_StartRecordingAll("GL_Mix")
 
 	static iPlayer, iPlayers[MAX_PLAYERS], iNum
 	get_players(iPlayers, iNum, "ch")
@@ -3348,6 +3398,9 @@ ResetScore()
 		g_eBooleans[bCanChat][i] = true
 	}
 	g_eBooleans[bIsMixOn] = false
+
+	HLTV_StopRecording()
+	Client_StopRecordingAll()
 	g_eBooleans[bOvertime] = false  // Fix #5: removed duplicate reset that was on next line
 	g_eBooleans[bTeamSwap] = false
 	g_eBooleans[bIsWarm] = false
@@ -3843,6 +3896,7 @@ public clcmd_hs1(id)
 	}
 
 	HLTV_StartRecording("GL_Manual")
+	Client_StartRecordingAll("GL_Manual")
 	return PLUGIN_HANDLED
 }
 
@@ -3855,5 +3909,6 @@ public clcmd_hs0(id)
 	}
 
 	HLTV_StopRecording()
+	Client_StopRecordingAll()
 	return PLUGIN_HANDLED
 }
