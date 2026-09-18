@@ -212,6 +212,7 @@ enum _:Bools
 	#endif
 	bool:bCanChat[MAX_PLAYERS + 1],
 	bool:bIsMixOn,
+	bool:bShouldRecordMix,
 	bool:bIsKnife,
 	bool:bIsWarm,
 	bool:bTeamSwap,
@@ -1404,6 +1405,52 @@ public clcmd_startmix(id, bool:bKnife)
 		}
 	}
 
+	g_eInformations[MIX_STARTER] = id
+
+	// Show menu to ask whether to record the match or not
+	new szTitle[128]
+	formatex(szTitle, charsmax(szTitle), "\y[GAMELAND]\w Do you want to record this match?")
+	new menu = menu_create(szTitle, "menu_record_match")
+	
+	new szInfo[2]
+	szInfo[0] = bKnife ? '1' : '0'
+	szInfo[1] = 0
+	
+	menu_additem(menu, "Yes, Record", szInfo)
+	menu_additem(menu, "No, Do not record", szInfo)
+	menu_additem(menu, "Cancel", "2")
+	
+	menu_display(id, menu)
+	
+	return PLUGIN_HANDLED
+}
+
+public menu_record_match(id, menu, item)
+{
+	if(item == MENU_EXIT)
+	{
+		menu_destroy(menu)
+		return PLUGIN_HANDLED
+	}
+	
+	new szData[6], szName[64], access, callback
+	menu_item_getinfo(menu, item, access, szData, charsmax(szData), szName, charsmax(szName), callback)
+	menu_destroy(menu)
+	
+	if(szData[0] == '2') 
+	{
+		return PLUGIN_HANDLED // Cancel
+	}
+	
+	new bool:bKnife = (szData[0] == '1')
+	g_eBooleans[bShouldRecordMix] = (item == 0) // item 0 is Yes, item 1 is No
+	
+	clcmd_startmix_internal(id, bKnife)
+	return PLUGIN_HANDLED
+}
+
+public clcmd_startmix_internal(id, bool:bKnife)
+{
 	#if defined FASTCUP_MODE
 	if(g_eBooleans[bWasKnife])
 	#endif
@@ -1418,13 +1465,14 @@ public clcmd_startmix(id, bool:bKnife)
 	date(iDate[iYear], iDate[iMonth], iDate[iDay])
 	time(iTime[iHour], iTime[iMin], iTime[iSec])
 	
-	HLTV_StartRecording("GL_Mix")
-	Client_StartRecordingAll("GL_Mix")
+	if(g_eBooleans[bShouldRecordMix])
+	{
+		HLTV_StartRecording("GL_Mix")
+		Client_StartRecordingAll("GL_Mix")
+	}
 
 	static iPlayer, iPlayers[MAX_PLAYERS], iNum
 	get_players(iPlayers, iNum, "ch")
-
-	g_eInformations[MIX_STARTER] = id
 
 	new CsTeams:iTeam
 
@@ -2148,7 +2196,7 @@ public task_do_change(iTaskID)
 
 	g_eBooleans[bCanShowStats] = false
 
-	clcmd_startmix(g_eInformations[MIX_STARTER], true)
+	clcmd_startmix_internal(g_eInformations[MIX_STARTER], true)
 
 	return PLUGIN_HANDLED
 }
