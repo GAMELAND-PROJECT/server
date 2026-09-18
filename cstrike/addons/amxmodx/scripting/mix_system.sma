@@ -1378,6 +1378,8 @@ stock Client_StopRecordingAll()
 
 public clcmd_startmix(id, bool:bKnife)
 {
+	client_print_color(id, print_team_default, "^4[Debug] ^1clcmd_startmix called with id: %d", id)
+	
 	if(!(get_user_flags(id) & read_flags(g_ePluginSettings[szAdminAccess])))
 	{
 		client_print_color(id, id, "^4%s %L", g_ePluginSettings[szPrefix], LANG_SERVER, "YOU_DONT_HAVE_ACCESS")
@@ -1406,6 +1408,8 @@ public clcmd_startmix(id, bool:bKnife)
 	}
 
 	g_eInformations[MIX_STARTER] = id
+
+	client_print_color(id, print_team_default, "^4[Debug] ^1Displaying menu to id: %d", id)
 
 	// Show menu to ask whether to record the match or not
 	new szTitle[128]
@@ -2358,10 +2362,6 @@ public hook_say(id)
 		if(!(get_user_flags(id) & read_flags(g_ePluginSettings[szAdminFlags])))
 		{
 			return PLUGIN_HANDLED
-		}
-		else if(get_user_flags(id) & read_flags(g_ePluginSettings[szAdminFlags]))
-		{
-			return PLUGIN_CONTINUE
 		}
 	}
 
