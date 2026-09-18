@@ -1420,9 +1420,30 @@ public clcmd_startmix(id, bool:bKnife)
 
 	g_eInformations[MIX_STARTER] = id
 
-	client_print_color(id, print_team_default, "^4[Debug] ^1Displaying menu to id: %d", id)
+	#if defined FASTCUP_MODE
+	if(!g_eBooleans[bWasKnife])
+	{
+		g_eBooleans[bShouldRecordMix] = false
+		clcmd_startmix_internal(id, bKnife)
+		return PLUGIN_HANDLED
+	}
+	#endif
 
-	// Show menu to ask whether to record the match or not
+	ShowRecordMatchMenu(id, bKnife)
+	return PLUGIN_HANDLED
+}
+
+stock ShowRecordMatchMenu(id, bool:bKnife)
+{
+	if(!is_user_connected(id))
+	{
+		g_eBooleans[bShouldRecordMix] = false
+		clcmd_startmix_internal(id, bKnife)
+		return
+	}
+
+	client_print_color(id, print_team_default, "^4[Debug] ^1Displaying demo record menu to id: %d", id)
+
 	new szTitle[128]
 	formatex(szTitle, charsmax(szTitle), "\y[GAMELAND]\w Do you want to record this match?")
 	new menu = menu_create(szTitle, "menu_record_match")
@@ -1436,8 +1457,6 @@ public clcmd_startmix(id, bool:bKnife)
 	menu_additem(menu, "Cancel", "2")
 	
 	menu_display(id, menu)
-	
-	return PLUGIN_HANDLED
 }
 
 public menu_record_match(id, menu, item)
@@ -2212,7 +2231,7 @@ public task_do_change(iTaskID)
 
 	g_eBooleans[bCanShowStats] = false
 
-	clcmd_startmix_internal(g_eInformations[MIX_STARTER], true)
+	ShowRecordMatchMenu(g_eInformations[MIX_STARTER], true)
 
 	return PLUGIN_HANDLED
 }
