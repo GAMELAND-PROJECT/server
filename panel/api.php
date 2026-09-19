@@ -201,40 +201,14 @@ switch ($action) {
 
     // ─── Get Compile Status (check if .amxx files exist and are newer) ────────
     case 'plugin_build_status':
-        $scriptingDir = $activeServer['cstrike_dir'] . '/addons/amxmodx/scripting';
-        $pluginsDir   = $activeServer['cstrike_dir'] . '/addons/amxmodx/plugins';
-
-        $targets = [
-            'mix_system.sma'            => 'mix_system.amxx',
-            'mix_system_voice_chat.sma' => 'mix_system_voice_chat.amxx',
-            'player_drop.sma'           => 'player_drop.amxx',
-            'mix_database_stats.sma'    => 'mix_database_stats.amxx',
-        ];
-
-        $statusList = [];
-        foreach ($targets as $src => $bin) {
-            $srcPath = $scriptingDir . '/' . $src;
-            $binPath = $pluginsDir . '/' . $bin;
-
-            $srcExists  = file_exists($srcPath);
-            $binExists  = file_exists($binPath);
-            $srcMtime   = $srcExists ? filemtime($srcPath) : 0;
-            $binMtime   = $binExists ? filemtime($binPath) : 0;
-            $needsRebuild = $srcExists && ($binMtime < $srcMtime);
-
-            $statusList[] = [
-                'sma'          => $src,
-                'amxx'         => $bin,
-                'sma_exists'   => $srcExists,
-                'amxx_exists'  => $binExists,
-                'needs_rebuild'=> $needsRebuild,
-                'sma_mtime'    => $srcExists  ? date('Y-m-d H:i:s', $srcMtime) : null,
-                'amxx_mtime'   => $binExists  ? date('Y-m-d H:i:s', $binMtime) : null,
-            ];
-        }
-
-        echo json_encode(['success' => true, 'builds' => $statusList]);
+        $managedStatus = ServerCmd::getPluginBuildStatus($activeServer);
+        echo json_encode(['success' => true, 'builds' => array_values($managedStatus)]);
         break;
+
+
+
+
+
 
     // ─── Full Build Pipeline Diagnostic ──────────────────────────────────────
     case 'diagnose_build':
@@ -277,9 +251,8 @@ switch ($action) {
             ];
         }
 
-        // 3. Source files
-        $srcFiles = ['mix_system.sma', 'mix_system_voice_chat.sma', 'player_drop.sma', 'mix_database_stats.sma'];
-        foreach ($srcFiles as $sma) {
+        // 3. Managed source files
+        foreach (array_keys(ServerCmd::getManagedPluginTargets()) as $sma) {
             $p = $scriptingDir . '/' . $sma;
             $exists = file_exists($p);
             $diag[] = [
@@ -289,9 +262,8 @@ switch ($action) {
             ];
         }
 
-        // 4. Binary status
-        $binFiles = ['mix_system.amxx', 'mix_system_voice_chat.amxx', 'player_drop.amxx', 'mix_database_stats.amxx'];
-        foreach ($binFiles as $amxx) {
+        // 4. Managed binary status
+        foreach (array_values(ServerCmd::getManagedPluginTargets()) as $amxx) {
             $p = $pluginsDir . '/' . $amxx;
             $exists = file_exists($p) && filesize($p) > 100;
             $diag[] = [
@@ -304,8 +276,10 @@ switch ($action) {
         // 5. plugins.ini check
         $pluginsIni = $activeServer['cstrike_dir'] . '/addons/amxmodx/configs/plugins.ini';
         $iniContent = file_exists($pluginsIni) ? file_get_contents($pluginsIni) : '';
-        $mixRegistered = str_contains($iniContent, 'mix_system.amxx') && !preg_match('/^\s*;+\s*mix_system\.amxx/m', $iniContent);
-        $diag[] = ['check' => 'mix_system.amxx in plugins.ini (enabled)', 'ok' => $mixRegistered, 'detail' => $pluginsIni];
+        foreach (array_values(ServerCmd::getManagedPluginTargets()) as $amxx) {
+            $registered = (bool)preg_match('/^\s*(?!;)\s*' . preg_quote($amxx, '/') . '(?:\s|$)/mi', $iniContent);
+            $diag[] = ['check' => "{$amxx} in plugins.ini (enabled)", 'ok' => $registered, 'detail' => $pluginsIni];
+        }
 
         // 6. Try a real test compile of mix_system.sma
         $testOut = '';

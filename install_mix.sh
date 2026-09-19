@@ -36,7 +36,7 @@ if [ ! -f "mix_system.sma" ]; then
 fi
 
 # Run amxxpc compiler
-./amxxpc mix_system.sma -o"${PLUGINS_DIR}/mix_system.amxx"
+./amxxpc mix_system.sma -i"include" -o"${PLUGINS_DIR}/mix_system.amxx"
 if [ ! -f "${PLUGINS_DIR}/mix_system.amxx" ]; then
     echo "[ERROR] Failed to compile mix_system.sma!"
     exit 1
@@ -46,14 +46,18 @@ echo "  -> mix_system.amxx compiled successfully!"
 # ─── 3. Compile mix_system_voice_chat.sma ───────────────
 echo "[3/5] Compiling mix_system_voice_chat.sma..."
 if [ -f "mix_system_voice_chat.sma" ]; then
-    ./amxxpc mix_system_voice_chat.sma -o"${PLUGINS_DIR}/mix_system_voice_chat.amxx"
+    ./amxxpc mix_system_voice_chat.sma -i"include" -o"${PLUGINS_DIR}/mix_system_voice_chat.amxx"
+    if [ ! -f "${PLUGINS_DIR}/mix_system_voice_chat.amxx" ]; then
+        echo "[ERROR] Failed to compile mix_system_voice_chat.sma!"
+        exit 1
+    fi
     echo "  -> mix_system_voice_chat.amxx compiled successfully!"
 fi
 
 # Compile GAMELAND admin helpers (/map, /t1-/t3, /ff0-/ff1, /j0-/j2).
 if [ -f "gameland_admin_tools.sma" ]; then
     echo "[3b/5] Compiling gameland_admin_tools.sma..."
-    ./amxxpc gameland_admin_tools.sma -o"${PLUGINS_DIR}/gameland_admin_tools.amxx"
+    ./amxxpc gameland_admin_tools.sma -i"include" -o"${PLUGINS_DIR}/gameland_admin_tools.amxx"
     if [ ! -f "${PLUGINS_DIR}/gameland_admin_tools.amxx" ]; then
         echo "[ERROR] Failed to compile gameland_admin_tools.sma!"
         exit 1
@@ -89,6 +93,27 @@ else
 fi
 
 # ─── 5. Adjust start.sh for 5v5 Match (12 Slots) ───────
+BUILD_SHA="$(git -C "${PROJECT_DIR}" rev-parse --short=7 HEAD 2>/dev/null || echo unknown)"
+BUILD_FULL_SHA="$(git -C "${PROJECT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+cat > "${CONFIGS_DIR}/.mix_last_build.json" <<EOF
+{
+  "build_time": "$(date -Iseconds)",
+  "commit": {
+    "sha": "${BUILD_SHA}",
+    "full_sha": "${BUILD_FULL_SHA}",
+    "message": "install_mix.sh local build"
+  },
+  "success": true,
+  "compiled_count": 3,
+  "targets": {
+    "mix_system.sma": "mix_system.amxx",
+    "mix_system_voice_chat.sma": "mix_system_voice_chat.amxx",
+    "gameland_admin_tools.sma": "gameland_admin_tools.amxx"
+  }
+}
+EOF
+echo "  -> Wrote deploy record: ${CONFIGS_DIR}/.mix_last_build.json"
+
 echo "[5/5] Optimizing server config for 5v5..."
 sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="12"/' "${PROJECT_DIR}/start.sh"
 

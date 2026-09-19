@@ -98,29 +98,14 @@ $plugins     = ServerCmd::getPluginsList($activeServer);
 $gitStatus   = ServerCmd::getGitRepoStatus();
 
 $lastSyncFile = $activeServer['cstrike_dir'] . '/addons/amxmodx/configs/.mix_last_sync.json';
+$lastBuildFile = $activeServer['cstrike_dir'] . '/addons/amxmodx/configs/.mix_last_build.json';
 $lastSyncMeta = file_exists($lastSyncFile) ? @json_decode(file_get_contents($lastSyncFile), true) : null;
+$lastBuildMeta = file_exists($lastBuildFile) ? @json_decode(file_get_contents($lastBuildFile), true) : null;
 
 // Build status check
 $scriptingDir = $activeServer['cstrike_dir'] . '/addons/amxmodx/scripting';
 $pluginsDir   = $activeServer['cstrike_dir'] . '/addons/amxmodx/plugins';
-$buildTargets = [
-    'mix_system.sma'            => 'mix_system.amxx',
-    'mix_system_voice_chat.sma' => 'mix_system_voice_chat.amxx',
-    'player_drop.sma'           => 'player_drop.amxx',
-    'mix_database_stats.sma'    => 'mix_database_stats.amxx',
-];
-$buildStatus = [];
-foreach ($buildTargets as $src => $bin) {
-    $srcMt = file_exists($scriptingDir.'/'.$src) ? filemtime($scriptingDir.'/'.$src) : 0;
-    $binMt = file_exists($pluginsDir.'/'.$bin)   ? filemtime($pluginsDir.'/'.$bin)   : 0;
-    $buildStatus[$src] = [
-        'sma_exists'    => $srcMt > 0,
-        'amxx_exists'   => $binMt > 0,
-        'needs_rebuild' => $srcMt > 0 && $binMt < $srcMt,
-        'sma_mtime'     => $srcMt > 0 ? date('Y-m-d H:i:s', $srcMt) : null,
-        'amxx_mtime'    => $binMt > 0 ? date('Y-m-d H:i:s', $binMt) : null,
-    ];
-}
+$buildStatus = ServerCmd::getPluginBuildStatus($activeServer);
 
 // Group plugins by section
 $sections = [];
@@ -173,9 +158,10 @@ foreach ($plugins as $p) {
         <!-- Installed Version -->
         <div style="background:var(--bg-card); padding:0.9rem 1.1rem; border-radius:8px; border:1px solid var(--border-color);">
             <div style="font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:0.4rem;">Server Installed Version</div>
-            <?php if ($lastSyncMeta && isset($lastSyncMeta['commit'])): ?>
+            <?php if (($lastBuildMeta && isset($lastBuildMeta['commit'])) || ($lastSyncMeta && isset($lastSyncMeta['commit']))): ?>
                 <?php
-                $localSha  = $lastSyncMeta['commit']['sha'] ?? 'unknown';
+                $record = $lastBuildMeta ?: $lastSyncMeta;
+                $localSha  = $record['commit']['sha'] ?? 'unknown';
                 $remoteSha = $gitStatus ? $gitStatus['sha'] : null;
                 $upToDate  = $remoteSha && $localSha === $remoteSha;
                 ?>
@@ -183,13 +169,13 @@ foreach ($plugins as $p) {
                     <?php echo $upToDate ? '✅' : '⚠️'; ?> SHA: [<?php echo htmlspecialchars($localSha); ?>]
                 </div>
                 <div style="font-size:0.77rem; color:var(--text-muted); margin-top:0.25rem;">
-                    Last Sync: <?php echo htmlspecialchars($lastSyncMeta['sync_time'] ?? 'N/A'); ?>
+                    Last Deploy: <?php echo htmlspecialchars($record['build_time'] ?? $record['sync_time'] ?? 'N/A'); ?>
                     <?php if (!$upToDate && $remoteSha): ?>
                         &bull; <span style="color:var(--warning); font-weight:600;">Update Available!</span>
                     <?php endif; ?>
                 </div>
             <?php else: ?>
-                <div style="font-size:0.85rem; color:var(--warning);">⚠️ No sync record. Download latest code below.</div>
+                <div style="font-size:0.85rem; color:var(--warning);">⚠️ No deploy record. Run 1-Click Deploy to create a verified build record.</div>
             <?php endif; ?>
         </div>
 
@@ -198,7 +184,7 @@ foreach ($plugins as $p) {
             <div style="font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:0.4rem;">Plugin Build Status (.sma → .amxx)</div>
             <?php
             $needsRebuildCount = count(array_filter($buildStatus, fn($b)=>$b['needs_rebuild']));
-            $missingAmxx       = count(array_filter($buildStatus, fn($b)=>!$b['amxx_exists']));
+            $missingAmxx       = count(array_filter($buildStatus, fn($b)=>!$b['binary_exists']));
             ?>
             <div style="font-size:0.9rem; font-weight:700; color:<?php echo ($needsRebuildCount+$missingAmxx)>0?'var(--warning)':'var(--success)'; ?>;">
                 <?php if ($needsRebuildCount + $missingAmxx > 0): ?>
@@ -209,10 +195,10 @@ foreach ($plugins as $p) {
             </div>
             <div style="font-size:0.77rem; color:var(--text-muted); margin-top:0.25rem;">
                 <?php foreach ($buildStatus as $src => $bs): ?>
-                    <span title="<?php echo htmlspecialchars($src); ?> → amxx: <?php echo $bs['amxx_mtime'] ?? 'missing'; ?>"
+                    <span title="<?php echo htmlspecialchars($src); ?> → amxx: <?php echo $bs['binary_mtime'] ?? 'missing'; ?>"
                           style="display:inline-block; margin-right:0.3rem;
-                                 color:<?php echo $bs['needs_rebuild']?'var(--warning)':($bs['amxx_exists']?'var(--success)':'var(--danger)'); ?>;">
-                        <?php echo $bs['needs_rebuild']?'⚠️':($bs['amxx_exists']?'✅':'❌'); ?>
+                                 color:<?php echo $bs['needs_rebuild'] || !$bs['registered']?'var(--warning)':($bs['binary_exists']?'var(--success)':'var(--danger)'); ?>;">
+                        <?php echo $bs['needs_rebuild'] || !$bs['registered']?'⚠️':($bs['binary_exists']?'✅':'❌'); ?>
                         <?php echo htmlspecialchars(str_replace(['mix_','.sma'],['',''],$src)); ?>
                     </span>
                 <?php endforeach; ?>

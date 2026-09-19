@@ -4,6 +4,52 @@ require_once __DIR__ . '/../config.php';
 class ServerCmd {
 
     /**
+     * Single source of truth for plugins managed by the panel.
+     * Keep this list aligned with install_mix.sh and plugins.ini.
+     */
+    public static function getManagedPluginTargets() {
+        return [
+            'mix_system.sma'            => 'mix_system.amxx',
+            'mix_system_voice_chat.sma' => 'mix_system_voice_chat.amxx',
+            'gameland_admin_tools.sma'  => 'gameland_admin_tools.amxx',
+        ];
+    }
+
+    public static function getPluginBuildStatus($serverInfo) {
+        $scriptingDir = $serverInfo['cstrike_dir'] . '/addons/amxmodx/scripting';
+        $pluginsDir   = $serverInfo['cstrike_dir'] . '/addons/amxmodx/plugins';
+        $pluginsIni   = $serverInfo['cstrike_dir'] . '/addons/amxmodx/configs/plugins.ini';
+        $registeredText = file_exists($pluginsIni) ? (string)file_get_contents($pluginsIni) : '';
+        $status = [];
+
+        foreach (self::getManagedPluginTargets() as $src => $bin) {
+            $srcPath = $scriptingDir . '/' . $src;
+            $binPath = $pluginsDir . '/' . $bin;
+            $srcExists = is_file($srcPath);
+            $binExists = is_file($binPath) && filesize($binPath) > 100;
+            $srcMtime = $srcExists ? filemtime($srcPath) : 0;
+            $binMtime = $binExists ? filemtime($binPath) : 0;
+            $registered = (bool)preg_match(
+                '/^[ \t]*(?!;)[ \t]*' . preg_quote($bin, '/') . '(?:[ \t]|$)/mi',
+                $registeredText
+            );
+            $status[$src] = [
+                'source' => $src,
+                'binary' => $bin,
+                'source_exists' => $srcExists,
+                'binary_exists' => $binExists,
+                'registered' => $registered,
+                'needs_rebuild' => $srcExists && (!$binExists || $binMtime < $srcMtime),
+                'source_mtime' => $srcMtime ? date('Y-m-d H:i:s', $srcMtime) : null,
+                'binary_mtime' => $binMtime ? date('Y-m-d H:i:s', $binMtime) : null,
+                'source_hash' => $srcExists ? hash_file('sha256', $srcPath) : null,
+                'binary_hash' => $binExists ? hash_file('sha256', $binPath) : null,
+            ];
+        }
+        return $status;
+    }
+
+    /**
      * Get systemctl service status
      */
     public static function getServiceStatus($serviceName) {
@@ -348,7 +394,7 @@ class ServerCmd {
      * Quick Switch Mode: 'mix5v5' or 'public'
      */
     public static function switchServerMode($serverInfo, $targetMode) {
-        $mixPlugins = ['mix_system.amxx', 'mix_system_voice_chat.amxx', 'player_drop.amxx'];
+        $mixPlugins = array_values(self::getManagedPluginTargets());
         $currentPlugins = self::getPluginsList($serverInfo);
         $enabled = [];
 
@@ -476,7 +522,7 @@ class ServerCmd {
             'scripting/include/mix_system.inc'    => 'addons/amxmodx/scripting/include/mix_system.inc',
             'scripting/mix_system.sma'            => 'addons/amxmodx/scripting/mix_system.sma',
             'scripting/mix_system_voice_chat.sma' => 'addons/amxmodx/scripting/mix_system_voice_chat.sma',
-            'scripting/player_drop.sma'           => 'addons/amxmodx/scripting/player_drop.sma',
+            'scripting/gameland_admin_tools.sma'  => 'addons/amxmodx/scripting/gameland_admin_tools.sma',
             'configs/MixSettings.ini'             => 'addons/amxmodx/configs/MixSettings.ini',
             'configs/start.cfg'                   => 'addons/amxmodx/configs/start.cfg',
             'configs/stop.cfg'                    => 'addons/amxmodx/configs/stop.cfg',
@@ -523,7 +569,7 @@ class ServerCmd {
         );
 
         return [
-            'success' => count($updatedFiles) > 0,
+            'success' => count($updatedFiles) > 0 && count($failedFiles) === 0,
             'updated' => $updatedFiles,
             'failed'  => $failedFiles,
             'commit'  => $commit,
@@ -561,11 +607,7 @@ class ServerCmd {
             if (file_exists($libPath)) @chmod($libPath, 0755);
         }
 
-        $targets = [
-            'mix_system.sma'            => 'mix_system.amxx',
-            'mix_system_voice_chat.sma' => 'mix_system_voice_chat.amxx',
-            'player_drop.sma'           => 'player_drop.amxx',
-        ];
+        $targets = self::getManagedPluginTargets();
 
         $output       = '';
         $compiledCount = 0;
@@ -590,11 +632,14 @@ class ServerCmd {
                  . " -i" . $includeDir
                  . " 2>&1";
 
-            $res = @shell_exec($cmd);
-            $output .= "=== Compiling {$src} ===\n" . trim((string)$res) . "\n\n";
+            $exitCode = 0;
+            $lines = [];
+            @exec($cmd, $lines, $exitCode);
+            $res = implode("\n", $lines);
+            $output .= "=== Compiling {$src} (exit {$exitCode}) ===\n" . trim($res) . "\n\n";
 
             // Verify the .amxx was actually created and is non-zero
-            if (file_exists($binPath) && filesize($binPath) > 100) {
+            if ($exitCode === 0 && file_exists($binPath) && filesize($binPath) > 100) {
                 $compiledCount++;
             } else {
                 $errorCount++;
@@ -609,6 +654,17 @@ class ServerCmd {
             self::ensureMixRegistered($serverInfo);
         }
 
+        // Persist an authoritative deployment record used by the panel.
+        $metaPath = $serverInfo['cstrike_dir'] . '/addons/amxmodx/configs/.mix_last_build.json';
+        $buildMeta = [
+            'build_time' => date('c'),
+            'commit' => self::getGitRepoStatus(),
+            'success' => $errorCount === 0 && $compiledCount > 0,
+            'compiled_count' => $compiledCount,
+            'targets' => self::getPluginBuildStatus($serverInfo),
+        ];
+        @file_put_contents($metaPath, json_encode($buildMeta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
         if ($compiledCount === 0 && $errorCount === 0) {
             $message = 'No .sma source files found to compile.';
         } elseif ($mainOk) {
@@ -618,7 +674,7 @@ class ServerCmd {
         }
 
         return [
-            'success'        => $mainOk,
+            'success'        => $errorCount === 0 && $compiledCount > 0,
             'output'         => trim($output),
             'compiled_count' => $compiledCount,
             'message'        => $message
@@ -641,7 +697,7 @@ class ServerCmd {
         $candidates = [
             'mix_system.amxx'            => 'AutoMix 5v5 System (main)',
             'mix_system_voice_chat.amxx' => 'AutoMix Voice Chat',
-            'player_drop.amxx'           => 'AutoMix Player Drop Handler',
+            'gameland_admin_tools.amxx'  => 'GameLand admin tools (/map, /j0-/j2, /ff0-/ff1)',
         ];
         foreach ($candidates as $f => $desc) {
             if (file_exists($pluginsDir . '/' . $f)) {
@@ -675,4 +731,3 @@ class ServerCmd {
         }
     }
 }
-
