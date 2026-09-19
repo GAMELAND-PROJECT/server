@@ -39,8 +39,10 @@
 #define PLUGIN  "Mix System ~ Fastcup Mode"
 #endif
 
-#define VERSION "2.19.10"
+#define VERSION "2.19.11"
 #define AUTHOR  "Shadows Adi"
+
+#define SHOOTING_END_SCORE 10
 
 #define IsPlayer(%1)				((1 <= %1 <= MAX_PLAYERS) && is_user_connected(%1))
 #define NATIVE_ERROR				-1
@@ -212,6 +214,7 @@ enum _:Bools
 	#endif
 	bool:bCanChat[MAX_PLAYERS + 1],
 	bool:bIsMixOn,
+	bool:bIsShooting,
 	bool:bShouldRecordMix,
 	bool:bIsKnife,
 	bool:bIsWarm,
@@ -1441,6 +1444,8 @@ public menu_record_match(id, menu, item)
 
 public clcmd_startmix_internal(id, bool:bKnife)
 {
+	new bool:bShootingMap = IsShootingMap()
+
 	#if defined FASTCUP_MODE
 	if(g_eBooleans[bWasKnife])
 	#endif
@@ -1503,16 +1508,17 @@ public clcmd_startmix_internal(id, bool:bKnife)
 	g_iStart = 0
 
 	ResetScore()
+	g_eBooleans[bIsShooting] = bShootingMap
 
 	#if defined FASTCUP_MODE
-	if(!g_eBooleans[bWasKnife])
+	if(!bShootingMap && !g_eBooleans[bWasKnife])
 	{
 		g_eBooleans[bWasKnife] = true
 		clcmd_knife(id)
 		return PLUGIN_HANDLED
 	}
 
-	if(!bKnife)
+	if(!bShootingMap && !bKnife)
 	{
 		return PLUGIN_HANDLED
 	}
@@ -1527,6 +1533,16 @@ public clcmd_startmix_internal(id, bool:bKnife)
 	g_eTeamPause[TERO_PAUSE] = 0
 
 	StartConfig()
+
+	if(bShootingMap)
+	{
+		RandomizeShootingTeams()
+		server_cmd("mp_timelimit 0")
+		server_cmd("mp_maxrounds 0")
+		server_cmd("mp_winlimit 0")
+		server_cmd("mp_freezetime 3")
+		server_cmd("mp_buytime 0.25")
+	}
 
 	server_cmd("sv_restart 1")
 	set_task(3.0, "task_mix_restart1")
@@ -3473,6 +3489,7 @@ ResetScore()
 	HLTV_StopRecording()
 	Client_StopRecordingAll()
 	g_eBooleans[bOvertime] = false  // Fix #5: removed duplicate reset that was on next line
+	g_eBooleans[bIsShooting] = false
 	g_eBooleans[bTeamSwap] = false
 	g_eBooleans[bIsWarm] = false
 	g_eOvertime[FirstOvertime] = false
@@ -3535,6 +3552,11 @@ public task_stop_mix()
 
 stock bool:IsHalf()
 {
+	if(g_eBooleans[bIsShooting])
+	{
+		return false
+	}
+
 	if(!g_eBooleans[bTeamSwap] && g_iRoundNum == 15 && !g_eBooleans[bOvertime])
 	{
 		return true
@@ -3544,11 +3566,62 @@ stock bool:IsHalf()
 
 stock bool:IsLastRound()
 {
+	if(g_eBooleans[bIsShooting])
+	{
+		return g_iScore[CT_SCORE] >= SHOOTING_END_SCORE || g_iScore[TERO_SCORE] >= SHOOTING_END_SCORE
+	}
+
 	if(g_eBooleans[bTeamSwap] && g_iScore[CT_SCORE] == g_ePluginSettings[iMixEndRound] && !g_eBooleans[bOvertime] || g_eBooleans[bTeamSwap] && g_iScore[TERO_SCORE] == g_ePluginSettings[iMixEndRound] && !g_eBooleans[bOvertime])
 	{
 		return true
 	}
 	return false
+}
+
+stock bool:IsShootingMap()
+{
+	new mapName[32]
+	get_mapname(mapName, charsmax(mapName))
+
+	return containi(mapName, "aim_sk_") == 0
+		|| containi(mapName, "awp_") == 0
+		|| containi(mapName, "sk_") == 0
+}
+
+stock RandomizeShootingTeams()
+{
+	new connected[MAX_PLAYERS], players[MAX_PLAYERS], count, playerCount
+	get_players(connected, count, "ch")
+
+	for(new i; i < count; i++)
+	{
+		new id = connected[i]
+		new CsTeams:team = cs_get_user_team(id)
+		if(team == CS_TEAM_T || team == CS_TEAM_CT)
+		{
+			players[playerCount++] = id
+		}
+	}
+
+	for(new i = playerCount - 1; i > 0; i--)
+	{
+		new j = random_num(0, i)
+		new temp = players[i]
+		players[i] = players[j]
+		players[j] = temp
+	}
+
+	new half = (playerCount + 1) / 2
+	for(new i; i < playerCount; i++)
+	{
+		new id = players[i]
+		if(!IsPlayer(id))
+		{
+			continue
+		}
+
+		cs_set_user_team(id, i < half ? CS_TEAM_CT : CS_TEAM_T)
+	}
 }
 
 stock bool:IsPreLastRound()
