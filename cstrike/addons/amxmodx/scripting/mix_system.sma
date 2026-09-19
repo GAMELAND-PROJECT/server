@@ -383,6 +383,7 @@ public plugin_init()
 
 	RegisterHookChain(RG_RoundEnd, "RG_EndRound")
 	RegisterHookChain(RG_RoundEnd, "RG_EndRound_Pre", 0)
+	RegisterHookChain(RG_CSGameRules_CheckWinConditions, "RG_CheckWinConditions_Pre")
 	RegisterHookChain(RG_CSGameRules_PlayerKilled, "RG_Player_Killed_Post", 1)
 	RegisterHookChain(RG_CWeaponBox_SetModel, "RG_Weapon_Remove")
 	RegisterHookChain(RG_HandleMenu_ChooseTeam, "RG_ChooseTeam_Pre")
@@ -1394,6 +1395,51 @@ public clcmd_startmix(id, bool:bKnife)
 	return PLUGIN_HANDLED
 }
 
+public ApplyShootingLoadout()
+{
+	if(!g_eBooleans[bIsMixOn] || !IsShootingMap())
+	{
+		return
+	}
+
+	new players[MAX_PLAYERS], count
+	get_players(players, count, "ch")
+
+	new mapName[32]
+	get_mapname(mapName, charsmax(mapName))
+	new bool:bAwp = containi(mapName, "awp_") == 0 || containi(mapName, "aim_sk_awp") == 0
+
+	for(new i; i < count; i++)
+	{
+		new id = players[i]
+		new CsTeams:team = cs_get_user_team(id)
+		if(!IsPlayer(id) || (team != CS_TEAM_T && team != CS_TEAM_CT))
+		{
+			continue
+		}
+
+		if(bAwp)
+		{
+			rg_give_item(id, "weapon_awp", GT_REPLACE)
+			rg_set_user_bpammo(id, WEAPON_AWP, 90)
+		}
+		else if(team == CS_TEAM_CT)
+		{
+			rg_give_item(id, "weapon_m4a1", GT_REPLACE)
+			rg_set_user_bpammo(id, WEAPON_M4A1, 90)
+		}
+		else
+		{
+			rg_give_item(id, "weapon_ak47", GT_REPLACE)
+			rg_set_user_bpammo(id, WEAPON_AK47, 90)
+		}
+
+		rg_give_item(id, "weapon_deagle", GT_REPLACE)
+		rg_set_user_bpammo(id, WEAPON_DEAGLE, 35)
+		rg_set_user_armor(id, 100, ARMOR_VESTHELM)
+	}
+}
+
 stock ShowRecordMatchMenu(id, bool:bKnife)
 {
 	if(!is_user_connected(id))
@@ -1544,6 +1590,7 @@ public clcmd_startmix_internal(id, bool:bKnife)
 		server_cmd("mp_winlimit 0")
 		server_cmd("mp_freezetime 3")
 		server_cmd("mp_buytime 0.25")
+		set_task(0.4, "ApplyShootingLoadout")
 	}
 
 	server_cmd("sv_restart 1")
@@ -1832,6 +1879,11 @@ public RG_EndRound(WinStatus:status, ScenarioEventEndRound:event, Float:tmDelay)
 		return
 	}
 
+	if(g_eBooleans[bIsWarm])
+	{
+		return
+	}
+
 	set_task(1.0, "task_end_round", any:status)
 }
 
@@ -1853,6 +1905,16 @@ public RG_EndRound_Pre(WinStatus:status, ScenarioEventEndRound:event, Float:tmDe
 	}
 
 	return HC_SUPERCEDE
+}
+
+public RG_CheckWinConditions_Pre()
+{
+	if(g_eBooleans[bIsWarm])
+	{
+		return HC_SUPERCEDE
+	}
+
+	return HC_CONTINUE
 }
 
 public task_end_round(index)
