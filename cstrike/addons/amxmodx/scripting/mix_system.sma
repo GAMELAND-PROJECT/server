@@ -1645,7 +1645,9 @@ public clcmd_startmix_internal(id, bool:bKnife)
 		g_bShootingOpening = true
 		RandomizeShootingTeams()
 		server_cmd("mp_timelimit 0")
-		server_cmd("mp_maxrounds 10")
+		// The plugin owns the ten-round shooting match. Keep the engine
+		// max-round limit disabled so it cannot trigger a map change.
+		server_cmd("mp_maxrounds 0")
 		server_cmd("mp_winlimit 0")
 		server_cmd("mp_freezetime 7")
 		server_cmd("mp_buytime 0.25")
