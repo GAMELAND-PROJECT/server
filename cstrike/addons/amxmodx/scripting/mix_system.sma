@@ -1333,57 +1333,12 @@ stock MakeDemoSafeName(szName[], const iLen)
 
 stock Client_StartRecordingAll(const szDemoPrefix[])
 {
-	new szMapName[32], szDate[12], szTime[12], szUnix[16]
-	get_mapname(szMapName, charsmax(szMapName))
-	MakeDemoSafeName(szMapName, charsmax(szMapName))
-	
-	get_time("%Y", szDate, charsmax(szDate))
-	new iYear = str_to_num(szDate)
-	get_time("%m", szDate, charsmax(szDate))
-	new iMonth = str_to_num(szDate)
-	get_time("%d", szDate, charsmax(szDate))
-	new iDay = str_to_num(szDate)
-	
-	get_time("%H-%M-%S", szTime, charsmax(szTime))
-	num_to_str(get_systime(), szUnix, charsmax(szUnix))
-	
-	new jy, jm, jd
-	gregorian_to_jalali(iYear, iMonth, iDay, jy, jm, jd)
-
-	static iPlayer, iPlayers[MAX_PLAYERS], iNum
-	get_players(iPlayers, iNum, "ch") // skip bots and hltv
-
-	new szPlayerName[32], szSafeName[32], szAuthId[35], szAuthSafe[35], szFileName[128]
-	for(new i = 0; i < iNum; i++)
-	{
-		iPlayer = iPlayers[i]
-		get_user_name(iPlayer, szPlayerName, charsmax(szPlayerName))
-		get_user_authid(iPlayer, szAuthId, charsmax(szAuthId))
-		
-		copy(szSafeName, charsmax(szSafeName), szPlayerName)
-		copy(szAuthSafe, charsmax(szAuthSafe), szAuthId)
-		MakeDemoSafeName(szSafeName, charsmax(szSafeName))
-		MakeDemoSafeName(szAuthSafe, charsmax(szAuthSafe))
-
-		formatex(szFileName, charsmax(szFileName), "%s_%s_%s_%s_%04d-%02d-%02d_%s_%s_%d",
-			szDemoPrefix, szSafeName, szAuthSafe, szMapName, jy, jm, jd, szTime, szUnix, iPlayer)
-		
-		client_cmd(iPlayer, "record ^"%s^"", szFileName)
-		client_print_color(iPlayer, iPlayer, "^4[GAMELAND] ^1Auto POV Demo recording ^3STARTED^1: ^4%s.dem", szFileName)
-	}
+	client_print_color(0, print_team_default, "^4[GAMELAND] ^1Client POV demo is local-only now. Players can press ^3F5^1 to start or stop their own demo.")
 }
 
 stock Client_StopRecordingAll()
 {
-	static iPlayer, iPlayers[MAX_PLAYERS], iNum
-	get_players(iPlayers, iNum, "ch")
-
-	for(new i = 0; i < iNum; i++)
-	{
-		iPlayer = iPlayers[i]
-		client_cmd(iPlayer, "stop")
-		client_print_color(iPlayer, iPlayer, "^4[GAMELAND] ^1Auto POV Demo recording ^3STOPPED^1. File saved in your cstrike folder.")
-	}
+	client_print_color(0, print_team_default, "^4[GAMELAND] ^1Client POV demo is controlled locally with ^3F5^1.")
 }
 
 
@@ -3391,24 +3346,8 @@ public clcmd_start_demo(id)
 		}
 	}
 
-	switch(g_eDemoSettings[iDemoType])
-	{
-		case DEMO_MAPNAME:
-		{
-			new szMapName[32]
-			get_mapname(szMapName, charsmax(szMapName))
-
-			client_cmd(target, "record ^"%s^"", szMapName)
-		}
-		case DEMO_CUSTOM_NAME:
-		{
-			client_cmd(target, "record ^"%s^"", g_eDemoSettings[szDemoName])
-		}
-		case DEMO_CIN_NAME:
-		{
-			client_cmd(target, "record ^"%s^"", arg2)
-		}
-	}
+	client_print_color(target, target, "^4[GAMELAND] ^1Admin requested a POV demo. Press ^3F5^1 and choose ^3Start demo^1.")
+	client_print_color(id, id, "^4%s ^1Client POV demo is local-only now. Player must press ^3F5^1.", g_ePluginSettings[szPrefix])
 
 	return PLUGIN_HANDLED
 }
@@ -3466,7 +3405,8 @@ public clcmd_stop_demo(id)
 		}
 	}
 
-	client_cmd(target, "stop")
+	client_print_color(target, target, "^4[GAMELAND] ^1Admin requested demo stop. Press ^3F5^1 and choose ^3Stop demo^1.")
+	client_print_color(id, id, "^4%s ^1Client POV demo is local-only now. Player must press ^3F5^1.", g_ePluginSettings[szPrefix])
 
 	return PLUGIN_HANDLED
 }
@@ -4026,7 +3966,7 @@ public clcmd_hs1(id)
 	}
 
 	HLTV_StartRecording("GL_Mix")
-	Client_StartRecordingAll("GL_Mix")
+	client_print_color(id ? id : 0, print_team_default, "^4[GAMELAND] ^1HLTV recording started. Client POV recording is local-only; players use ^3F5^1.")
 	return PLUGIN_HANDLED
 }
 
