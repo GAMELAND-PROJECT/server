@@ -50,6 +50,17 @@ if [ -f "mix_system_voice_chat.sma" ]; then
     echo "  -> mix_system_voice_chat.amxx compiled successfully!"
 fi
 
+# Compile GAMELAND admin helpers (/map, /t1-/t3, /ff0-/ff1, /j0-/j2).
+if [ -f "gameland_admin_tools.sma" ]; then
+    echo "[3b/5] Compiling gameland_admin_tools.sma..."
+    ./amxxpc gameland_admin_tools.sma -o"${PLUGINS_DIR}/gameland_admin_tools.amxx"
+    if [ ! -f "${PLUGINS_DIR}/gameland_admin_tools.amxx" ]; then
+        echo "[ERROR] Failed to compile gameland_admin_tools.sma!"
+        exit 1
+    fi
+    echo "  -> gameland_admin_tools.amxx compiled successfully!"
+fi
+
 cd "${PROJECT_DIR}"
 
 # ─── 4. Register in plugins.ini ─────────────────────────
@@ -68,6 +79,13 @@ if ! grep -qE '^[[:space:]]*mix_system_voice_chat\.amxx([[:space:]]|$)' "${PLUGI
     echo "  -> Added mix_system_voice_chat.amxx to plugins.ini"
 else
     echo "  -> mix_system_voice_chat.amxx already present in plugins.ini"
+fi
+
+if [ -f "${PLUGINS_DIR}/gameland_admin_tools.amxx" ] && ! grep -qE '^[[:space:]]*gameland_admin_tools\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
+    printf '%s\n' "gameland_admin_tools.amxx" >> "${PLUGINS_INI}"
+    echo "  -> Added gameland_admin_tools.amxx to plugins.ini"
+else
+    echo "  -> gameland_admin_tools.amxx already present in plugins.ini or source is unavailable"
 fi
 
 # ─── 5. Adjust start.sh for 5v5 Match (12 Slots) ───────
