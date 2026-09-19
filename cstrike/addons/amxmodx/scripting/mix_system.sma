@@ -2982,7 +2982,7 @@ public task_give_equipment(iPlayer)
 	if(iTeam == TEAM_UNASSIGNED || iTeam == TEAM_SPECTATOR)
 		return 
 
-	rg_remove_all_items(iPlayer, false)
+	rg_remove_all_items(iPlayer, g_eBooleans[bIsShooting] && IsShootingMap())
 	rg_set_user_armor(iPlayer, 100, ARMOR_KEVLAR)
 
 	// Shooting maps own their weapon rules.  The regular mix equipment path
