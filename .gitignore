@@ -1,1 +1,6 @@
 # Intentionally keep this base pack fully trackable.
+
+# This third-party BSP contains embedded strings that GitHub Push Protection
+# detects as cloud credentials. Keep the map on deployed servers, but do not
+# publish the binary in the Git repository.
+cstrike/maps/de_forge.bsp
