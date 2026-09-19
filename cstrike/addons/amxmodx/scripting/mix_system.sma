@@ -1333,6 +1333,7 @@ stock MakeDemoSafeName(szName[], const iLen)
 
 stock Client_StartRecordingAll(const szDemoPrefix[])
 {
+	#pragma unused szDemoPrefix
 	client_print_color(0, print_team_default, "^4[GAMELAND] ^1Client POV demo is local-only now. Players can press ^3F5^1 to start or stop their own demo.")
 }
 
@@ -1397,10 +1398,10 @@ stock ShowRecordMatchMenu(id, bool:bKnife)
 		return
 	}
 
-	client_print_color(id, print_team_default, "^4[Debug] ^1Displaying demo record menu to id: %d", id)
+	client_print_color(id, print_team_default, "^4[Debug] ^1Displaying HLTV record menu to id: %d", id)
 
 	new szTitle[128]
-	formatex(szTitle, charsmax(szTitle), "\y[GAMELAND]\w Do you want to record this match?")
+	formatex(szTitle, charsmax(szTitle), "\y[GAMELAND]\w Start server-side HLTV recording?")
 	new menu = menu_create(szTitle, "menu_record_match")
 	
 	new szInfo[2]
@@ -2665,7 +2666,7 @@ public task_show_score()
 			client_print_color(iPlayer, iPlayer, "^4%s %L", g_ePluginSettings[szPrefix], LANG_SERVER, "MIX_WON_BY_X_TEAM", szTemp)
 			client_print_color(iPlayer, iPlayer, "^4%s %L", g_ePluginSettings[szPrefix], LANG_PLAYER, "MIX_END_SCORE", LANG_SERVER, "CT_TEAM", g_iScore[CT_SCORE], LANG_SERVER, "TERO_TEAM", g_iScore[TERO_SCORE])
 		
-			// client_cmd(iPlayer, "stop") - client recording disabled
+			// Client POV demo recording is controlled locally by the player.
 		}
 
 		if(g_eOvertime[FirstOvertime] && !IsHalf() && !OvertimeFinished())
@@ -2697,7 +2698,7 @@ public task_show_score()
 			client_print_color(iPlayer, iPlayer, "^4%s %L", g_ePluginSettings[szPrefix], LANG_SERVER, "MIX_WON_BY_X_TEAM_IN_OVERTIME", szTemp)
 			client_print_color(iPlayer, iPlayer, "^4%s %L", g_ePluginSettings[szPrefix], LANG_PLAYER, "MIX_OVERTIME_END_SCORE", LANG_SERVER, "CT_TEAM", g_iOvertimeScore[CT_OVER_SCORE], LANG_SERVER, "TERO_TEAM", g_iOvertimeScore[TERO_OVER_SCORE])
 		
-			// client_cmd(iPlayer, "stop") - client recording disabled
+			// Client POV demo recording is controlled locally by the player.
 		}
 
 		g_iPlayerKills[iPlayer] = 0
