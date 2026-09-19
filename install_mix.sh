@@ -54,14 +54,20 @@ cd "${PROJECT_DIR}"
 
 # ─── 4. Register in plugins.ini ─────────────────────────
 echo "[4/5] Registering plugins in plugins.ini..."
-if ! grep -q "mix_system.amxx" "${PLUGINS_INI}"; then
+if ! grep -qE '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
     echo "" >> "${PLUGINS_INI}"
     echo "; ─── GameLand 5v5 AutoMix System ─────────" >> "${PLUGINS_INI}"
     echo "mix_system.amxx" >> "${PLUGINS_INI}"
-    echo "mix_system_voice_chat.amxx" >> "${PLUGINS_INI}"
     echo "  -> Added mix plugins to plugins.ini"
 else
     echo "  -> mix_system.amxx already present in plugins.ini"
+fi
+
+if ! grep -qE '^[[:space:]]*mix_system_voice_chat\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
+    printf '%s\n' "mix_system_voice_chat.amxx" >> "${PLUGINS_INI}"
+    echo "  -> Added mix_system_voice_chat.amxx to plugins.ini"
+else
+    echo "  -> mix_system_voice_chat.amxx already present in plugins.ini"
 fi
 
 # ─── 5. Adjust start.sh for 5v5 Match (12 Slots) ───────
