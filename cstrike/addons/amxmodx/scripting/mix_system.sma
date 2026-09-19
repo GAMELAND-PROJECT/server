@@ -2984,6 +2984,38 @@ public task_give_equipment(iPlayer)
 
 	rg_remove_all_items(iPlayer, false)
 	rg_set_user_armor(iPlayer, 100, ARMOR_KEVLAR)
+
+	// Shooting maps own their weapon rules.  The regular mix equipment path
+	// used to run after ApplyShootingLoadout and replace the guns with a knife
+	// and the default pistol on every restart/round setup.
+	if(g_eBooleans[bIsShooting] && IsShootingMap())
+	{
+		new mapName[32]
+		get_mapname(mapName, charsmax(mapName))
+		new bool:bAwp = containi(mapName, "awp_") == 0 || containi(mapName, "aim_sk_awp") == 0
+
+		if(bAwp)
+		{
+			rg_give_item(iPlayer, "weapon_awp", GT_REPLACE)
+			rg_set_user_bpammo(iPlayer, WEAPON_AWP, 90)
+		}
+		else if(iTeam == TEAM_CT)
+		{
+			rg_give_item(iPlayer, "weapon_m4a1", GT_REPLACE)
+			rg_set_user_bpammo(iPlayer, WEAPON_M4A1, 90)
+		}
+		else
+		{
+			rg_give_item(iPlayer, "weapon_ak47", GT_REPLACE)
+			rg_set_user_bpammo(iPlayer, WEAPON_AK47, 90)
+		}
+
+		rg_give_item(iPlayer, "weapon_deagle", GT_REPLACE)
+		rg_set_user_bpammo(iPlayer, WEAPON_DEAGLE, 35)
+		rg_set_user_armor(iPlayer, 100, ARMOR_VESTHELM)
+		return
+	}
+
 	rg_give_item(iPlayer, "weapon_knife")
 
 	switch(iTeam)
