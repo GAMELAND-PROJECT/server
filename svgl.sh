@@ -114,7 +114,8 @@ log_file_for() {
 }
 
 is_running() {
-    systemctl is-active --quiet "$(service_name_for "${1:-main}")"
+    command -v systemctl >/dev/null 2>&1 || return 1
+    systemctl is-active --quiet "$(service_name_for "${1:-main}")" 2>/dev/null
 }
 
 control_server() {
@@ -346,22 +347,250 @@ attach_console() {
     fi
 }
 
+pause_menu() {
+    read -r -p "  Press Enter to continue..."
+}
+
+server_rows() {
+    ensure_registry
+    echo "main|GameLand Main|27015|$LEGACY_SERVICE|gameland_server|$(is_running main && echo running || echo stopped)"
+    if command -v php >/dev/null 2>&1; then
+        php -r '
+            $f = $argv[1];
+            $j = json_decode(@file_get_contents($f), true);
+            foreach (($j["servers"] ?? []) as $s) {
+                $id = $s["id"] ?? "";
+                if ($id === "") continue;
+                $service = $s["service_name"] ?? ("gameland@$id.service");
+                $status = trim(shell_exec("systemctl is-active " . escapeshellarg($service) . " 2>/dev/null")) === "active" ? "running" : "stopped";
+                echo $id . "|" . ($s["name"] ?? $id) . "|" . ($s["port"] ?? "-") . "|" . $service . "|gameland_" . $id . "|" . $status . "\n";
+            }
+        ' "$REGISTRY_FILE"
+    fi
+}
+
+print_numbered_servers() {
+    local index=1 row id name port svc tmux_name status color
+    while IFS='|' read -r id name port svc tmux_name status; do
+        [[ -z "$id" ]] && continue
+        color="$RED"
+        [[ "$status" == "running" ]] && color="$GREEN"
+        printf "  %2d) %-14s %-28s port:%-6s ${color}%-8s${NC} service:%s\n" \
+            "$index" "$id" "$name" "$port" "$status" "$svc"
+        index=$((index + 1))
+    done < <(server_rows)
+}
+
+select_server_id() {
+    local prompt="${1:-Select server number}"
+    local rows=()
+    local row choice
+    while IFS= read -r row; do
+        [[ -n "$row" ]] && rows+=("$row")
+    done < <(server_rows)
+
+    if [[ "${#rows[@]}" -eq 0 ]]; then
+        echo ""
+        return
+    fi
+
+    print_numbered_servers >&2
+    echo -e "   0) Back" >&2
+    read -r -p "  ${prompt}: " choice >&2
+    if [[ "$choice" == "0" || -z "$choice" ]]; then
+        echo ""
+        return
+    fi
+    if [[ ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "${#rows[@]}" ]]; then
+        echo ""
+        return
+    fi
+    IFS='|' read -r selected_id _ <<< "${rows[$((choice - 1))]}"
+    echo "$selected_id"
+}
+
+set_cfg_value() {
+    local cfg="$1" key="$2" value="$3"
+    mkdir -p "$(dirname "$cfg")"
+    touch "$cfg"
+    if grep -Eq "^[[:space:]]*${key}[[:space:]]+" "$cfg"; then
+        sed -i -E "s|^[[:space:]]*${key}[[:space:]]+.*|${key} \"${value//\"/}\"|" "$cfg"
+    else
+        echo "${key} \"${value//\"/}\"" >> "$cfg"
+    fi
+}
+
+set_env_value() {
+    local env_file="$1" key="$2" value="$3"
+    touch "$env_file"
+    if grep -Eq "^${key}=" "$env_file"; then
+        sed -i -E "s|^${key}=.*|${key}=\"${value//\"/}\"|" "$env_file"
+    else
+        echo "${key}=\"${value//\"/}\"" >> "$env_file"
+    fi
+}
+
+set_start_value() {
+    local start_file="$1" key="$2" value="$3"
+    if [[ ! -f "$start_file" ]]; then
+        echo -e "${RED}[ERROR] start.sh not found: ${start_file}${NC}"
+        return 1
+    fi
+    if grep -Eq "^${key}=" "$start_file"; then
+        sed -i -E "s|^${key}=.*|${key}=\"${value//\"/}\"|" "$start_file"
+    else
+        echo "${key}=\"${value//\"/}\"" >> "$start_file"
+    fi
+}
+
+update_registry_field() {
+    local id="$1" field="$2" value="$3"
+    php -r '
+        $file = $argv[1]; $id = $argv[2]; $field = $argv[3]; $value = $argv[4];
+        $data = json_decode(@file_get_contents($file), true);
+        if (!is_array($data)) exit(1);
+        foreach ($data["servers"] ?? [] as &$s) {
+            if (($s["id"] ?? "") === $id) {
+                $s[$field] = ($field === "port") ? (int)$value : $value;
+                break;
+            }
+        }
+        file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+    ' "$REGISTRY_FILE" "$id" "$field" "$value"
+}
+
+edit_server_settings() {
+    local id="$1" env_file server_dir current_port current_slots current_map current_name
+    if [[ "$id" == "main" ]]; then
+        server_dir="$PROJECT_DIR"
+        current_name="GameLand Main"
+    else
+        env_file="${INSTANCES_DIR}/${id}.env"
+        if [[ ! -f "$env_file" ]]; then
+            echo -e "${RED}[ERROR] Instance env not found: ${env_file}${NC}"
+            pause_menu
+            return
+        fi
+        # shellcheck disable=SC1090
+        source "$env_file"
+        server_dir="${SERVER_DIR:-${INSTANCE_ROOT_DEFAULT}/${id}}"
+        current_name="$id"
+    fi
+
+    echo -e "${CYAN}Editing server: ${BOLD}${id}${NC}"
+    read -r -p "  Panel name (empty = keep): " new_name
+    read -r -p "  In-game hostname (empty = keep): " new_hostname
+    read -r -p "  Port (empty = keep): " new_port
+    read -r -p "  Slots 1-32 (empty = keep): " new_slots
+    read -r -p "  Start map (empty = keep): " new_map
+
+    if [[ -n "$new_port" && ! "$new_port" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}[ERROR] Invalid port.${NC}"
+        pause_menu
+        return
+    fi
+    if [[ -n "$new_slots" && ( ! "$new_slots" =~ ^[0-9]+$ || "$new_slots" -lt 1 || "$new_slots" -gt 32 ) ]]; then
+        echo -e "${RED}[ERROR] Invalid slots. Use 1-32.${NC}"
+        pause_menu
+        return
+    fi
+
+    [[ -n "$new_hostname" ]] && set_cfg_value "${server_dir}/cstrike/server.cfg" "hostname" "$new_hostname"
+
+    if [[ "$id" == "main" ]]; then
+        [[ -n "$new_port" ]] && set_start_value "${server_dir}/start.sh" "SERVER_PORT" "$new_port"
+        [[ -n "$new_slots" ]] && set_start_value "${server_dir}/start.sh" "MAX_PLAYERS" "$new_slots"
+        [[ -n "$new_map" ]] && set_start_value "${server_dir}/start.sh" "MAP" "$new_map"
+    else
+        [[ -n "$new_name" ]] && update_registry_field "$id" "name" "$new_name"
+        [[ -n "$new_port" ]] && { set_env_value "$env_file" "SERVER_PORT" "$new_port"; update_registry_field "$id" "port" "$new_port"; }
+        [[ -n "$new_slots" ]] && set_env_value "$env_file" "MAX_PLAYERS" "$new_slots"
+        [[ -n "$new_map" ]] && set_env_value "$env_file" "MAP" "$new_map"
+    fi
+
+    echo -e "${GREEN}[OK] Settings saved. Restart the server to apply runtime launch changes.${NC}"
+    pause_menu
+}
+
+server_action_menu() {
+    local id="$1"
+    [[ -z "$id" ]] && return
+    while true; do
+        clear 2>/dev/null || true
+        echo -e "${CYAN}==========================================${NC}"
+        echo -e "${BOLD}${GREEN}       Server Operations: ${id}       ${NC}"
+        echo -e "${CYAN}==========================================${NC}"
+        list_servers | awk -v id="$id" 'NR==1 || $1==id { print }'
+        echo -e "${CYAN}------------------------------------------${NC}"
+        echo -e "  1) ${GREEN}Start${NC}"
+        echo -e "  2) ${RED}Stop${NC}"
+        echo -e "  3) ${YELLOW}Restart${NC}"
+        echo -e "  4) Open ${CYAN}Live Console${NC}"
+        echo -e "  5) View ${CYAN}systemd Logs${NC}"
+        echo -e "  6) View ${CYAN}Server Log File${NC}"
+        echo -e "  7) Edit Name / Hostname / Port / Slots / Map"
+        if [[ "$id" != "main" ]]; then
+            echo -e "  8) ${YELLOW}Remove from Manager${NC} (keep files)"
+            echo -e "  9) ${RED}Purge Completely${NC} (delete files)"
+        fi
+        echo -e "  0) Back"
+        echo -e "${CYAN}==========================================${NC}"
+        read -r -p "  Select: " act
+        case "$act" in
+            1) control_server start "$id"; pause_menu ;;
+            2) control_server stop "$id"; pause_menu ;;
+            3) control_server restart "$id"; pause_menu ;;
+            4) attach_console "$id" ;;
+            5) journalctl -u "$(service_name_for "$id")" -f ;;
+            6) tail -f "$(log_file_for "$id")" ;;
+            7) edit_server_settings "$id" ;;
+            8)
+                [[ "$id" == "main" ]] && continue
+                read -r -p "  Remove '${id}' from manager but keep files? [yes/NO]: " ok
+                [[ "$ok" == "yes" ]] && remove_instance "$id" && return
+                ;;
+            9)
+                [[ "$id" == "main" ]] && continue
+                read -r -p "  PURGE '${id}' and delete its files? Type PURGE: " ok
+                [[ "$ok" == "PURGE" ]] && remove_instance "$id" "--purge" && return
+                ;;
+            0) return ;;
+            *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+servers_browser_menu() {
+    while true; do
+        clear 2>/dev/null || true
+        echo -e "${CYAN}==========================================${NC}"
+        echo -e "${BOLD}${GREEN}              SVGL Servers               ${NC}"
+        echo -e "${CYAN}==========================================${NC}"
+        local id
+        id="$(select_server_id "Select server number")"
+        if [[ -z "$id" ]]; then
+            return
+        fi
+        server_action_menu "$id"
+    done
+}
+
 show_menu() {
-    clear
+    clear 2>/dev/null || true
     echo -e "${CYAN}==========================================${NC}"
     echo -e "${BOLD}${GREEN}      SVGL - GameLand Server Manager      ${NC}"
     echo -e "${CYAN}==========================================${NC}"
-    list_servers
+    printf "  Main: "
+    if is_running main; then
+        echo -e "${GREEN}[ RUNNING ]${NC}"
+    else
+        echo -e "${RED}[ STOPPED ]${NC}"
+    fi
     echo -e "${CYAN}------------------------------------------${NC}"
-    echo -e "  1) ${GREEN}Start Main Server${NC}"
-    echo -e "  2) ${RED}Stop Main Server${NC}"
-    echo -e "  3) ${YELLOW}Restart Main Server${NC}"
-    echo -e "  4) Open ${CYAN}Main Live Console${NC}"
-    echo -e "  5) View ${CYAN}Main systemd Logs${NC}"
-    echo -e "  6) View ${CYAN}Main Server Log File${NC}"
-    echo -e "  7) ${YELLOW}Update from GitHub${NC}"
-    echo -e "  8) ${GREEN}Add New Server Instance${NC}"
-    echo -e "  9) Manage Instance by ID"
+    echo -e "  1) ${CYAN}Servers${NC} (select and manage)"
+    echo -e "  2) ${GREEN}Add New Server Instance${NC}"
+    echo -e "  3) ${YELLOW}Update from GitHub${NC}"
+    echo -e "  4) List Servers"
     echo -e "  0) Exit"
     echo -e "${CYAN}==========================================${NC}"
 }
@@ -369,36 +598,18 @@ show_menu() {
 interactive_loop() {
     while true; do
         show_menu
-        read -r -p "  Select [0-9]: " choice
+        read -r -p "  Select [0-4]: " choice
         case "$choice" in
-            1) control_server start main; sleep 2 ;;
-            2) control_server stop main; tmux kill-session -t gameland_server 2>/dev/null || true; sleep 1 ;;
-            3) control_server restart main; sleep 2 ;;
-            4) attach_console main ;;
-            5) journalctl -u "$LEGACY_SERVICE" -f ;;
-            6) tail -f "$(log_file_for main)" ;;
-            7) cd "$PROJECT_DIR" && git pull; sleep 2 ;;
-            8)
+            1) servers_browser_menu ;;
+            2)
                 read -r -p "  Instance id (example: cs2): " id
                 read -r -p "  Port (example: 27016): " port
                 read -r -p "  Display name: " name
                 create_instance "$id" "$port" "$name"
                 sleep 3
                 ;;
-            9)
-                read -r -p "  Instance id: " id
-                echo "  1) start  2) stop  3) restart  4) console  5) logs  6) tail"
-                read -r -p "  Action: " act
-                case "$act" in
-                    1) control_server start "$id" ;;
-                    2) control_server stop "$id" ;;
-                    3) control_server restart "$id" ;;
-                    4) attach_console "$id" ;;
-                    5) journalctl -u "$(service_name_for "$id")" -f ;;
-                    6) tail -f "$(log_file_for "$id")" ;;
-                esac
-                sleep 2
-                ;;
+            3) cd "$PROJECT_DIR" && git pull; pause_menu ;;
+            4) list_servers; pause_menu ;;
             0) exit 0 ;;
             *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
         esac
