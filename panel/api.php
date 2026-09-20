@@ -22,6 +22,45 @@ $activeServer = get_active_server();
 
 switch ($action) {
 
+    case 'list_servers':
+        global $SERVERS;
+        echo json_encode(['success' => true, 'servers' => ServerCmd::getServerList($SERVERS)]);
+        break;
+
+    case 'create_server':
+        $id = $_POST['server_id'] ?? '';
+        $port = $_POST['port'] ?? '';
+        $name = $_POST['name'] ?? '';
+        $slots = $_POST['slots'] ?? 12;
+        $hostname = $_POST['hostname'] ?? $name;
+        $res = ServerCmd::createServerInstance($id, $port, $name, $slots, $hostname);
+        echo json_encode($res);
+        break;
+
+    case 'remove_server':
+        $id = $_POST['server_id'] ?? '';
+        $purge = ($_POST['purge'] ?? '0') === '1';
+        $res = ServerCmd::removeServerInstance($id, $purge);
+        if (($res['success'] ?? false) && ($_SESSION['active_server_id'] ?? '') === $id) {
+            unset($_SESSION['active_server_id']);
+        }
+        echo json_encode($res);
+        break;
+
+    case 'update_server':
+        $id = $_POST['server_id'] ?? '';
+        $data = [
+            'name' => $_POST['name'] ?? '',
+            'hostname' => $_POST['hostname'] ?? '',
+            'port' => $_POST['port'] ?? '',
+            'slots' => $_POST['slots'] ?? '',
+            'map' => $_POST['map'] ?? '',
+            'rcon_password' => $_POST['rcon_password'] ?? '',
+        ];
+        $res = ServerCmd::updateServerInstance($id, $data);
+        echo json_encode($res);
+        break;
+
     // ─── RCON Raw Command (Console page) ────────────────────────────────────
     case 'rcon_command':
         $command = trim($_POST['command'] ?? '');

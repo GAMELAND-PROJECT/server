@@ -1,0 +1,18 @@
+[Unit]
+Description=GameLand CS 1.6 Dedicated Server Instance %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Environment="MANAGER_ROOT=/opt/gameland/server"
+WorkingDirectory=/opt/gameland/server
+
+ExecStart=/bin/bash /opt/gameland/server/start_instance.sh %i
+ExecStop=/bin/bash /opt/gameland/server/stop_instance.sh %i
+ExecReload=/bin/bash -c '/opt/gameland/server/stop_instance.sh %i; sleep 2; /opt/gameland/server/start_instance.sh %i'
+
+[Install]
+WantedBy=multi-user.target

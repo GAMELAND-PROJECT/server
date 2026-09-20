@@ -15,6 +15,8 @@ fi
 PROJECT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 SERVICE_SRC="${PROJECT_DIR}/gameland.service"
 SERVICE_DEST="/etc/systemd/system/gameland.service"
+INSTANCE_SERVICE_SRC="${PROJECT_DIR}/gameland@.service"
+INSTANCE_SERVICE_DEST="/etc/systemd/system/gameland@.service"
 
 echo "================================================="
 echo "  GameLand CS 1.6 - Service Installer"
@@ -37,6 +39,11 @@ echo "[2/5] Setting PROJECT_ROOT to: ${PROJECT_DIR}"
 sed "s|\${PROJECT_ROOT}|${PROJECT_DIR}|g" \
     "${SERVICE_SRC}" > "${SERVICE_DEST}"
 echo "  -> Service file written to ${SERVICE_DEST}"
+if [ -f "${INSTANCE_SERVICE_SRC}" ]; then
+    sed "s|/opt/gameland/server|${PROJECT_DIR}|g" \
+        "${INSTANCE_SERVICE_SRC}" > "${INSTANCE_SERVICE_DEST}"
+    echo "  -> Instance template written to ${INSTANCE_SERVICE_DEST}"
+fi
 echo "  -> Verify:"
 grep -E "WorkingDirectory|ExecStart|ExecStop|PIDFile" "${SERVICE_DEST}" | sed 's/^/     /'
 
@@ -44,6 +51,8 @@ grep -E "WorkingDirectory|ExecStart|ExecStop|PIDFile" "${SERVICE_DEST}" | sed 's
 echo "[3/5] Setting execute permissions..."
 chmod +x "${PROJECT_DIR}/start.sh"
 chmod +x "${PROJECT_DIR}/svgl.sh"
+chmod +x "${PROJECT_DIR}/start_instance.sh" 2>/dev/null || true
+chmod +x "${PROJECT_DIR}/stop_instance.sh" 2>/dev/null || true
 chmod +x "${PROJECT_DIR}/hlds_linux" 2>/dev/null || true
 chmod +x "${PROJECT_DIR}/hlds_run" 2>/dev/null || true
 

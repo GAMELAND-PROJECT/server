@@ -84,7 +84,7 @@ echo "[3/5] Setting up secure sudoers permissions for www-data..."
 SUDOERS_FILE="/etc/sudoers.d/gameland-panel"
 cat > "${SUDOERS_FILE}" <<EOF
 # Allow web panel user (www-data) to manage gameland services without password
-www-data ALL=(ALL) NOPASSWD: /bin/systemctl start gameland*, /bin/systemctl stop gameland*, /bin/systemctl restart gameland*, /bin/systemctl is-active gameland*
+www-data ALL=(ALL) NOPASSWD: /bin/systemctl start gameland*, /bin/systemctl stop gameland*, /bin/systemctl restart gameland*, /bin/systemctl is-active gameland*, /bin/bash ${SERVER_DIR}/svgl.sh *
 EOF
 chmod 0440 "${SUDOERS_FILE}"
 
@@ -110,6 +110,12 @@ chmod +x "${SERVER_DIR}/cstrike/addons/amxmodx/scripting/amxxpc32.so" || true
 # Allow editing start.sh for maxplayers switch
 chown www-data:www-data "${SERVER_DIR}/start.sh" || true
 chmod 775 "${SERVER_DIR}/start.sh" || true
+chmod +x "${SERVER_DIR}/svgl.sh" "${SERVER_DIR}/start_instance.sh" "${SERVER_DIR}/stop_instance.sh" 2>/dev/null || true
+
+# Allow panel to keep the multi-server registry and instance env files updated
+mkdir -p "${SERVER_DIR}/instances" /opt/gameland/instances
+chown -R www-data:www-data "${SERVER_DIR}/instances" /opt/gameland/instances 2>/dev/null || true
+chmod -R 775 "${SERVER_DIR}/instances" /opt/gameland/instances 2>/dev/null || true
 
 # Make sure logs dir is readable
 mkdir -p "${SERVER_DIR}/logs"

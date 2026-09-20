@@ -3,6 +3,308 @@ require_once __DIR__ . '/../config.php';
 
 class ServerCmd {
 
+    public static function getManagerRoot() {
+        return realpath(__DIR__ . '/../..') ?: dirname(__DIR__, 2);
+    }
+
+    public static function getSvglPath() {
+        $root = self::getManagerRoot();
+        if (is_file($root . '/svgl.sh')) {
+            return $root . '/svgl.sh';
+        }
+        return '/usr/local/bin/svgl';
+    }
+
+    public static function validateInstanceId($id) {
+        return is_string($id) && preg_match('/^[a-zA-Z0-9_-]{2,32}$/', $id);
+    }
+
+    public static function getServerList(array $servers) {
+        $result = [];
+        foreach ($servers as $server) {
+            $status = self::getServiceStatus($server['service_name']);
+            $runtime = self::getServerRuntimeSettings($server);
+            $result[] = [
+                'id' => $server['id'],
+                'name' => $server['name'],
+                'ip' => $server['ip'],
+                'port' => $server['port'],
+                'slots' => $runtime['slots'],
+                'map' => $runtime['map'],
+                'hostname' => $runtime['hostname'],
+                'service_name' => $server['service_name'],
+                'server_dir' => $server['server_dir'],
+                'status' => $status,
+                'protected' => $server['id'] === 'main',
+            ];
+        }
+        return $result;
+    }
+
+    private static function getServerRuntimeSettings(array $server) {
+        $settings = [
+            'slots' => 12,
+            'map' => 'de_dust2',
+            'hostname' => $server['name'] ?? '',
+        ];
+
+        $cfg = rtrim($server['server_dir'], '/') . '/cstrike/server.cfg';
+        if (is_file($cfg)) {
+            $content = (string)file_get_contents($cfg);
+            if (preg_match('/^\s*hostname\s+"?([^"\r\n]+)"?/mi', $content, $m)) {
+                $settings['hostname'] = trim($m[1]);
+            }
+        }
+
+        if (($server['id'] ?? '') === 'main') {
+            $start = rtrim($server['server_dir'], '/') . '/start.sh';
+            if (is_file($start)) {
+                $content = (string)file_get_contents($start);
+                if (preg_match('/^MAX_PLAYERS="([^"]+)"/m', $content, $m)) $settings['slots'] = (int)$m[1];
+                if (preg_match('/^MAP="([^"]+)"/m', $content, $m)) $settings['map'] = $m[1];
+            }
+        } else {
+            $env = self::getManagerRoot() . '/instances/' . $server['id'] . '.env';
+            if (is_file($env)) {
+                $content = (string)file_get_contents($env);
+                if (preg_match('/^MAX_PLAYERS="([^"]+)"/m', $content, $m)) $settings['slots'] = (int)$m[1];
+                if (preg_match('/^MAP="([^"]+)"/m', $content, $m)) $settings['map'] = $m[1];
+            }
+        }
+
+        return $settings;
+    }
+
+    private static function getRegistryPath() {
+        return self::getManagerRoot() . '/instances/servers.json';
+    }
+
+    private static function readRegistry() {
+        $path = self::getRegistryPath();
+        if (!is_file($path)) {
+            return ['servers' => []];
+        }
+        $data = json_decode((string)file_get_contents($path), true);
+        return is_array($data) ? $data : ['servers' => []];
+    }
+
+    private static function writeRegistry(array $registry) {
+        $path = self::getRegistryPath();
+        $dir = dirname($path);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+        return @file_put_contents($path, json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n") !== false;
+    }
+
+    private static function writeServerCfgValue($serverDir, $key, $value) {
+        $cfg = rtrim($serverDir, '/') . '/cstrike/server.cfg';
+        $value = trim((string)$value);
+        if ($value === '') {
+            return true;
+        }
+        $line = $key . ' "' . str_replace('"', '', $value) . '"';
+        $lines = is_file($cfg) ? file($cfg, FILE_IGNORE_NEW_LINES) : [];
+        $found = false;
+        foreach ($lines as $i => $existing) {
+            if (preg_match('/^\s*' . preg_quote($key, '/') . '\s+/i', $existing)) {
+                $lines[$i] = $line;
+                $found = true;
+            }
+        }
+        if (!$found) {
+            $lines[] = $line;
+        }
+        return @file_put_contents($cfg, implode("\n", $lines) . "\n") !== false;
+    }
+
+    private static function updateEnvFile($id, array $values) {
+        $envPath = self::getManagerRoot() . '/instances/' . $id . '.env';
+        if (!is_file($envPath)) {
+            return false;
+        }
+        $lines = file($envPath, FILE_IGNORE_NEW_LINES);
+        $seen = [];
+        foreach ($lines as $i => $line) {
+            if (preg_match('/^([A-Z0-9_]+)=/', $line, $m) && array_key_exists($m[1], $values)) {
+                $lines[$i] = $m[1] . '="' . str_replace('"', '', (string)$values[$m[1]]) . '"';
+                $seen[$m[1]] = true;
+            }
+        }
+        foreach ($values as $key => $value) {
+            if (!isset($seen[$key])) {
+                $lines[] = $key . '="' . str_replace('"', '', (string)$value) . '"';
+            }
+        }
+        return @file_put_contents($envPath, implode("\n", $lines) . "\n") !== false;
+    }
+
+    private static function updateStartShValue($serverDir, $key, $value) {
+        $start = rtrim($serverDir, '/') . '/start.sh';
+        if (!is_file($start)) {
+            return false;
+        }
+        $content = (string)file_get_contents($start);
+        $value = str_replace('"', '', (string)$value);
+        $content = preg_replace('/^' . preg_quote($key, '/') . '=".*"$/m', $key . '="' . $value . '"', $content, 1, $count);
+        if (!$count) {
+            $content .= "\n" . $key . '="' . $value . '"' . "\n";
+        }
+        return @file_put_contents($start, $content) !== false;
+    }
+
+    public static function createServerInstance($id, $port, $name, $slots = 12, $hostname = '') {
+        $id = trim((string)$id);
+        $name = trim((string)$name);
+        $port = (int)$port;
+
+        if (!self::validateInstanceId($id) || $id === 'main') {
+            return ['success' => false, 'message' => 'Invalid server id. Use 2-32 chars: letters, numbers, dash or underscore.'];
+        }
+        if ($port < 1024 || $port > 65535) {
+            return ['success' => false, 'message' => 'Invalid port. Use a value between 1024 and 65535.'];
+        }
+        $slots = (int)$slots;
+        if ($slots < 1 || $slots > 32) {
+            return ['success' => false, 'message' => 'Invalid slot count. Use 1-32.'];
+        }
+        if ($name === '') {
+            $name = 'GameLand CS 1.6 ' . $id;
+        }
+        if (trim((string)$hostname) === '') {
+            $hostname = $name;
+        }
+
+        $svgl = escapeshellarg(self::getSvglPath());
+        $cmd = 'sudo /bin/bash ' . $svgl . ' add '
+             . escapeshellarg($id) . ' '
+             . escapeshellarg((string)$port) . ' '
+             . escapeshellarg($name) . ' 2>&1';
+        $output = @shell_exec($cmd);
+
+        $ok = is_string($output) && str_contains($output, '[OK]');
+        if ($ok) {
+            $registry = self::readRegistry();
+            $serverDir = '/opt/gameland/instances/' . $id;
+            foreach ($registry['servers'] as &$entry) {
+                if (($entry['id'] ?? '') === $id) {
+                    $entry['name'] = $name;
+                    $entry['port'] = $port;
+                    $entry['rcon_password'] = $entry['rcon_password'] ?? 'GameLand@Rcon2026';
+                    $serverDir = $entry['server_dir'] ?? $serverDir;
+                    break;
+                }
+            }
+            self::writeRegistry($registry);
+            self::updateEnvFile($id, [
+                'SERVER_PORT' => $port,
+                'MAX_PLAYERS' => $slots,
+                'MAP' => 'de_dust2',
+            ]);
+            self::writeServerCfgValue($serverDir, 'hostname', $hostname);
+        }
+
+        return [
+            'success' => $ok,
+            'message' => is_string($output) ? trim($output) : 'No output from SVGL.',
+            'output' => trim((string)$output),
+        ];
+    }
+
+    public static function removeServerInstance($id, $purge = false) {
+        $id = trim((string)$id);
+        if (!self::validateInstanceId($id) || $id === 'main') {
+            return ['success' => false, 'message' => 'Invalid or protected server id.'];
+        }
+
+        $svgl = escapeshellarg(self::getSvglPath());
+        $cmd = 'sudo /bin/bash ' . $svgl . ' remove ' . escapeshellarg($id)
+             . ($purge ? ' --purge' : '')
+             . ' 2>&1';
+        $output = @shell_exec($cmd);
+
+        return [
+            'success' => is_string($output) && str_contains($output, '[OK]'),
+            'message' => is_string($output) ? trim($output) : 'No output from SVGL.',
+            'output' => trim((string)$output),
+        ];
+    }
+
+    public static function updateServerInstance($id, array $data) {
+        $id = trim((string)$id);
+        if (!self::validateInstanceId($id) && $id !== 'main') {
+            return ['success' => false, 'message' => 'Invalid server id.'];
+        }
+
+        $name = trim((string)($data['name'] ?? ''));
+        $hostname = trim((string)($data['hostname'] ?? ''));
+        $port = (int)($data['port'] ?? 0);
+        $slots = (int)($data['slots'] ?? 0);
+        $map = trim((string)($data['map'] ?? ''));
+        $rcon = trim((string)($data['rcon_password'] ?? ''));
+
+        if ($port && ($port < 1024 || $port > 65535)) {
+            return ['success' => false, 'message' => 'Invalid port.'];
+        }
+        if ($slots && ($slots < 1 || $slots > 32)) {
+            return ['success' => false, 'message' => 'Invalid slot count.'];
+        }
+        if ($map !== '' && !preg_match('/^[a-zA-Z0-9_]+$/', $map)) {
+            return ['success' => false, 'message' => 'Invalid map name.'];
+        }
+
+        global $SERVERS;
+        if (!isset($SERVERS[$id])) {
+            return ['success' => false, 'message' => 'Server not found in panel registry.'];
+        }
+
+        $server = $SERVERS[$id];
+        $serverDir = $server['server_dir'];
+
+        if ($hostname !== '') {
+            self::writeServerCfgValue($serverDir, 'hostname', $hostname);
+        }
+        if ($rcon !== '') {
+            self::writeServerCfgValue($serverDir, 'rcon_password', $rcon);
+        }
+
+        if ($id === 'main') {
+            if ($slots) {
+                self::updateStartShValue($serverDir, 'MAX_PLAYERS', $slots);
+            }
+            if ($port) {
+                self::updateStartShValue($serverDir, 'SERVER_PORT', $port);
+            }
+            if ($map !== '') {
+                self::updateStartShValue($serverDir, 'MAP', $map);
+            }
+        } else {
+            $env = [];
+            if ($slots) $env['MAX_PLAYERS'] = $slots;
+            if ($port) $env['SERVER_PORT'] = $port;
+            if ($map !== '') $env['MAP'] = $map;
+            if (!empty($env)) {
+                self::updateEnvFile($id, $env);
+            }
+
+            $registry = self::readRegistry();
+            foreach ($registry['servers'] as &$entry) {
+                if (($entry['id'] ?? '') === $id) {
+                    if ($name !== '') $entry['name'] = $name;
+                    if ($port) $entry['port'] = $port;
+                    if ($rcon !== '') $entry['rcon_password'] = $rcon;
+                    break;
+                }
+            }
+            self::writeRegistry($registry);
+        }
+
+        return [
+            'success' => true,
+            'message' => 'Server settings saved. Restart the server to apply port, map and slot changes.',
+        ];
+    }
+
     /**
      * Single source of truth for plugins managed by the panel.
      * Keep this list aligned with install_mix.sh and plugins.ini.

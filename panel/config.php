@@ -35,17 +35,17 @@ define('GITHUB_BRANCH', 'main');
 
 // -------------------------------------------------------------
 // Multi-Server Instances List
-// Each server has its own RCON credentials, port, and file paths.
-// You can add as many servers as you want!
+// The main server stays static for backward compatibility. Extra servers
+// created by SVGL are loaded from instances/servers.json automatically.
 // -------------------------------------------------------------
-// Auto-detect default server root dir (e.g. parent of panel/ or /opt/gameland/server)
 $detectedServerDir = is_dir('/opt/gameland/server') ? '/opt/gameland/server' : dirname(__DIR__);
+$detectedPublicIp = $_SERVER['SERVER_ADDR'] ?? '127.0.0.1';
 
 $SERVERS = [
-    'cs_main' => [
-        'id'            => 'cs_main',
+    'main' => [
+        'id'            => 'main',
         'name'          => 'GameLand CS 1.6 #1 (Competitive)',
-        'ip'            => '185.236.38.83',
+        'ip'            => $detectedPublicIp,
         'port'          => 27015,
         'rcon_password' => 'GameLand@Rcon2026',
         'service_name'  => 'gameland.service',
@@ -55,24 +55,37 @@ $SERVERS = [
         'maps_ini'      => $detectedServerDir . '/cstrike/addons/amxmodx/configs/maps.ini',
         'log_file'      => $detectedServerDir . '/logs/server.log',
     ],
-
-    /*
-    // Example for a 2nd server instance in the future:
-    'cs_public' => [
-        'id'            => 'cs_public',
-        'name'          => 'GameLand CS 1.6 #2 (Public/Deathmatch)',
-        'ip'            => '185.236.38.83',
-        'port'          => 27016,
-        'rcon_password' => 'GameLand@Rcon2026',
-        'service_name'  => 'gameland2.service',
-        'server_dir'    => '/opt/gameland2/server',
-        'cstrike_dir'   => '/opt/gameland2/server/cstrike',
-        'users_ini'     => '/opt/gameland2/server/cstrike/addons/amxmodx/configs/users.ini',
-        'maps_ini'      => '/opt/gameland2/server/cstrike/addons/amxmodx/configs/maps.ini',
-        'log_file'      => '/opt/gameland2/server/logs/server.log',
-    ],
-    */
 ];
+
+function gameland_normalize_server(array $server, string $fallbackIp): array {
+    $id = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)($server['id'] ?? ''));
+    $serverDir = rtrim((string)($server['server_dir'] ?? ''), '/');
+
+    return [
+        'id'            => $id,
+        'name'          => (string)($server['name'] ?? ('GameLand ' . $id)),
+        'ip'            => (string)($server['ip'] ?? $fallbackIp),
+        'port'          => (int)($server['port'] ?? 27015),
+        'rcon_password' => (string)($server['rcon_password'] ?? 'GameLand@Rcon2026'),
+        'service_name'  => (string)($server['service_name'] ?? ('gameland@' . $id . '.service')),
+        'server_dir'    => $serverDir,
+        'cstrike_dir'   => $serverDir . '/cstrike',
+        'users_ini'     => $serverDir . '/cstrike/addons/amxmodx/configs/users.ini',
+        'maps_ini'      => $serverDir . '/cstrike/addons/amxmodx/configs/maps.ini',
+        'log_file'      => $serverDir . '/logs/server_' . $id . '.log',
+    ];
+}
+
+$instancesRegistry = dirname(__DIR__) . '/instances/servers.json';
+if (is_file($instancesRegistry)) {
+    $registry = json_decode((string)file_get_contents($instancesRegistry), true);
+    foreach (($registry['servers'] ?? []) as $server) {
+        $normalized = gameland_normalize_server($server, $detectedPublicIp);
+        if ($normalized['id'] !== '' && $normalized['server_dir'] !== '') {
+            $SERVERS[$normalized['id']] = $normalized;
+        }
+    }
+}
 
 // Helper to get selected active server
 function get_active_server() {
