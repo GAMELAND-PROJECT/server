@@ -58,7 +58,9 @@ enum (+=1200)
 	#if defined FASTCUP_MODE
 	TASK_ASK,
 	TASK_CHECKVOTES,
+	TASK_KNIFE_HUD,
 	#endif
+	TASK_RECORD_TIMEOUT,
 	TASK_SPECALL,
 	TASK_LOAD,
 	TASK_COUNT_DURATION,
@@ -358,7 +360,9 @@ new bool:g_bVoted
 new g_iVote
 new g_iAnswer[TeamAnswers]
 new g_iKnifeAnswer[MAX_PLAYERS + 1]
+new g_iKnifeVoteSecondsLeft
 #endif
+new g_iFirstHalfScore[Score]
 
 new g_ePlayerStats[MAX_PLAYERS + 1][MAX_PLAYERS + 1][PlayerStats]
 
@@ -1518,6 +1522,8 @@ public ApplyShootingLoadout()
 
 stock ShowRecordMatchMenu(id, bool:bKnife)
 {
+	remove_task(TASK_RECORD_TIMEOUT)
+
 	if(!is_user_connected(id))
 	{
 		g_eBooleans[bShouldRecordMix] = false
@@ -1525,10 +1531,8 @@ stock ShowRecordMatchMenu(id, bool:bKnife)
 		return
 	}
 
-	client_print_color(id, print_team_default, "^4[Debug] ^1Displaying HLTV record menu to id: %d", id)
-
 	new szTitle[128]
-	formatex(szTitle, charsmax(szTitle), "\y[GAMELAND]\w Start server-side HLTV recording?")
+	formatex(szTitle, charsmax(szTitle), "\y[GAMELAND]\w Start HLTV recording? \r(Auto-starts in 5s)")
 	new menu = menu_create(szTitle, "menu_record_match")
 	
 	new szInfo[2]
@@ -1540,10 +1544,33 @@ stock ShowRecordMatchMenu(id, bool:bKnife)
 	menu_additem(menu, "Cancel", "2")
 	
 	menu_display(id, menu)
+
+	// If admin doesn't answer within 5 seconds, automatically start match without recording
+	new params[2]
+	params[0] = id
+	params[1] = bKnife ? 1 : 0
+	set_task(5.0, "task_record_match_timeout", TASK_RECORD_TIMEOUT, params, sizeof(params))
+}
+
+public task_record_match_timeout(const params[])
+{
+	new id = params[0]
+	new bool:bKnife = (params[1] == 1)
+
+	if(is_user_connected(id))
+	{
+		menu_cancel(id)
+	}
+
+	client_print_color(0, print_team_default, "^4[GAMELAND] ^1Recording menu timed out. Starting match ^3without recording^1.")
+	g_eBooleans[bShouldRecordMix] = false
+	clcmd_startmix_internal(id, bKnife)
 }
 
 public menu_record_match(id, menu, item)
 {
+	remove_task(TASK_RECORD_TIMEOUT)
+
 	if(item == MENU_EXIT)
 	{
 		menu_destroy(menu)
@@ -2154,6 +2181,9 @@ public task_end_round(index)
 			}
 
 #if defined FASTCUP_MODE
+			g_iKnifeVoteSecondsLeft = g_ePluginSettings[iKnifeStartDelay]
+			remove_task(TASK_KNIFE_HUD)
+			set_task(1.0, "task_knife_vote_hud", TASK_KNIFE_HUD, _, _, "b")
 			if(!task_exists(TASK_CHECKVOTES))
 			{
 				set_task(float(g_ePluginSettings[iKnifeStartDelay]), "task_do_change", TASK_CHECKVOTES)
@@ -2162,7 +2192,18 @@ public task_end_round(index)
 			g_eBooleans[bIsKnife] = false
 			g_iKnifes = 3
 
-			ResetScore()
+			// Reset score and round counters for the upcoming match without doing sv_restart 1
+			g_iScore[TERO_SCORE] = 0
+			g_iScore[CT_SCORE] = 0
+			g_iOvertimeScore[CT_OVER_SCORE] = 0
+			g_iOvertimeScore[TERO_OVER_SCORE] = 0
+			g_eTeamPause[CT_PAUSE] = 0
+			g_eTeamPause[TERO_PAUSE] = 0
+			g_iRoundNum = 0
+			g_eBooleans[bOvertime] = false
+			g_eBooleans[bTeamSwap] = false
+			g_eOvertime[FirstOvertime] = false
+			g_eOvertime[SecondOvertime] = false
 		}
 	}
 
@@ -2350,6 +2391,26 @@ public task_end_round(index)
 }
 
 #if defined FASTCUP_MODE
+public task_knife_vote_hud()
+{
+	if(g_bVoted || g_eBooleans[bIsMixOn] || g_iKnifeVoteSecondsLeft <= 0)
+	{
+		remove_task(TASK_KNIFE_HUD)
+		return
+	}
+
+	g_iKnifeVoteSecondsLeft--
+
+	new szHud[256]
+	formatex(szHud, charsmax(szHud), "SIDE SELECTION  [%02d sec]^nTR: %d vote%s^nCT: %d vote%s",
+		g_iKnifeVoteSecondsLeft,
+		g_iAnswer[SWITCH], g_iAnswer[SWITCH] == 1 ? "" : "s",
+		g_iAnswer[STAY], g_iAnswer[STAY] == 1 ? "" : "s")
+
+	set_hudmessage(255, 220, 80, 0.72, 0.18, 0, 0.0, 1.1, 0.0, 0.0, -1)
+	show_hudmessage(0, szHud)
+}
+
 public task_ask_player(id)
 {
 	id -= TASK_ASK
@@ -2359,16 +2420,32 @@ public task_ask_player(id)
 		return
 	}
 
-	new szTemp[64]
+	new szTitle[128]
+	formatex(szTitle, charsmax(szTitle), "\r%s \wChoose Side \y[%d TR - %d CT]", 
+		g_ePluginSettings[szPrefix], g_iAnswer[SWITCH], g_iAnswer[STAY])
+	new menu = menu_create(szTitle, "handle_ask_menu")
 
-	formatex(szTemp, charsmax(szTemp), "\r%s \w%L", g_ePluginSettings[szPrefix], LANG_SERVER, "MENU_ASK_PLAYER")
-	new menu = menu_create(szTemp, "handle_ask_menu")
+	new szItem1[64], szItem2[64]
+	if(g_iKnifeAnswer[id] == 1)
+	{
+		formatex(szItem1, charsmax(szItem1), "\y1. Terrorist (TR) \r[SELECTED]")
+	}
+	else
+	{
+		formatex(szItem1, charsmax(szItem1), "\w1. Terrorist (TR)")
+	}
 
-	formatex(szTemp, charsmax(szTemp), "\y1. TR")
-	menu_additem(menu, szTemp)
+	if(g_iKnifeAnswer[id] == 2)
+	{
+		formatex(szItem2, charsmax(szItem2), "\y2. Counter-Terrorist (CT) \r[SELECTED]")
+	}
+	else
+	{
+		formatex(szItem2, charsmax(szItem2), "\w2. Counter-Terrorist (CT)")
+	}
 
-	formatex(szTemp, charsmax(szTemp), "\y2. CT")
-	menu_additem(menu, szTemp)
+	menu_additem(menu, szItem1)
+	menu_additem(menu, szItem2)
 
 	_MenuDisplay(id, menu)
 }
@@ -2383,7 +2460,7 @@ public handle_ask_menu(id, menu, item)
 	new iNewAnswer = item + 1
 	new iOldAnswer = g_iKnifeAnswer[id]
 
-	// Allow a player to change the vote before the timer expires.
+	// Allow a player to choose or change their vote before the timer expires.
 	if(iOldAnswer != iNewAnswer)
 	{
 		if(iOldAnswer == 1)
@@ -2403,11 +2480,11 @@ public handle_ask_menu(id, menu, item)
 	{
 		case 0:
 		{
-			client_print_color(id, id, "^4%s ^1Team vote: ^3TR", g_ePluginSettings[szPrefix])
+			client_print_color(id, id, "^4%s ^1You selected: ^3Terrorist (TR) ^1[Current: ^4%d TR ^1- ^4%d CT^1]", g_ePluginSettings[szPrefix], g_iAnswer[SWITCH], g_iAnswer[STAY])
 		}
 		case 1:
 		{
-			client_print_color(id, id, "^4%s ^1Team vote: ^3CT", g_ePluginSettings[szPrefix])
+			client_print_color(id, id, "^4%s ^1You selected: ^3Counter-Terrorist (CT) ^1[Current: ^4%d TR ^1- ^4%d CT^1]", g_ePluginSettings[szPrefix], g_iAnswer[SWITCH], g_iAnswer[STAY])
 		}
 	}
 
@@ -2415,7 +2492,7 @@ public handle_ask_menu(id, menu, item)
 
 	_MenuExit(menu)
 
-	// Re-open the same menu so the player can visibly revise the vote.
+	// Re-open the menu with [SELECTED] highlighted so the player has clear visual feedback
 	if(!g_bVoted && !g_eBooleans[bIsMixOn])
 	{
 		set_task(0.05, "task_ask_player", id + TASK_ASK)
@@ -2431,12 +2508,14 @@ public CheckVotes(any:iAnswer[])
 
 public task_do_change(iTaskID)
 {
+	remove_task(TASK_KNIFE_HUD)
 	g_bVoted = true
 
 	new szTemp[128]
 
 	formatex(szTemp, charsmax(szTemp), g_iVote == (_:TEAM_TERRORIST) ? "TR" : "CT")
-	client_print_color(0, 0, "^4%s Team selection: ^3%s", g_ePluginSettings[szPrefix], szTemp)
+	client_print_color(0, 0, "^4%s Team selection: ^3%s ^1(Votes: ^4%d TR ^1- ^4%d CT^1)", 
+		g_ePluginSettings[szPrefix], szTemp, g_iAnswer[SWITCH], g_iAnswer[STAY])
 
 	if(g_iVote != (_:g_iKnifeWinnerTeam))
 	{
@@ -2890,6 +2969,11 @@ public task_show_score()
 			{
 				client_print_color(iPlayer, iPlayer, "^4%s %L", g_ePluginSettings[szPrefix], LANG_SERVER, "MIX_SCORE_IS_WITH_END", LANG_SERVER, "CT_TEAM", g_iScore[CT_SCORE], LANG_SERVER, "TERO_TEAM", g_iScore[TERO_SCORE])
 			}
+
+			if(g_eBooleans[bTeamSwap] && (g_iFirstHalfScore[CT_SCORE] > 0 || g_iFirstHalfScore[TERO_SCORE] > 0))
+			{
+				client_print_color(iPlayer, iPlayer, "^4%s ^11st Half: ^4CT %d ^3- ^4TR %d", g_ePluginSettings[szPrefix], g_iFirstHalfScore[CT_SCORE], g_iFirstHalfScore[TERO_SCORE])
+			}
 		}
 		
 		if(IsHalf() && !g_eBooleans[bOvertime] && !g_eBooleans[bTeamSwap])
@@ -3266,6 +3350,11 @@ public task_swap_score()
 	{
 		temp[0] = g_iScore[CT_SCORE]
 		temp[1] = g_iScore[TERO_SCORE]
+		
+		// Record exact 1st half score for round 16+ score display
+		g_iFirstHalfScore[CT_SCORE] = temp[0]
+		g_iFirstHalfScore[TERO_SCORE] = temp[1]
+
 		g_iScore[TERO_SCORE] = temp[0]
 		g_iScore[CT_SCORE] = temp[1]
 
@@ -3283,10 +3372,7 @@ public task_swap_score()
 
 	set_pcvar_num(g_cFreezeTime, g_iFreezeTime)
 
-	for(new i; i < ArraySize(g_aPlayerData); i++)
-	{
-		ArrayDeleteItem(g_aPlayerData, i)
-	}
+	ArrayClear(g_aPlayerData)
 }
 
 public clcmd_specall(id)
@@ -3403,6 +3489,11 @@ public clcmd_score(id)
 		else
 		{
 			client_print_color(id, id, "^4%s %L", g_ePluginSettings[szPrefix], LANG_SERVER, "MIX_SCORE_IS_WITH_END", LANG_SERVER, "CT_TEAM", g_iScore[CT_SCORE], LANG_SERVER, "TERO_TEAM", g_iScore[TERO_SCORE])
+		}
+
+		if(g_eBooleans[bTeamSwap] && (g_iFirstHalfScore[CT_SCORE] > 0 || g_iFirstHalfScore[TERO_SCORE] > 0))
+		{
+			client_print_color(id, id, "^4%s ^11st Half: ^4CT %d ^3- ^4TR %d", g_ePluginSettings[szPrefix], g_iFirstHalfScore[CT_SCORE], g_iFirstHalfScore[TERO_SCORE])
 		}
 	}
 
@@ -3821,6 +3912,8 @@ ResetScore()
 	g_eOvertime[FirstOvertime] = false
 	g_eOvertime[SecondOvertime] = false
 	g_eBooleans[bIsKnife] = false
+	g_iFirstHalfScore[CT_SCORE] = 0
+	g_iFirstHalfScore[TERO_SCORE] = 0
 
 	#if defined FASTCUP_MODE
 	g_bVoted = false
