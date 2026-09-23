@@ -131,6 +131,7 @@ public plugin_init()
 	RegisterHam(Ham_Spawn,            "player", "bacon_spawn_post", 1)
 	RegisterHam(Ham_AddPlayerItem,    "player", "bacon_addplayeritem")
 	RegisterHam(Ham_RemovePlayerItem, "player", "bacon_removeplayeritem")
+	register_event("CurWeapon", "event_curweapon", "be", "1=1")
 	
 	for(new i = 0; i < sizeof g_weapons; i++)
 	{
@@ -161,6 +162,8 @@ public client_putinserver(id)
 		set_pev(g_weaponent[id], pev_movetype, MOVETYPE_FOLLOW)
 		set_pev(g_weaponent[id], pev_effects, EF_NODRAW)
 		set_pev(g_weaponent[id], pev_aiment, id)
+		set_pev(g_weaponent[id], pev_owner, id)
+		set_pev(g_weaponent[id], pev_body, MODEL_NULL)
 	}
 }
 
@@ -174,6 +177,18 @@ public client_disconnected(id)
 
 public bacon_killed(id, idattacker, shouldgib)
 	hide_back_weapon(id)
+
+public event_curweapon(id)
+{
+	if (!is_valid_player(id) || !is_user_alive(id) || !pev_valid(g_weaponent[id]))
+		return
+
+	new weapon = read_data(2)
+	if (is_weapon_primary(weapon) || cs_get_user_shield(id))
+		sync_back_weapon(id, false)
+	else
+		sync_back_weapon(id, true)
+}
 
 public bacon_addplayeritem(id, ent)
 {
