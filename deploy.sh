@@ -11,11 +11,11 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
 fi
 
 echo "[1/8] Updating repository..."
-if [[ -n "$(git status --porcelain)" ]]; then
-    echo "[ERROR] Working tree is not clean. Commit/stash local changes before deploy."
-    git status --short
-    exit 1
-fi
+# The VPS checkout is a deployment target. Reset tracked build/permission
+# changes produced by compilers and chmod, then remove ignored runtime data.
+git config core.fileMode false
+git reset --hard HEAD
+git clean -fdX
 git pull --ff-only
 
 echo "[2/8] Fixing permissions and installing panel helper..."
