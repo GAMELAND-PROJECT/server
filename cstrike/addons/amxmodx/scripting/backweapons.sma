@@ -12,6 +12,7 @@
 #define EXTRAOFFSET_WEAPONS 	4
 #define OFFSET_AUTOSWITCH 	509
 #define OFFSET_SHIELD 		510
+#define EXTRAOFFSET_PLAYER 	5
 #define HAS_SHIELD 		(1<<24)
 #define BACKWEAPON_SOLID SOLID_NOT
 
@@ -19,9 +20,9 @@
 
 #define is_weapon_primary(%1)      (PRIMARY_WEAPONS & (1<<%1))
 #define cs_get_weapon_type(%1)     get_pdata_int(%1, OFFSET_WEAPONTYPE, EXTRAOFFSET_WEAPONS)
-#define cs_get_user_hasprim(%1)    get_pdata_int(%1, OFFSET_PRIMARYWEAPON)
-#define cs_get_user_autoswitch(%1) get_pdata_int(%1, OFFSET_AUTOSWITCH)
-#define cs_get_user_shield(%1)	   (get_pdata_int(%1, OFFSET_SHIELD) & HAS_SHIELD) ? 1 : 0
+#define cs_get_user_hasprim(%1)    get_pdata_int(%1, OFFSET_PRIMARYWEAPON, EXTRAOFFSET_PLAYER)
+#define cs_get_user_autoswitch(%1) get_pdata_int(%1, OFFSET_AUTOSWITCH, EXTRAOFFSET_PLAYER)
+#define cs_get_user_shield(%1)	   (get_pdata_int(%1, OFFSET_SHIELD, EXTRAOFFSET_PLAYER) & HAS_SHIELD) ? 1 : 0
 
 enum
 {
