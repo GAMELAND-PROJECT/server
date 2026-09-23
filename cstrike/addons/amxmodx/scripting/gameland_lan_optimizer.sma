@@ -1,9 +1,10 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fakemeta>
+#include <message_const>
 
 #define PLUGIN  "GameLand LAN Optimizer"
-#define VERSION "1.1.0"
+#define VERSION "1.2.0"
 #define AUTHOR  "GAMELAND"
 
 #define TASK_APPLY   41001
@@ -23,6 +24,9 @@ new g_pcvar_grenade_limit
 new g_pcvar_drop_age
 new g_pcvar_adaptive
 new g_pcvar_decals
+new g_pcvar_tempfx
+new g_pcvar_waterfx
+new g_pcvar_impactfx
 new g_pcvar_force_clients
 new g_pcvar_clean_armoury
 
@@ -31,6 +35,7 @@ new g_lastCleanupSeen
 new g_lastCleanupSkipped
 new g_lastWeaponboxLimit
 new g_lastGrenadeLimit
+new g_lastFxBlocked
 new g_lastProfile[32]
 
 public plugin_init()
@@ -50,12 +55,16 @@ public plugin_init()
     g_pcvar_drop_age = register_cvar("gl_lan_drop_age", "8.0")
     g_pcvar_adaptive = register_cvar("gl_lan_adaptive", "1")
     g_pcvar_decals = register_cvar("gl_lan_decals", "96")
-    g_pcvar_force_clients = register_cvar("gl_lan_force_client_rates", "1")
+    g_pcvar_tempfx = register_cvar("gl_lan_tempfx_filter", "1")
+    g_pcvar_waterfx = register_cvar("gl_lan_suppress_waterfx", "1")
+    g_pcvar_impactfx = register_cvar("gl_lan_suppress_impactfx", "1")
+    g_pcvar_force_clients = register_cvar("gl_lan_force_client_rates", "0")
     g_pcvar_clean_armoury = register_cvar("gl_lan_clean_armoury", "0")
 
     register_concmd("gl_lan_status", "cmd_status", ADMIN_ALL, "- shows LAN optimizer status")
     register_concmd("gl_lan_optimize", "cmd_optimize", ADMIN_ALL, "- reapplies LAN host settings")
     register_concmd("gl_lan_cleanup_now", "cmd_cleanup_now", ADMIN_ALL, "- runs safe cleanup")
+    register_message(SVC_TEMPENTITY, "message_tempentity")
 
     set_task(3.0, "task_apply_settings", TASK_APPLY)
     schedule_cleanup_task()
@@ -74,7 +83,30 @@ public client_putinserver(id)
     if (!is_valid_player(id) || is_user_bot(id))
         return
 
-    set_task(4.0, "task_apply_client", id)
+    if (get_pcvar_num(g_pcvar_force_clients))
+        set_task(4.0, "task_apply_client", id)
+}
+
+public message_tempentity(msgid, dest, id)
+{
+    if (!optimizer_enabled() || !get_pcvar_num(g_pcvar_tempfx))
+        return PLUGIN_CONTINUE
+
+    new type = get_msg_arg_int(1)
+
+    if (get_pcvar_num(g_pcvar_waterfx) && (type == TE_BUBBLES || type == TE_BUBBLETRAIL))
+    {
+        g_lastFxBlocked++
+        return PLUGIN_HANDLED
+    }
+
+    if (get_pcvar_num(g_pcvar_impactfx) && (type == TE_GUNSHOTDECAL || type == TE_DECAL || type == TE_DECALHIGH || type == TE_WORLDDECAL || type == TE_WORLDDECALHIGH || type == TE_SPARKS))
+    {
+        g_lastFxBlocked++
+        return PLUGIN_HANDLED
+    }
+
+    return PLUGIN_CONTINUE
 }
 
 public cmd_optimize(id, level, cid)
@@ -120,6 +152,11 @@ public cmd_status(id, level, cid)
         get_pcvar_num(g_pcvar_clean_armoury))
     console_print(id, "[GL LAN] adaptive=%d drop_age=%.1f decals=%d", get_pcvar_num(g_pcvar_adaptive), get_pcvar_float(g_pcvar_drop_age), get_pcvar_num(g_pcvar_decals))
     console_print(id, "[GL LAN] last_cleanup: seen=%d removed=%d skipped=%d", g_lastCleanupSeen, g_lastCleanupRemoved, g_lastCleanupSkipped)
+    console_print(id, "[GL LAN] tempfx=%d waterfx=%d impactfx=%d blocked=%d",
+        get_pcvar_num(g_pcvar_tempfx),
+        get_pcvar_num(g_pcvar_waterfx),
+        get_pcvar_num(g_pcvar_impactfx),
+        g_lastFxBlocked)
     return PLUGIN_HANDLED
 }
 
@@ -228,6 +265,7 @@ stock apply_host_rates()
     server_cmd("mp_logmessages 0")
     server_cmd("mp_logfile 0")
     server_cmd("mp_decals %d", decals)
+    server_cmd("sv_wateramp 0")
     server_cmd("decalfrequency 60")
     server_exec()
 }
@@ -261,6 +299,8 @@ stock apply_map_profile()
         set_pcvar_num(g_pcvar_grenade_limit, 6)
         set_pcvar_float(g_pcvar_drop_age, 4.0)
         set_pcvar_num(g_pcvar_decals, 64)
+        set_pcvar_num(g_pcvar_impactfx, 1)
+        set_pcvar_num(g_pcvar_waterfx, 1)
         server_cmd("mp_decals 64")
         server_exec()
         return
@@ -273,8 +313,10 @@ stock apply_map_profile()
         set_pcvar_num(g_pcvar_weaponbox_limit, 12)
         set_pcvar_num(g_pcvar_grenade_limit, 8)
         set_pcvar_float(g_pcvar_drop_age, 6.0)
-        set_pcvar_num(g_pcvar_decals, 80)
-        server_cmd("mp_decals 80")
+        set_pcvar_num(g_pcvar_decals, 32)
+        set_pcvar_num(g_pcvar_impactfx, 1)
+        set_pcvar_num(g_pcvar_waterfx, 1)
+        server_cmd("mp_decals 32")
         server_cmd("sv_wateramp 0")
         server_exec()
         return
@@ -287,8 +329,10 @@ stock apply_map_profile()
         set_pcvar_num(g_pcvar_weaponbox_limit, 16)
         set_pcvar_num(g_pcvar_grenade_limit, 10)
         set_pcvar_float(g_pcvar_drop_age, 7.0)
-        set_pcvar_num(g_pcvar_decals, 96)
-        server_cmd("mp_decals 96")
+        set_pcvar_num(g_pcvar_decals, 64)
+        set_pcvar_num(g_pcvar_impactfx, 1)
+        set_pcvar_num(g_pcvar_waterfx, 1)
+        server_cmd("mp_decals 64")
         server_exec()
         return
     }
@@ -298,8 +342,10 @@ stock apply_map_profile()
     set_pcvar_num(g_pcvar_weaponbox_limit, 18)
     set_pcvar_num(g_pcvar_grenade_limit, 12)
     set_pcvar_float(g_pcvar_drop_age, 8.0)
-    set_pcvar_num(g_pcvar_decals, 96)
-    server_cmd("mp_decals 96")
+    set_pcvar_num(g_pcvar_decals, 64)
+    set_pcvar_num(g_pcvar_impactfx, 1)
+    set_pcvar_num(g_pcvar_waterfx, 1)
+    server_cmd("mp_decals 64")
     server_exec()
 }
 

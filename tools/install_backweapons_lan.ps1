@@ -1,6 +1,7 @@
 param(
     [string]$ClientRoot = "D:\Allclient",
-    [string]$ServerRoot = "F:\SV GAMELAND\server"
+    [string]$ServerRoot = "F:\SV GAMELAND\server",
+    [switch]$RefreshAMXX
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,6 +11,7 @@ $addons = Join-Path $cstrike "addons"
 $metamodPlugins = Join-Path $addons "metamod\plugins.ini"
 $sourceSma = Join-Path $ServerRoot "cstrike\addons\amxmodx\scripting\backweapons.sma"
 $optimizerSma = Join-Path $ServerRoot "cstrike\addons\amxmodx\scripting\gameland_lan_optimizer.sma"
+$lanHostCfg = Join-Path $ServerRoot "cstrike\gameland_lan_host.cfg"
 $sourceModel = Join-Path $ServerRoot "cstrike\models\backweapons.mdl"
 $compiler = Join-Path $ServerRoot "cstrike\addons\amxmodx\scripting\amxxpc.exe"
 $includeDir = Join-Path $ServerRoot "cstrike\addons\amxmodx\scripting\include"
@@ -18,6 +20,7 @@ if (!(Test-Path -LiteralPath $cstrike)) { throw "Missing cstrike folder: $cstrik
 if (!(Test-Path -LiteralPath $metamodPlugins)) { throw "Missing Metamod plugins.ini: $metamodPlugins" }
 if (!(Test-Path -LiteralPath $sourceSma)) { throw "Missing source: $sourceSma" }
 if (!(Test-Path -LiteralPath $optimizerSma)) { throw "Missing source: $optimizerSma" }
+if (!(Test-Path -LiteralPath $lanHostCfg)) { throw "Missing config: $lanHostCfg" }
 if (!(Test-Path -LiteralPath $sourceModel)) { throw "Missing model: $sourceModel" }
 if (!(Test-Path -LiteralPath $compiler)) { throw "Missing AMXX compiler: $compiler" }
 
@@ -28,7 +31,9 @@ New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
 $pathsToBackup = @(
     (Join-Path $addons "amxmodx"),
     $metamodPlugins,
-    (Join-Path $cstrike "models\backweapons.mdl")
+    (Join-Path $cstrike "models\backweapons.mdl"),
+    (Join-Path $cstrike "gameland_lan_host.cfg"),
+    (Join-Path $cstrike "userconfig.cfg")
 )
 
 foreach ($path in $pathsToBackup) {
@@ -38,33 +43,36 @@ foreach ($path in $pathsToBackup) {
     }
 }
 
+New-Item -ItemType Directory -Force -Path $addons | Out-Null
+
 $downloadRoot = Join-Path $env:TEMP "gameland-amxx-$stamp"
 New-Item -ItemType Directory -Force -Path $downloadRoot | Out-Null
+$targetAmxxDll = Join-Path $addons "amxmodx\dlls\amxmodx_mm.dll"
+if ($RefreshAMXX -or !(Test-Path -LiteralPath $targetAmxxDll)) {
+    $packages = @(
+        @{
+            Name = "amxmodx-base-windows.zip"
+            Url = "https://www.amxmodx.org/amxxdrop/1.9/amxmodx-1.9.0-git5303-base-windows.zip"
+        },
+        @{
+            Name = "amxmodx-cstrike-windows.zip"
+            Url = "https://www.amxmodx.org/amxxdrop/1.9/amxmodx-1.9.0-git5303-cstrike-windows.zip"
+        }
+    )
 
-$packages = @(
-    @{
-        Name = "amxmodx-base-windows.zip"
-        Url = "https://www.amxmodx.org/amxxdrop/1.9/amxmodx-1.9.0-git5303-base-windows.zip"
-    },
-    @{
-        Name = "amxmodx-cstrike-windows.zip"
-        Url = "https://www.amxmodx.org/amxxdrop/1.9/amxmodx-1.9.0-git5303-cstrike-windows.zip"
+    foreach ($pkg in $packages) {
+        $zipPath = Join-Path $downloadRoot $pkg.Name
+        Invoke-WebRequest -Uri $pkg.Url -OutFile $zipPath -UseBasicParsing
+        Expand-Archive -LiteralPath $zipPath -DestinationPath $downloadRoot -Force
     }
-)
 
-foreach ($pkg in $packages) {
-    $zipPath = Join-Path $downloadRoot $pkg.Name
-    Invoke-WebRequest -Uri $pkg.Url -OutFile $zipPath -UseBasicParsing
-    Expand-Archive -LiteralPath $zipPath -DestinationPath $downloadRoot -Force
+    $packageCstrike = Join-Path $downloadRoot "addons\amxmodx"
+    if (!(Test-Path -LiteralPath (Join-Path $packageCstrike "dlls\amxmodx_mm.dll"))) {
+        throw "Downloaded AMXX package did not contain amxmodx_mm.dll"
+    }
+
+    Copy-Item -LiteralPath $packageCstrike -Destination $addons -Recurse -Force
 }
-
-$packageCstrike = Join-Path $downloadRoot "addons\amxmodx"
-if (!(Test-Path -LiteralPath (Join-Path $packageCstrike "dlls\amxmodx_mm.dll"))) {
-    throw "Downloaded AMXX package did not contain amxmodx_mm.dll"
-}
-
-New-Item -ItemType Directory -Force -Path $addons | Out-Null
-Copy-Item -LiteralPath $packageCstrike -Destination $addons -Recurse -Force
 
 $pluginsDir = Join-Path $addons "amxmodx\plugins"
 $configsDir = Join-Path $addons "amxmodx\configs"
@@ -87,6 +95,18 @@ Copy-Item -LiteralPath $compiledOptimizer -Destination (Join-Path $pluginsDir "g
 Copy-Item -LiteralPath $sourceSma -Destination (Join-Path $scriptingDir "backweapons.sma") -Force
 Copy-Item -LiteralPath $optimizerSma -Destination (Join-Path $scriptingDir "gameland_lan_optimizer.sma") -Force
 Copy-Item -LiteralPath $sourceModel -Destination (Join-Path $modelsDir "backweapons.mdl") -Force
+Copy-Item -LiteralPath $lanHostCfg -Destination (Join-Path $cstrike "gameland_lan_host.cfg") -Force
+
+$userConfig = Join-Path $cstrike "userconfig.cfg"
+$userConfigLines = if (Test-Path -LiteralPath $userConfig) {
+    Get-Content -LiteralPath $userConfig
+} else {
+    @()
+}
+$userConfigLines = @($userConfigLines | Where-Object { $_ -notmatch '^\s*exec\s+("?gameland_lan_host\.cfg"?)\s*$' })
+$userConfigLines += ""
+$userConfigLines += "exec gameland_lan_host.cfg"
+Set-Content -LiteralPath $userConfig -Value $userConfigLines -Encoding ASCII
 
 $pluginConfig = Join-Path $configsDir "plugins.ini"
 $pluginLines = @(
@@ -136,6 +156,7 @@ $result = [ordered]@{
     Plugin = Join-Path $pluginsDir "backweapons.amxx"
     Source = Join-Path $scriptingDir "backweapons.sma"
     Model = Join-Path $modelsDir "backweapons.mdl"
+    LanHostConfig = Join-Path $cstrike "gameland_lan_host.cfg"
     MetamodConfig = $metamodPlugins
     AMXXConfig = $pluginConfig
 }
