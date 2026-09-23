@@ -13,6 +13,7 @@
 #define OFFSET_AUTOSWITCH 	509
 #define OFFSET_SHIELD 		510
 #define HAS_SHIELD 		(1<<24)
+#define BACKWEAPON_SOLID SOLID_NOT
 
 #define PRIMARY_WEAPONS (1<<CSW_SCOUT | 1<<CSW_XM1014 | 1<<CSW_MAC10 | 1<<CSW_AUG | 1<<CSW_UMP45 | 1<<CSW_SG550 | 1<<CSW_GALIL | 1<<CSW_FAMAS | 1<<CSW_AWP | 1<<CSW_MP5NAVY | 1<<CSW_M249 | 1<<CSW_M3 | 1<<CSW_M4A1 | 1<<CSW_TMP | 1<<CSW_G3SG1 | 1<<CSW_SG552 | 1<<CSW_AK47 | 1<<CSW_P90)
 
@@ -87,13 +88,17 @@ stock bool:is_valid_player(id)
 stock hide_back_weapon(id)
 {
 	if (is_valid_player(id) && pev_valid(g_weaponent[id]))
-		fm_set_entity_visibility(g_weaponent[id], 0)
+		set_pev(g_weaponent[id], pev_effects, pev(g_weaponent[id], pev_effects) | EF_NODRAW)
 }
 
 stock show_back_weapon(id)
 {
 	if (is_valid_player(id) && pev_valid(g_weaponent[id]))
-		fm_set_entity_visibility(g_weaponent[id], 1)
+	{
+		set_pev(g_weaponent[id], pev_effects, pev(g_weaponent[id], pev_effects) & ~EF_NODRAW)
+		set_pev(g_weaponent[id], pev_rendermode, kRenderNormal)
+		set_pev(g_weaponent[id], pev_renderamt, 255.0)
+	}
 }
 
 stock sync_back_weapon(id, bool:visible)
@@ -157,13 +162,19 @@ public client_putinserver(id)
 	g_weaponent[id] = engfunc(EngFunc_CreateNamedEntity, infotarget)
 	if(pev_valid(g_weaponent[id]))
 	{
+		dllfunc(DLLFunc_Spawn, g_weaponent[id])
 		engfunc(EngFunc_SetModel, g_weaponent[id], g_weaponmodel)
 		set_pev(g_weaponent[id], pev_classname, g_weaponclass)
 		set_pev(g_weaponent[id], pev_movetype, MOVETYPE_FOLLOW)
-		set_pev(g_weaponent[id], pev_effects, EF_NODRAW)
-		set_pev(g_weaponent[id], pev_aiment, id)
+		set_pev(g_weaponent[id], pev_solid, BACKWEAPON_SOLID)
 		set_pev(g_weaponent[id], pev_owner, id)
+		set_pev(g_weaponent[id], pev_aiment, id)
+		set_pev(g_weaponent[id], pev_sequence, 0)
+		set_pev(g_weaponent[id], pev_framerate, 1.0)
+		set_pev(g_weaponent[id], pev_rendermode, kRenderNormal)
+		set_pev(g_weaponent[id], pev_renderamt, 255.0)
 		set_pev(g_weaponent[id], pev_body, MODEL_NULL)
+		hide_back_weapon(id)
 	}
 }
 
