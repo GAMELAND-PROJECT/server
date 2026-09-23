@@ -84,9 +84,15 @@ echo "[3/5] Setting up secure sudoers permissions for www-data..."
 SUDOERS_FILE="/etc/sudoers.d/gameland-panel"
 cat > "${SUDOERS_FILE}" <<EOF
 # Allow web panel user (www-data) to manage gameland services without password
-www-data ALL=(ALL) NOPASSWD: /bin/systemctl start gameland*, /bin/systemctl stop gameland*, /bin/systemctl restart gameland*, /bin/systemctl is-active gameland*, /bin/bash ${SERVER_DIR}/svgl.sh *
+Defaults:www-data !requiretty
+Cmnd_Alias GAMELAND_SYSTEMCTL = /usr/bin/systemctl start gameland.service, /usr/bin/systemctl stop gameland.service, /usr/bin/systemctl restart gameland.service, /usr/bin/systemctl is-active gameland.service, /usr/bin/systemctl start gameland@*.service, /usr/bin/systemctl stop gameland@*.service, /usr/bin/systemctl restart gameland@*.service, /usr/bin/systemctl is-active gameland@*.service, /bin/systemctl start gameland.service, /bin/systemctl stop gameland.service, /bin/systemctl restart gameland.service, /bin/systemctl is-active gameland.service, /bin/systemctl start gameland@*.service, /bin/systemctl stop gameland@*.service, /bin/systemctl restart gameland@*.service, /bin/systemctl is-active gameland@*.service
+Cmnd_Alias GAMELAND_SVGL = /bin/bash ${SERVER_DIR}/svgl.sh *, /usr/bin/bash ${SERVER_DIR}/svgl.sh *, /usr/local/bin/svgl *
+www-data ALL=(root) NOPASSWD: GAMELAND_SYSTEMCTL, GAMELAND_SVGL
 EOF
 chmod 0440 "${SUDOERS_FILE}"
+if command -v visudo >/dev/null 2>&1; then
+  visudo -cf "${SUDOERS_FILE}"
+fi
 
 # ─── 4. Fix file permissions for AMX configs, plugins, scripting, and logs ───
 echo "[4/5] Fixing permissions for AMX Mod X configs, plugins, scripting, and logs..."

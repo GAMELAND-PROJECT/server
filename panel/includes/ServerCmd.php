@@ -282,7 +282,7 @@ class ServerCmd {
         }
 
         $svgl = escapeshellarg(self::getSvglPath());
-        $cmd = 'sudo /bin/bash ' . $svgl . ' add '
+        $cmd = 'sudo -n /bin/bash ' . $svgl . ' add '
              . escapeshellarg($id) . ' '
              . escapeshellarg((string)$port) . ' '
              . escapeshellarg($name) . ' 2>&1';
@@ -327,7 +327,7 @@ class ServerCmd {
         }
 
         $svgl = escapeshellarg(self::getSvglPath());
-        $cmd = 'sudo /bin/bash ' . $svgl . ' remove ' . escapeshellarg($id)
+        $cmd = 'sudo -n /bin/bash ' . $svgl . ' remove ' . escapeshellarg($id)
              . ($purge ? ' --purge' : '')
              . ' 2>&1';
         $lines = [];
@@ -494,7 +494,7 @@ class ServerCmd {
         
         $lines = [];
         $exitCode = 1;
-        @exec("sudo systemctl {$cleanAction} {$cleanService} 2>&1", $lines, $exitCode);
+        @exec("sudo -n /usr/bin/systemctl {$cleanAction} {$cleanService} 2>&1", $lines, $exitCode);
         $output = implode("\n", $lines);
         sleep(1);
         $newStatus = self::getServiceStatus($serviceName);
