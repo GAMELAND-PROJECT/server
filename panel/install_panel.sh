@@ -85,7 +85,9 @@ SUDOERS_FILE="/etc/sudoers.d/gameland-panel"
 cat > "${SUDOERS_FILE}" <<EOF
 # Allow web panel user (www-data) to manage gameland services without password
 Defaults:www-data !requiretty
-Cmnd_Alias GAMELAND_PANEL_HELPER = /usr/local/sbin/gameland-panel-sudo *
+# No argument suffix is intentional: sudoers permits any arguments for this
+# exact executable while avoiding fragile wildcard argument matching.
+Cmnd_Alias GAMELAND_PANEL_HELPER = /usr/local/sbin/gameland-panel-sudo
 www-data ALL=(root) NOPASSWD: GAMELAND_PANEL_HELPER
 EOF
 chmod 0440 "${SUDOERS_FILE}"
