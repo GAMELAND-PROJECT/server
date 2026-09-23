@@ -41,6 +41,112 @@ class ServerCmd {
         return $result;
     }
 
+    public static function getManagedServers() {
+        global $SERVERS;
+        return is_array($SERVERS) ? $SERVERS : [];
+    }
+
+    private static function aggregateResults(array $results) {
+        $failed = [];
+        foreach ($results as $id => $result) {
+            if (!($result['success'] ?? false)) {
+                $failed[$id] = $result['message'] ?? 'Operation failed';
+            }
+        }
+        return [
+            'success' => empty($failed),
+            'results' => $results,
+            'failed' => $failed,
+            'message' => empty($failed)
+                ? 'Operation completed on all selected servers.'
+                : 'Operation completed with failures on: ' . implode(', ', array_keys($failed)),
+        ];
+    }
+
+    public static function saveAdminEverywhere($auth, $password, $access, $flags, $comment, $all = false, $selectedId = null) {
+        $servers = self::getManagedServers();
+        if (!$all) {
+            $selectedId = $selectedId ?: (get_active_server()['id'] ?? 'main');
+            $servers = isset($servers[$selectedId]) ? [$selectedId => $servers[$selectedId]] : [];
+        }
+        $results = [];
+        foreach ($servers as $id => $server) {
+            $res = self::saveAdmin($server['users_ini'], $auth, $password, $access, $flags, $comment);
+            if ($res['success'] && self::getServiceStatus($server['service_name']) === 'running') {
+                $reload = self::reloadAdminsLive($server);
+                $res['reload'] = $reload;
+                if (!$reload['success']) {
+                    $res['success'] = false;
+                    $res['message'] .= ' File saved, but live reload failed.';
+                }
+            }
+            $results[$id] = $res;
+        }
+        return self::aggregateResults($results);
+    }
+
+    public static function deleteAdminEverywhere($auth, $all = false, $selectedId = null) {
+        $servers = self::getManagedServers();
+        if (!$all) {
+            $selectedId = $selectedId ?: (get_active_server()['id'] ?? 'main');
+            $servers = isset($servers[$selectedId]) ? [$selectedId => $servers[$selectedId]] : [];
+        }
+        $results = [];
+        foreach ($servers as $id => $server) {
+            $res = self::deleteAdmin($server['users_ini'], $auth);
+            if ($res['success'] && self::getServiceStatus($server['service_name']) === 'running') {
+                $reload = self::reloadAdminsLive($server);
+                $res['reload'] = $reload;
+                if (!$reload['success']) {
+                    $res['success'] = false;
+                    $res['message'] .= ' File deleted, but live reload failed.';
+                }
+            }
+            $results[$id] = $res;
+        }
+        return self::aggregateResults($results);
+    }
+
+    public static function savePluginsEverywhere(array $enabledPluginFiles, $all = false, $selectedId = null, $restart = false) {
+        $servers = self::getManagedServers();
+        if (!$all) {
+            $selectedId = $selectedId ?: (get_active_server()['id'] ?? 'main');
+            $servers = isset($servers[$selectedId]) ? [$selectedId => $servers[$selectedId]] : [];
+        }
+        $results = [];
+        foreach ($servers as $id => $server) {
+            $res = self::savePluginsState($server, $enabledPluginFiles);
+            if ($res['success'] && $restart) {
+                $res['restart'] = self::controlService($server['service_name'], 'restart');
+                if (!($res['restart']['success'] ?? false)) {
+                    $res['success'] = false;
+                    $res['message'] .= ' Configuration saved, but restart failed.';
+                }
+            }
+            $results[$id] = $res;
+        }
+        return self::aggregateResults($results);
+    }
+
+    public static function deployMixEverywhere($compile = true, $restart = true) {
+        $results = [];
+        foreach (self::getManagedServers() as $id => $server) {
+            $sync = self::syncMixFromGitHub($server);
+            $result = ['success' => $sync['success'], 'sync' => $sync];
+            if ($sync['success'] && $compile) {
+                $result['compile'] = self::compilePlugins($server);
+                $result['success'] = $result['compile']['success'];
+            }
+            if ($result['success'] && $restart) {
+                $result['restart'] = self::controlService($server['service_name'], 'restart');
+                $result['success'] = $result['restart']['success'] ?? false;
+            }
+            $result['message'] = $result['success'] ? 'Deployed successfully.' : 'Deployment failed.';
+            $results[$id] = $result;
+        }
+        return self::aggregateResults($results);
+    }
+
     private static function getServerRuntimeSettings(array $server) {
         $settings = [
             'slots' => 12,
@@ -180,9 +286,12 @@ class ServerCmd {
              . escapeshellarg($id) . ' '
              . escapeshellarg((string)$port) . ' '
              . escapeshellarg($name) . ' 2>&1';
-        $output = @shell_exec($cmd);
+        $lines = [];
+        $exitCode = 1;
+        @exec($cmd, $lines, $exitCode);
+        $output = implode("\n", $lines);
 
-        $ok = is_string($output) && str_contains($output, '[OK]');
+        $ok = $exitCode === 0 && str_contains($output, '[OK]');
         if ($ok) {
             $registry = self::readRegistry();
             $serverDir = '/opt/gameland/instances/' . $id;
@@ -221,12 +330,16 @@ class ServerCmd {
         $cmd = 'sudo /bin/bash ' . $svgl . ' remove ' . escapeshellarg($id)
              . ($purge ? ' --purge' : '')
              . ' 2>&1';
-        $output = @shell_exec($cmd);
+        $lines = [];
+        $exitCode = 1;
+        @exec($cmd, $lines, $exitCode);
+        $output = implode("\n", $lines);
 
         return [
-            'success' => is_string($output) && str_contains($output, '[OK]'),
-            'message' => is_string($output) ? trim($output) : 'No output from SVGL.',
-            'output' => trim((string)$output),
+            'success' => $exitCode === 0 && str_contains($output, '[OK]'),
+            'message' => trim($output) !== '' ? trim($output) : 'No output from SVGL.',
+            'output' => trim($output),
+            'exit_code' => $exitCode,
         ];
     }
 
@@ -259,6 +372,13 @@ class ServerCmd {
         }
 
         $server = $SERVERS[$id];
+        if ($port) {
+            foreach ($SERVERS as $otherId => $otherServer) {
+                if ($otherId !== $id && (int)($otherServer['port'] ?? 0) === $port) {
+                    return ['success' => false, 'message' => 'Port is already assigned to another server.'];
+                }
+            }
+        }
         $serverDir = $server['server_dir'];
 
         if ($hostname !== '') {
@@ -372,14 +492,18 @@ class ServerCmd {
         $cleanService = escapeshellarg($serviceName);
         $cleanAction = escapeshellarg($action);
         
-        $output = @shell_exec("sudo systemctl {$cleanAction} {$cleanService} 2>&1");
+        $lines = [];
+        $exitCode = 1;
+        @exec("sudo systemctl {$cleanAction} {$cleanService} 2>&1", $lines, $exitCode);
+        $output = implode("\n", $lines);
         sleep(1);
         $newStatus = self::getServiceStatus($serviceName);
         return [
-            'success' => true,
+            'success' => $exitCode === 0,
             'action' => $action,
             'status' => $newStatus,
-            'output' => trim((string)$output)
+            'output' => trim($output),
+            'exit_code' => $exitCode,
         ];
     }
 

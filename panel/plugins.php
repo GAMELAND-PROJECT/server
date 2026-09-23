@@ -13,12 +13,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_plugins'])) {
         $msg = 'Invalid security token!'; $msgType = 'danger';
     } else {
         $selectedPlugins = $_POST['plugins'] ?? [];
-        $res = ServerCmd::savePluginsState($activeServer, $selectedPlugins);
+        $applyAll = ($_POST['apply_all_servers'] ?? '0') === '1';
+        $restart = ($_POST['restart_after_save'] ?? '0') === '1';
+        $res = ServerCmd::savePluginsEverywhere($selectedPlugins, $applyAll, $activeServer['id'], $restart);
         $msg = $res['message'];
-        $msgType = $res['success'] ? 'success' : 'danger';
+        $msgType = $res['success'] ? 'success' : 'warning';
 
         if (isset($_POST['restart_after_save']) && $_POST['restart_after_save'] === '1' && $res['success']) {
-            ServerCmd::controlService($activeServer['service_name'], 'restart');
+            // Restart is handled by savePluginsEverywhere().
             $msg .= ' ✅ Server restarted!';
         }
     }
@@ -45,6 +47,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['sync_github'])) {
     if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
         $msg = 'Invalid security token!'; $msgType = 'danger';
     } else {
+        if (($_POST['deploy_all_servers'] ?? '0') === '1') {
+            $deployRes = ServerCmd::deployMixEverywhere(
+                isset($_POST['compile_after_sync']),
+                isset($_POST['restart_after_sync'])
+            );
+            $msg = $deployRes['message'];
+            $msgType = $deployRes['success'] ? 'success' : 'warning';
+            goto plugins_request_done;
+        }
         $downloadRes = ServerCmd::syncMixFromGitHub($activeServer);
         if (!$downloadRes['success']) {
             $failedStr = !empty($downloadRes['failed']) ? implode(', ', $downloadRes['failed']) : 'unknown error';
@@ -75,6 +86,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['sync_github'])) {
         }
     }
 }
+
+plugins_request_done:
 
 // ── Handle Compile Action ───────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['compile_plugins'])) {
@@ -216,6 +229,10 @@ foreach ($plugins as $p) {
             <input type="hidden" name="sync_github" value="1">
             <input type="hidden" name="compile_after_sync" value="1">
             <input type="hidden" name="restart_after_sync" value="1">
+            <label style="display:block;font-size:.78rem;color:var(--text-muted);margin-bottom:.35rem;">
+                <input type="checkbox" name="deploy_all_servers" value="1">
+                Deploy to all servers
+            </label>
             <button type="submit" class="btn btn-primary"
                     style="padding:0.8rem 1.4rem; font-weight:700; background:linear-gradient(135deg,#06b6d4,#4f46e5); box-shadow:0 4px 15px rgba(6,182,212,0.3);">
                 ⚡ 1-Click Deploy: Download → Compile → Restart
@@ -448,6 +465,10 @@ function escHtml(str) {
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
         <h2 style="font-size:1.15rem; font-weight:700;">📋 All Plugins (plugins.ini)</h2>
         <div style="display:flex; gap:0.5rem;">
+            <label style="display:flex;align-items:center;gap:.35rem;font-size:.8rem;color:var(--text-muted);">
+                <input type="checkbox" name="apply_all_servers" value="1">
+                All servers
+            </label>
             <button type="submit" name="save_plugins" class="btn btn-secondary">💾 Save Configuration</button>
             <button type="submit" name="save_plugins"
                     onclick="this.form.restart_after_save.value='1'" class="btn btn-success">

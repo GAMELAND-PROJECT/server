@@ -18,19 +18,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_admin'])) {
         $flags = trim($_POST['admin_flags'] ?? '');
         $comment = trim($_POST['admin_comment'] ?? '');
 
-        $res = ServerCmd::saveAdmin($activeServer['users_ini'], $auth, $password, $access, $flags, $comment);
+        $applyAll = ($_POST['apply_all_servers'] ?? '0') === '1';
+        $res = ServerCmd::saveAdminEverywhere($auth, $password, $access, $flags, $comment, $applyAll, $activeServer['id']);
         $msg = $res['message'];
-        $msgType = $res['success'] ? 'success' : 'danger';
+        $msgType = $res['success'] ? 'success' : 'warning';
 
-        // Auto reload admins in live server if online
-        if ($res['success'] && $serverStatus === 'running') {
-            $reloadRes = ServerCmd::reloadAdminsLive($activeServer);
-            if ($reloadRes['success']) {
-                $msg .= ' ⚡ (Admins instantly reloaded on server - No restart needed!)';
-            } else {
-                $msg .= ' (Warning: Live reload failed: ' . $reloadRes['message'] . ')';
-            }
-        }
     }
 }
 
@@ -41,16 +33,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_admin'])) {
         $msgType = 'danger';
     } else {
         $auth = trim($_POST['delete_auth'] ?? '');
-        $res = ServerCmd::deleteAdmin($activeServer['users_ini'], $auth);
+        $applyAll = ($_POST['apply_all_servers'] ?? '0') === '1';
+        $res = ServerCmd::deleteAdminEverywhere($auth, $applyAll, $activeServer['id']);
         $msg = $res['message'];
-        $msgType = $res['success'] ? 'success' : 'danger';
+        $msgType = $res['success'] ? 'success' : 'warning';
 
-        if ($res['success'] && $serverStatus === 'running') {
-            $reloadRes = ServerCmd::reloadAdminsLive($activeServer);
-            if ($reloadRes['success']) {
-                $msg .= ' ⚡ (Admins instantly reloaded on server!)';
-            }
-        }
     }
 }
 
@@ -121,6 +108,12 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
                                         <input type="hidden" name="delete_auth" value="<?php echo htmlspecialchars($adm['auth']); ?>">
                                         <button type="submit" name="delete_admin" class="btn btn-danger btn-sm">Delete</button>
                                     </form>
+                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this admin from every managed server?')">
+                                        <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
+                                        <input type="hidden" name="delete_auth" value="<?php echo htmlspecialchars($adm['auth']); ?>">
+                                        <input type="hidden" name="apply_all_servers" value="1">
+                                        <button type="submit" name="delete_admin" class="btn btn-danger btn-sm">Delete All</button>
+                                    </form>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -172,6 +165,10 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
                 <input type="text" id="admin_comment" name="admin_comment" class="input-field" style="width: 100%;" placeholder="e.g. Head Admin or VIP">
             </div>
 
+            <label style="display:flex;align-items:center;gap:.5rem;margin:.5rem 0 1rem;">
+                <input type="checkbox" name="apply_all_servers" value="1">
+                Apply this admin to every managed server
+            </label>
             <button type="submit" name="save_admin" class="btn btn-primary" style="width: 100%;">Save Admin</button>
         </form>
     </div>

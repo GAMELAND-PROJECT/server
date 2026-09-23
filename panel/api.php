@@ -61,6 +61,45 @@ switch ($action) {
         echo json_encode($res);
         break;
 
+    case 'save_admin_all':
+        $res = ServerCmd::saveAdminEverywhere(
+            trim($_POST['auth'] ?? ''),
+            trim($_POST['password'] ?? ''),
+            trim($_POST['access'] ?? ''),
+            trim($_POST['flags'] ?? ''),
+            trim($_POST['comment'] ?? ''),
+            true
+        );
+        echo json_encode($res);
+        break;
+
+    case 'delete_admin_all':
+        $res = ServerCmd::deleteAdminEverywhere(trim($_POST['auth'] ?? ''), true);
+        echo json_encode($res);
+        break;
+
+    case 'save_plugins_all':
+        $plugins = $_POST['plugins'] ?? [];
+        if (!is_array($plugins)) {
+            $plugins = [$plugins];
+        }
+        $res = ServerCmd::savePluginsEverywhere(
+            array_values(array_filter($plugins, 'is_string')),
+            true,
+            null,
+            ($_POST['restart'] ?? '0') === '1'
+        );
+        echo json_encode($res);
+        break;
+
+    case 'deploy_mix_all':
+        $res = ServerCmd::deployMixEverywhere(
+            ($_POST['compile'] ?? '1') === '1',
+            ($_POST['restart'] ?? '1') === '1'
+        );
+        echo json_encode($res);
+        break;
+
     // ─── RCON Raw Command (Console page) ────────────────────────────────────
     case 'rcon_command':
         $command = trim($_POST['command'] ?? '');
