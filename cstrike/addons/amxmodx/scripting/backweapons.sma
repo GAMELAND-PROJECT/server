@@ -103,22 +103,17 @@ stock show_back_weapon(id)
 	}
 }
 
-stock get_primary_weapon(id)
+stock get_primary_weapon_id(id)
 {
 	if (!is_valid_player(id) || !is_user_connected(id))
 		return 0
 
-	new weapon = get_pdata_cbase(id, OFFSET_PLAYER_ITEMS + 1, EXTRAOFFSET_PLAYER)
-	new next
-	while (weapon > 0 && pev_valid(weapon))
+	new weapons[32], count
+	get_user_weapons(id, weapons, count)
+	for (new i = 0; i < count; i++)
 	{
-		if (is_weapon_primary(cs_get_weapon_type(weapon)))
-			return weapon
-
-		next = get_pdata_cbase(weapon, OFFSET_WEAPON_NEXT, EXTRAOFFSET_WEAPONS)
-		if (next == weapon)
-			break
-		weapon = next
+		if (is_weapon_primary(weapons[i]))
+			return weapons[i]
 	}
 	return 0
 }
@@ -128,14 +123,10 @@ stock sync_back_weapon(id, bool:visible)
 	if (!is_valid_player(id) || !is_user_connected(id) || !pev_valid(g_weaponent[id]))
 		return
 
-	new primary = get_primary_weapon(id)
-	if (primary > 0 && pev_valid(primary))
+	new weapon = get_primary_weapon_id(id)
+	if (weapon > 0 && is_weapon_primary(weapon))
 	{
-		new weapon = cs_get_weapon_type(primary)
-		if (is_weapon_primary(weapon))
-			set_pev(g_weaponent[id], pev_body, get_weapon_model(weapon))
-		else
-			set_pev(g_weaponent[id], pev_body, MODEL_NULL)
+		set_pev(g_weaponent[id], pev_body, get_weapon_model(weapon))
 	}
 	else
 	{
@@ -293,7 +284,7 @@ public bacon_item_deploy_post(ent)
 		static weapon; weapon = cs_get_weapon_type(ent)
 		if(is_weapon_primary(weapon) || cs_get_user_shield(id))
 			sync_back_weapon(id, false)
-		else if(get_primary_weapon(id))
+		else if(get_primary_weapon_id(id))
 			sync_back_weapon(id, true)
 	}
 	return HAM_IGNORED
