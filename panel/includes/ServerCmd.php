@@ -15,6 +15,12 @@ class ServerCmd {
         return '/usr/local/bin/svgl';
     }
 
+    public static function getPrivilegedHelperPath() {
+        $root = self::getManagerRoot();
+        $helper = $root . '/panel/gameland-panel-sudo.sh';
+        return is_file($helper) ? $helper : '/usr/local/sbin/gameland-panel-sudo';
+    }
+
     public static function validateInstanceId($id) {
         return is_string($id) && preg_match('/^[a-zA-Z0-9_-]{2,32}$/', $id);
     }
@@ -281,8 +287,8 @@ class ServerCmd {
             $hostname = $name;
         }
 
-        $svgl = escapeshellarg(self::getSvglPath());
-        $cmd = 'sudo -n /bin/bash ' . $svgl . ' add '
+        $helper = escapeshellarg(self::getPrivilegedHelperPath());
+        $cmd = 'sudo -n ' . $helper . ' add '
              . escapeshellarg($id) . ' '
              . escapeshellarg((string)$port) . ' '
              . escapeshellarg($name) . ' 2>&1';
@@ -326,8 +332,8 @@ class ServerCmd {
             return ['success' => false, 'message' => 'Invalid or protected server id.'];
         }
 
-        $svgl = escapeshellarg(self::getSvglPath());
-        $cmd = 'sudo -n /bin/bash ' . $svgl . ' remove ' . escapeshellarg($id)
+        $helper = escapeshellarg(self::getPrivilegedHelperPath());
+        $cmd = 'sudo -n ' . $helper . ' remove ' . escapeshellarg($id)
              . ($purge ? ' --purge' : '')
              . ' 2>&1';
         $lines = [];
@@ -494,7 +500,8 @@ class ServerCmd {
         
         $lines = [];
         $exitCode = 1;
-        @exec("sudo -n /usr/bin/systemctl {$cleanAction} {$cleanService} 2>&1", $lines, $exitCode);
+        $helper = escapeshellarg(self::getPrivilegedHelperPath());
+        @exec("sudo -n {$helper} service {$cleanAction} {$cleanService} 2>&1", $lines, $exitCode);
         $output = implode("\n", $lines);
         sleep(1);
         $newStatus = self::getServiceStatus($serviceName);

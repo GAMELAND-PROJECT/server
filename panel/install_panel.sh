@@ -85,9 +85,8 @@ SUDOERS_FILE="/etc/sudoers.d/gameland-panel"
 cat > "${SUDOERS_FILE}" <<EOF
 # Allow web panel user (www-data) to manage gameland services without password
 Defaults:www-data !requiretty
-Cmnd_Alias GAMELAND_SYSTEMCTL = /usr/bin/systemctl start gameland.service, /usr/bin/systemctl stop gameland.service, /usr/bin/systemctl restart gameland.service, /usr/bin/systemctl is-active gameland.service, /usr/bin/systemctl start gameland@*.service, /usr/bin/systemctl stop gameland@*.service, /usr/bin/systemctl restart gameland@*.service, /usr/bin/systemctl is-active gameland@*.service, /bin/systemctl start gameland.service, /bin/systemctl stop gameland.service, /bin/systemctl restart gameland.service, /bin/systemctl is-active gameland.service, /bin/systemctl start gameland@*.service, /bin/systemctl stop gameland@*.service, /bin/systemctl restart gameland@*.service, /bin/systemctl is-active gameland@*.service
-Cmnd_Alias GAMELAND_SVGL = /bin/bash ${SERVER_DIR}/svgl.sh *, /usr/bin/bash ${SERVER_DIR}/svgl.sh *, /usr/local/bin/svgl *
-www-data ALL=(root) NOPASSWD: GAMELAND_SYSTEMCTL, GAMELAND_SVGL
+Cmnd_Alias GAMELAND_PANEL_HELPER = /usr/local/sbin/gameland-panel-sudo *
+www-data ALL=(root) NOPASSWD: GAMELAND_PANEL_HELPER
 EOF
 chmod 0440 "${SUDOERS_FILE}"
 if command -v visudo >/dev/null 2>&1; then
@@ -117,6 +116,7 @@ chmod +x "${SERVER_DIR}/cstrike/addons/amxmodx/scripting/amxxpc32.so" || true
 chown www-data:www-data "${SERVER_DIR}/start.sh" || true
 chmod 775 "${SERVER_DIR}/start.sh" || true
 chmod +x "${SERVER_DIR}/svgl.sh" "${SERVER_DIR}/start_instance.sh" "${SERVER_DIR}/stop_instance.sh" 2>/dev/null || true
+install -m 0755 "${PANEL_DIR}/gameland-panel-sudo.sh" /usr/local/sbin/gameland-panel-sudo
 
 # Allow panel to keep the multi-server registry and instance env files updated
 mkdir -p "${SERVER_DIR}/instances" /opt/gameland/instances
