@@ -16,9 +16,13 @@ class ServerCmd {
     }
 
     public static function getPrivilegedHelperPath() {
-        $root = self::getManagerRoot();
-        $helper = $root . '/panel/gameland-panel-sudo.sh';
-        return is_file($helper) ? $helper : '/usr/local/sbin/gameland-panel-sudo';
+        // The sudoers rule grants only the installed root-owned helper.
+        // Never execute the repository copy from PHP: its path is not the
+        // privileged command and would make sudo ask for a password.
+        if (is_file('/usr/local/sbin/gameland-panel-sudo')) {
+            return '/usr/local/sbin/gameland-panel-sudo';
+        }
+        return self::getManagerRoot() . '/panel/gameland-panel-sudo.sh';
     }
 
     public static function validateInstanceId($id) {
