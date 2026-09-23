@@ -32,15 +32,27 @@ instance_dirs() {
 
 compile_plugin() {
     local compiler="$SCRIPTING_DIR/amxxpc"
+    local compiler_runtime="$SCRIPTING_DIR/amxxpc32.so"
     [[ -x "$compiler" ]] || chmod +x "$compiler"
-    [[ -x "$compiler" && -f "$SOURCE" ]] || {
+    [[ -f "$compiler_runtime" ]] && chmod +x "$compiler_runtime"
+    [[ -x "$compiler" && -f "$compiler_runtime" && -f "$SOURCE" ]] || {
         echo "[ERROR] AMXX compiler or backweapons.sma is missing."
         exit 1
     }
     local tmp
     tmp="$(mktemp /tmp/backweapons.XXXXXX.amxx)"
     trap 'rm -f "$tmp"' RETURN
-    "$compiler" "$SOURCE" "-i$INCLUDE_DIR" "-o$tmp"
+    # amxxpc loads amxxpc32.so by relative name.  Running from its directory
+    # and exporting a local loader path keeps this working on clean VPS hosts.
+    if ! (
+        cd "$SCRIPTING_DIR"
+        LD_LIBRARY_PATH="$SCRIPTING_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            "$compiler" "$SOURCE" "-i$INCLUDE_DIR" "-o$tmp"
+    ); then
+        echo "[ERROR] AMXX compiler could not load amxxpc32.so."
+        echo "[HINT] Run: sudo bash fix_perms.sh and verify $compiler_runtime exists."
+        exit 1
+    fi
     [[ -s "$tmp" ]] || { echo "[ERROR] Back Weapons compilation failed."; exit 1; }
     COMPILED_PLUGIN="$tmp"
     trap - RETURN

@@ -34,6 +34,7 @@ fi
 chmod +x "$PROJECT_ROOT"/*.sh
 if [ -f "$PROJECT_ROOT/cstrike/addons/amxmodx/scripting/amxxpc" ]; then
     chmod +x "$PROJECT_ROOT/cstrike/addons/amxmodx/scripting/amxxpc"
+    chmod +x "$PROJECT_ROOT/cstrike/addons/amxmodx/scripting/amxxpc32.so" 2>/dev/null || true
     chmod +x "$PROJECT_ROOT/cstrike/addons/amxmodx/scripting/compile.sh" 2>/dev/null || true
     echo "✅ Fixed: amxxpc compiler"
 fi
