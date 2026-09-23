@@ -566,6 +566,173 @@ class ServerCmd {
         return $maps;
     }
 
+    private static function banFiles(array $serverInfo) {
+        $cstrike = rtrim($serverInfo['cstrike_dir'], '/');
+        return [
+            'ip' => $cstrike . '/listip.cfg',
+            'steam' => $cstrike . '/banned.cfg',
+        ];
+    }
+
+    private static function parseBanLine($line, $source) {
+        $line = trim((string)$line);
+        if ($line === '' || $line[0] === ';' || str_starts_with($line, '//')) {
+            return null;
+        }
+
+        if ($source === 'ip' && preg_match('/^addip\s+"?([0-9.]+)"?\s+"?([0-9]{1,3}(?:\.[0-9]{1,3}){3})"?/i', $line, $m)) {
+            return [
+                'type' => 'ip',
+                'target' => $m[2],
+                'minutes' => $m[1],
+                'raw' => $line,
+            ];
+        }
+
+        if ($source === 'steam' && preg_match('/^banid\s+"?([0-9.]+)"?\s+"?((?:STEAM|VALVE)_[0-9]:[0-9]:[0-9]+)"?/i', $line, $m)) {
+            return [
+                'type' => 'steam',
+                'target' => $m[2],
+                'minutes' => $m[1],
+                'raw' => $line,
+            ];
+        }
+
+        return null;
+    }
+
+    private static function findBanLogHint(array $serverInfo, $target) {
+        $target = trim((string)$target);
+        if ($target === '') {
+            return ['reason' => '', 'log_line' => ''];
+        }
+
+        $paths = [
+            rtrim($serverInfo['cstrike_dir'], '/') . '/addons/amxmodx/logs',
+            rtrim($serverInfo['cstrike_dir'], '/') . '/logs',
+            rtrim($serverInfo['server_dir'], '/') . '/logs',
+        ];
+        $matches = [];
+        foreach ($paths as $dir) {
+            if (!is_dir($dir)) {
+                continue;
+            }
+            $files = glob($dir . '/*.log') ?: [];
+            usort($files, fn($a, $b) => filemtime($b) <=> filemtime($a));
+            foreach (array_slice($files, 0, 8) as $file) {
+                $lines = @file($file, FILE_IGNORE_NEW_LINES);
+                if (!$lines) {
+                    continue;
+                }
+                foreach (array_reverse($lines) as $line) {
+                    if (stripos($line, $target) !== false && preg_match('/ban|kick|avg|ping|latency/i', $line)) {
+                        $matches[] = $line;
+                        if (stripos($line, 'avg') !== false) {
+                            return ['reason' => 'avg', 'log_line' => $line];
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        return ['reason' => '', 'log_line' => $matches[0] ?? ''];
+    }
+
+    public static function getBanList(array $serverInfo) {
+        $files = self::banFiles($serverInfo);
+        $bans = [];
+        foreach ($files as $source => $path) {
+            if (!is_file($path)) {
+                continue;
+            }
+            $lines = file($path, FILE_IGNORE_NEW_LINES);
+            foreach ($lines as $index => $line) {
+                $ban = self::parseBanLine($line, $source);
+                if (!$ban) {
+                    continue;
+                }
+                $hint = self::findBanLogHint($serverInfo, $ban['target']);
+                $ban['file'] = $path;
+                $ban['line'] = $index;
+                $ban['reason'] = $hint['reason'];
+                $ban['log_line'] = $hint['log_line'];
+                $ban['is_avg'] = stripos($ban['raw'] . ' ' . $ban['log_line'], 'avg') !== false;
+                $bans[] = $ban;
+            }
+        }
+        usort($bans, fn($a, $b) => strcmp($a['type'] . $a['target'], $b['type'] . $b['target']));
+        return $bans;
+    }
+
+    public static function removeBan(array $serverInfo, $type, $target) {
+        $type = strtolower(trim((string)$type));
+        $target = trim((string)$target);
+        if (!in_array($type, ['ip', 'steam'], true)) {
+            return ['success' => false, 'message' => 'Invalid ban type.'];
+        }
+        if ($type === 'ip' && !filter_var($target, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return ['success' => false, 'message' => 'Invalid IP address.'];
+        }
+        if ($type === 'steam' && !preg_match('/^(?:STEAM|VALVE)_[0-9]:[0-9]:[0-9]+$/', $target)) {
+            return ['success' => false, 'message' => 'Invalid SteamID/AuthID.'];
+        }
+
+        $files = self::banFiles($serverInfo);
+        $path = $files[$type];
+        $removed = false;
+        if (is_file($path)) {
+            $lines = file($path, FILE_IGNORE_NEW_LINES);
+            $kept = [];
+            foreach ($lines as $line) {
+                $ban = self::parseBanLine($line, $type);
+                if ($ban && strcasecmp($ban['target'], $target) === 0) {
+                    $removed = true;
+                    continue;
+                }
+                $kept[] = $line;
+            }
+            if (@file_put_contents($path, implode("\n", $kept) . "\n") === false) {
+                return ['success' => false, 'message' => 'Unable to write ban file. Check permissions.'];
+            }
+        }
+
+        $liveMessage = '';
+        try {
+            $rcon = new GoldSourceRcon($serverInfo['ip'], $serverInfo['port'], $serverInfo['rcon_password'], 1.5);
+            if ($type === 'ip') {
+                $rcon->execute('removeip ' . $target);
+                $rcon->execute('writeip');
+            } else {
+                $rcon->execute('removeid ' . $target);
+                $rcon->execute('writeid');
+            }
+            $liveMessage = ' Live server ban cache updated.';
+        } catch (Exception $e) {
+            $liveMessage = ' File updated; live RCON update failed: ' . $e->getMessage();
+        }
+
+        return [
+            'success' => true,
+            'message' => ($removed ? 'Ban removed.' : 'Ban was not present in file.') . $liveMessage,
+        ];
+    }
+
+    public static function removeAvgBans(array $serverInfo) {
+        $bans = self::getBanList($serverInfo);
+        $results = [];
+        foreach ($bans as $ban) {
+            if ($ban['is_avg']) {
+                $results[] = self::removeBan($serverInfo, $ban['type'], $ban['target']);
+            }
+        }
+        $failed = array_filter($results, fn($r) => !($r['success'] ?? false));
+        return [
+            'success' => empty($failed),
+            'message' => 'Removed ' . count($results) . ' avg-related ban(s).' . (!empty($failed) ? ' Some removals failed.' : ''),
+            'results' => $results,
+        ];
+    }
+
     /**
      * Parse AMX Mod X users.ini
      * Format: "identity" "password" "flags" "connection_flags" ; comment

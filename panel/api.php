@@ -27,6 +27,26 @@ switch ($action) {
         echo json_encode(['success' => true, 'servers' => ServerCmd::getServerList($SERVERS)]);
         break;
 
+    case 'get_bans':
+        echo json_encode([
+            'success' => true,
+            'bans' => ServerCmd::getBanList($activeServer),
+        ]);
+        break;
+
+    case 'remove_ban':
+        $res = ServerCmd::removeBan(
+            $activeServer,
+            $_POST['ban_type'] ?? '',
+            $_POST['ban_target'] ?? ''
+        );
+        echo json_encode($res);
+        break;
+
+    case 'remove_avg_bans':
+        echo json_encode(ServerCmd::removeAvgBans($activeServer));
+        break;
+
     case 'create_server':
         $id = $_POST['server_id'] ?? '';
         $port = $_POST['port'] ?? '';
