@@ -9,6 +9,7 @@ $cstrike = Join-Path $ClientRoot "cstrike"
 $addons = Join-Path $cstrike "addons"
 $metamodPlugins = Join-Path $addons "metamod\plugins.ini"
 $sourceSma = Join-Path $ServerRoot "cstrike\addons\amxmodx\scripting\backweapons.sma"
+$optimizerSma = Join-Path $ServerRoot "cstrike\addons\amxmodx\scripting\gameland_lan_optimizer.sma"
 $sourceModel = Join-Path $ServerRoot "cstrike\models\backweapons.mdl"
 $compiler = Join-Path $ServerRoot "cstrike\addons\amxmodx\scripting\amxxpc.exe"
 $includeDir = Join-Path $ServerRoot "cstrike\addons\amxmodx\scripting\include"
@@ -16,6 +17,7 @@ $includeDir = Join-Path $ServerRoot "cstrike\addons\amxmodx\scripting\include"
 if (!(Test-Path -LiteralPath $cstrike)) { throw "Missing cstrike folder: $cstrike" }
 if (!(Test-Path -LiteralPath $metamodPlugins)) { throw "Missing Metamod plugins.ini: $metamodPlugins" }
 if (!(Test-Path -LiteralPath $sourceSma)) { throw "Missing source: $sourceSma" }
+if (!(Test-Path -LiteralPath $optimizerSma)) { throw "Missing source: $optimizerSma" }
 if (!(Test-Path -LiteralPath $sourceModel)) { throw "Missing model: $sourceModel" }
 if (!(Test-Path -LiteralPath $compiler)) { throw "Missing AMXX compiler: $compiler" }
 
@@ -75,8 +77,15 @@ $compiled = Join-Path $downloadRoot "backweapons.amxx"
 if ($LASTEXITCODE -ne 0) { throw "Back Weapons compile failed with exit code $LASTEXITCODE" }
 if (!(Test-Path -LiteralPath $compiled)) { throw "Compiled plugin was not created: $compiled" }
 
+$compiledOptimizer = Join-Path $downloadRoot "gameland_lan_optimizer.amxx"
+& $compiler $optimizerSma "-i$includeDir" "-o$compiledOptimizer"
+if ($LASTEXITCODE -ne 0) { throw "LAN Optimizer compile failed with exit code $LASTEXITCODE" }
+if (!(Test-Path -LiteralPath $compiledOptimizer)) { throw "Compiled plugin was not created: $compiledOptimizer" }
+
 Copy-Item -LiteralPath $compiled -Destination (Join-Path $pluginsDir "backweapons.amxx") -Force
+Copy-Item -LiteralPath $compiledOptimizer -Destination (Join-Path $pluginsDir "gameland_lan_optimizer.amxx") -Force
 Copy-Item -LiteralPath $sourceSma -Destination (Join-Path $scriptingDir "backweapons.sma") -Force
+Copy-Item -LiteralPath $optimizerSma -Destination (Join-Path $scriptingDir "gameland_lan_optimizer.sma") -Force
 Copy-Item -LiteralPath $sourceModel -Destination (Join-Path $modelsDir "backweapons.mdl") -Force
 
 $pluginConfig = Join-Path $configsDir "plugins.ini"
@@ -84,6 +93,7 @@ $pluginLines = @(
     "; GameLand LAN AMX Mod X plugins",
     "; Keep the listen-server plugin set minimal for smooth LAN hosting.",
     "",
+    "gameland_lan_optimizer.amxx",
     "backweapons.amxx"
 )
 Set-Content -LiteralPath $pluginConfig -Value $pluginLines -Encoding ASCII
@@ -103,6 +113,17 @@ $metaLines = @($metaLines | Where-Object {
     $_ -notmatch 'addons/amxmodx/dlls/amxmodx_mm\.dll' -and
     $_ -notmatch 'addons\\amxmodx\\dlls\\amxmodx_mm\.dll'
 })
+$cleanMetaLines = New-Object System.Collections.Generic.List[string]
+$previousBlank = $false
+foreach ($line in $metaLines) {
+    $isBlank = [string]::IsNullOrWhiteSpace($line)
+    if ($isBlank -and $previousBlank) {
+        continue
+    }
+    $cleanMetaLines.Add($line)
+    $previousBlank = $isBlank
+}
+$metaLines = @($cleanMetaLines)
 $metaLines += ""
 $metaLines += "; GameLand LAN AMX Mod X"
 $metaLines += "win32 addons/amxmodx/dlls/amxmodx_mm.dll"
@@ -111,6 +132,7 @@ Set-Content -LiteralPath $metamodPlugins -Value $metaLines -Encoding ASCII
 $result = [ordered]@{
     Backup = $backupRoot
     AMXX = Join-Path $addons "amxmodx\dlls\amxmodx_mm.dll"
+    Optimizer = Join-Path $pluginsDir "gameland_lan_optimizer.amxx"
     Plugin = Join-Path $pluginsDir "backweapons.amxx"
     Source = Join-Path $scriptingDir "backweapons.sma"
     Model = Join-Path $modelsDir "backweapons.mdl"
