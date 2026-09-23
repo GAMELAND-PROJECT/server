@@ -30,15 +30,18 @@ bash "$PROJECT_DIR/install_mix.sh"
 echo "[5/8] Installing/updating Hitbox Fixer..."
 bash "$PROJECT_DIR/install_hitbox.sh"
 
-echo "[6/8] Installing/updating web panel and sudoers..."
+echo "[6/8] Installing/updating Back Weapons..."
+bash "$PROJECT_DIR/install_backweapons.sh"
+
+echo "[7/8] Installing/updating web panel and sudoers..."
 bash "$PROJECT_DIR/panel/install_panel.sh"
 
-echo "[7/8] Validating sudoers..."
+echo "[8/8] Validating sudoers..."
 chmod 0440 /etc/sudoers.d/gameland-panel
 visudo -cf /etc/sudoers.d/gameland-panel
 test -x /usr/local/sbin/gameland-panel-sudo
 
-echo "[8/8] Reloading services..."
+echo "[9/9] Reloading services..."
 systemctl daemon-reload
 systemctl restart gameland.service
 
