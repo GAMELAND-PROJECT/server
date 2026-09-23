@@ -69,7 +69,11 @@ build_module() {
 }
 
 backup_and_install() {
-    local server_dir="$1" backup_dir="$2" plugin="$server_dir/$PLUGIN_REL" cfg="$server_dir/$CONFIG_REL" meta="$server_dir/$META_REL"
+    local server_dir="$1"
+    local backup_dir="$2"
+    local plugin="${server_dir}/${PLUGIN_REL}"
+    local cfg="${server_dir}/${CONFIG_REL}"
+    local meta="${server_dir}/${META_REL}"
     mkdir -p "$backup_dir/$(basename "$server_dir")"
     local bdir="$backup_dir/$(basename "$server_dir")"
     [[ -f "$plugin" ]] && cp -a "$plugin" "$bdir/hitbox_fix_mm_i386.so"
