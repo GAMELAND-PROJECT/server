@@ -78,7 +78,11 @@ install_one() {
     backup_file "$config" "$bdir/plugins.ini"
 
     install -m 0644 "$COMPILED_PLUGIN" "$plugin"
-    install -m 0644 "$PROJECT_DIR/cstrike/models/backweapons.mdl" "$model"
+    # The main server already uses the repository model path.  Avoid
+    # installing a file onto itself; instances still receive a real copy.
+    if [[ "$(readlink -f "$PROJECT_DIR/cstrike/models/backweapons.mdl")" != "$(readlink -f "$model")" ]]; then
+        install -m 0644 "$PROJECT_DIR/cstrike/models/backweapons.mdl" "$model"
+    fi
     if ! grep -qE '^[[:space:]]*backweapons\.amxx([[:space:]]|$)' "$config"; then
         printf '\n; GameLand Back Weapons\nbackweapons.amxx\n' >> "$config"
     fi
