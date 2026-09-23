@@ -4,7 +4,7 @@
 #include <message_const>
 
 #define PLUGIN  "GameLand LAN Optimizer"
-#define VERSION "1.2.0"
+#define VERSION "1.3.0"
 #define AUTHOR  "GAMELAND"
 
 #define TASK_APPLY   41001
@@ -27,6 +27,10 @@ new g_pcvar_decals
 new g_pcvar_tempfx
 new g_pcvar_waterfx
 new g_pcvar_impactfx
+new g_pcvar_smokefx
+new g_pcvar_lightfx
+new g_pcvar_gibfx
+new g_pcvar_tracerfx
 new g_pcvar_force_clients
 new g_pcvar_clean_armoury
 
@@ -58,6 +62,10 @@ public plugin_init()
     g_pcvar_tempfx = register_cvar("gl_lan_tempfx_filter", "1")
     g_pcvar_waterfx = register_cvar("gl_lan_suppress_waterfx", "1")
     g_pcvar_impactfx = register_cvar("gl_lan_suppress_impactfx", "1")
+    g_pcvar_smokefx = register_cvar("gl_lan_suppress_smokefx", "1")
+    g_pcvar_lightfx = register_cvar("gl_lan_suppress_lightfx", "1")
+    g_pcvar_gibfx = register_cvar("gl_lan_suppress_gibfx", "1")
+    g_pcvar_tracerfx = register_cvar("gl_lan_suppress_tracerfx", "0")
     g_pcvar_force_clients = register_cvar("gl_lan_force_client_rates", "0")
     g_pcvar_clean_armoury = register_cvar("gl_lan_clean_armoury", "0")
 
@@ -94,13 +102,37 @@ public message_tempentity(msgid, dest, id)
 
     new type = get_msg_arg_int(1)
 
-    if (get_pcvar_num(g_pcvar_waterfx) && (type == TE_BUBBLES || type == TE_BUBBLETRAIL))
+    if (get_pcvar_num(g_pcvar_waterfx) && (type == TE_BUBBLES || type == TE_BUBBLETRAIL || type == TE_FIZZ || type == TE_LAVASPLASH))
     {
         g_lastFxBlocked++
         return PLUGIN_HANDLED
     }
 
-    if (get_pcvar_num(g_pcvar_impactfx) && (type == TE_GUNSHOTDECAL || type == TE_DECAL || type == TE_DECALHIGH || type == TE_WORLDDECAL || type == TE_WORLDDECALHIGH || type == TE_SPARKS))
+    if (get_pcvar_num(g_pcvar_impactfx) && (type == TE_GUNSHOT || type == TE_GUNSHOTDECAL || type == TE_MULTIGUNSHOT || type == TE_DECAL || type == TE_DECALHIGH || type == TE_WORLDDECAL || type == TE_WORLDDECALHIGH || type == TE_BSPDECAL || type == TE_SPARKS || type == TE_ARMOR_RICOCHET || type == TE_STREAK_SPLASH))
+    {
+        g_lastFxBlocked++
+        return PLUGIN_HANDLED
+    }
+
+    if (get_pcvar_num(g_pcvar_smokefx) && (type == TE_SMOKE || type == TE_SPRITE_SPRAY || type == TE_SPRAY || type == TE_PARTICLEBURST || type == TE_FIREFIELD))
+    {
+        g_lastFxBlocked++
+        return PLUGIN_HANDLED
+    }
+
+    if (get_pcvar_num(g_pcvar_lightfx) && (type == TE_DLIGHT || type == TE_ELIGHT || type == TE_GLOWSPRITE))
+    {
+        g_lastFxBlocked++
+        return PLUGIN_HANDLED
+    }
+
+    if (get_pcvar_num(g_pcvar_gibfx) && (type == TE_BLOODSTREAM || type == TE_BLOOD || type == TE_BLOODSPRITE || type == TE_MODEL || type == TE_EXPLODEMODEL || type == TE_BREAKMODEL))
+    {
+        g_lastFxBlocked++
+        return PLUGIN_HANDLED
+    }
+
+    if (get_pcvar_num(g_pcvar_tracerfx) && (type == TE_TRACER || type == TE_USERTRACER))
     {
         g_lastFxBlocked++
         return PLUGIN_HANDLED
@@ -157,6 +189,11 @@ public cmd_status(id, level, cid)
         get_pcvar_num(g_pcvar_waterfx),
         get_pcvar_num(g_pcvar_impactfx),
         g_lastFxBlocked)
+    console_print(id, "[GL LAN] fx flags: smoke=%d light=%d gib=%d tracer=%d",
+        get_pcvar_num(g_pcvar_smokefx),
+        get_pcvar_num(g_pcvar_lightfx),
+        get_pcvar_num(g_pcvar_gibfx),
+        get_pcvar_num(g_pcvar_tracerfx))
     return PLUGIN_HANDLED
 }
 
@@ -301,6 +338,9 @@ stock apply_map_profile()
         set_pcvar_num(g_pcvar_decals, 64)
         set_pcvar_num(g_pcvar_impactfx, 1)
         set_pcvar_num(g_pcvar_waterfx, 1)
+        set_pcvar_num(g_pcvar_smokefx, 1)
+        set_pcvar_num(g_pcvar_lightfx, 1)
+        set_pcvar_num(g_pcvar_gibfx, 1)
         server_cmd("mp_decals 64")
         server_exec()
         return
@@ -316,6 +356,9 @@ stock apply_map_profile()
         set_pcvar_num(g_pcvar_decals, 32)
         set_pcvar_num(g_pcvar_impactfx, 1)
         set_pcvar_num(g_pcvar_waterfx, 1)
+        set_pcvar_num(g_pcvar_smokefx, 1)
+        set_pcvar_num(g_pcvar_lightfx, 1)
+        set_pcvar_num(g_pcvar_gibfx, 1)
         server_cmd("mp_decals 32")
         server_cmd("sv_wateramp 0")
         server_exec()
@@ -332,6 +375,9 @@ stock apply_map_profile()
         set_pcvar_num(g_pcvar_decals, 64)
         set_pcvar_num(g_pcvar_impactfx, 1)
         set_pcvar_num(g_pcvar_waterfx, 1)
+        set_pcvar_num(g_pcvar_smokefx, 1)
+        set_pcvar_num(g_pcvar_lightfx, 1)
+        set_pcvar_num(g_pcvar_gibfx, 1)
         server_cmd("mp_decals 64")
         server_exec()
         return
@@ -345,6 +391,9 @@ stock apply_map_profile()
     set_pcvar_num(g_pcvar_decals, 64)
     set_pcvar_num(g_pcvar_impactfx, 1)
     set_pcvar_num(g_pcvar_waterfx, 1)
+    set_pcvar_num(g_pcvar_smokefx, 1)
+    set_pcvar_num(g_pcvar_lightfx, 1)
+    set_pcvar_num(g_pcvar_gibfx, 1)
     server_cmd("mp_decals 64")
     server_exec()
 }
