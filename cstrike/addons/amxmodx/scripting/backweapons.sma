@@ -1,17 +1,19 @@
 #include <amxmodx>
 #include <fakemeta>
 #include <hamsandwich>
+#include <cstrike>
 
 #define PLUGIN	"Back Weapons"
 #define AUTHOR	"hoboman313/cheap_suit"
 #define VERSION	"1.87"
 
 #define MAX_PLAYERS 		32
-#define OFFSET_PRIMARYWEAPON 	116
 #define OFFSET_WEAPONTYPE 	43
 #define EXTRAOFFSET_WEAPONS 	4
-#define OFFSET_AUTOSWITCH 	509
+#define OFFSET_PLAYER_ITEMS 	367
+#define OFFSET_WEAPON_NEXT 	42
 #define OFFSET_SHIELD 		510
+#define HAS_SHIELD 		(1<<24)
 #define EXTRAOFFSET_PLAYER 	5
 #define HAS_SHIELD 		(1<<24)
 #define BACKWEAPON_SOLID SOLID_NOT
@@ -20,8 +22,7 @@
 
 #define is_weapon_primary(%1)      (PRIMARY_WEAPONS & (1<<%1))
 #define cs_get_weapon_type(%1)     get_pdata_int(%1, OFFSET_WEAPONTYPE, EXTRAOFFSET_WEAPONS)
-#define cs_get_user_hasprim(%1)    get_pdata_int(%1, OFFSET_PRIMARYWEAPON, EXTRAOFFSET_PLAYER)
-#define cs_get_user_autoswitch(%1) get_pdata_int(%1, OFFSET_AUTOSWITCH, EXTRAOFFSET_PLAYER)
+#define cs_get_user_autoswitch(%1) get_pdata_int(%1, 509, EXTRAOFFSET_PLAYER)
 #define cs_get_user_shield(%1)	   (get_pdata_int(%1, OFFSET_SHIELD, EXTRAOFFSET_PLAYER) & HAS_SHIELD) ? 1 : 0
 
 enum
@@ -102,12 +103,32 @@ stock show_back_weapon(id)
 	}
 }
 
+stock get_primary_weapon(id)
+{
+	if (!is_valid_player(id) || !is_user_connected(id))
+		return 0
+
+	new weapon = get_pdata_cbase(id, OFFSET_PLAYER_ITEMS + 1, EXTRAOFFSET_PLAYER)
+	new next
+	while (weapon > 0 && pev_valid(weapon))
+	{
+		if (is_weapon_primary(cs_get_weapon_type(weapon)))
+			return weapon
+
+		next = get_pdata_cbase(weapon, OFFSET_WEAPON_NEXT, EXTRAOFFSET_WEAPONS)
+		if (next == weapon)
+			break
+		weapon = next
+	}
+	return 0
+}
+
 stock sync_back_weapon(id, bool:visible)
 {
 	if (!is_valid_player(id) || !is_user_connected(id) || !pev_valid(g_weaponent[id]))
 		return
 
-	new primary = cs_get_user_hasprim(id)
+	new primary = get_primary_weapon(id)
 	if (primary > 0 && pev_valid(primary))
 	{
 		new weapon = cs_get_weapon_type(primary)
@@ -138,6 +159,7 @@ public plugin_init()
 	RegisterHam(Ham_AddPlayerItem,    "player", "bacon_addplayeritem")
 	RegisterHam(Ham_RemovePlayerItem, "player", "bacon_removeplayeritem")
 	register_event("CurWeapon", "event_curweapon", "be", "1=1")
+	set_task(0.25, "task_sync_back_weapons", 1001, _, _, "b")
 	
 	for(new i = 0; i < sizeof g_weapons; i++)
 	{
@@ -202,6 +224,21 @@ public event_curweapon(id)
 		sync_back_weapon(id, true)
 }
 
+public task_sync_back_weapons()
+{
+	for (new id = 1; id <= MAX_PLAYERS; id++)
+	{
+		if (!is_user_alive(id) || !pev_valid(g_weaponent[id]))
+			continue
+
+		new active = get_user_weapon(id)
+		if (is_weapon_primary(active) || cs_get_user_shield(id))
+			sync_back_weapon(id, false)
+		else
+			sync_back_weapon(id, true)
+	}
+}
+
 public bacon_addplayeritem(id, ent)
 {
 	if (!is_valid_player(id) || !pev_valid(ent))
@@ -256,7 +293,7 @@ public bacon_item_deploy_post(ent)
 		static weapon; weapon = cs_get_weapon_type(ent)
 		if(is_weapon_primary(weapon) || cs_get_user_shield(id))
 			sync_back_weapon(id, false)
-		else if(cs_get_user_hasprim(id))
+		else if(get_primary_weapon(id))
 			sync_back_weapon(id, true)
 	}
 	return HAM_IGNORED
