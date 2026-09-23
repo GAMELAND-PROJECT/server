@@ -3,7 +3,7 @@
 #include <fakemeta>
 
 #define PLUGIN  "GameLand LAN Optimizer"
-#define VERSION "1.0.0"
+#define VERSION "1.1.0"
 #define AUTHOR  "GAMELAND"
 
 #define TASK_APPLY   41001
@@ -20,11 +20,17 @@ new g_pcvar_cleanup_interval
 new g_pcvar_client_interval
 new g_pcvar_weaponbox_limit
 new g_pcvar_grenade_limit
+new g_pcvar_drop_age
+new g_pcvar_adaptive
+new g_pcvar_decals
 new g_pcvar_force_clients
 new g_pcvar_clean_armoury
 
 new g_lastCleanupRemoved
 new g_lastCleanupSeen
+new g_lastCleanupSkipped
+new g_lastWeaponboxLimit
+new g_lastGrenadeLimit
 new g_lastProfile[32]
 
 public plugin_init()
@@ -41,6 +47,9 @@ public plugin_init()
     g_pcvar_client_interval = register_cvar("gl_lan_client_interval", "45.0")
     g_pcvar_weaponbox_limit = register_cvar("gl_lan_weaponbox_limit", "18")
     g_pcvar_grenade_limit = register_cvar("gl_lan_grenade_limit", "12")
+    g_pcvar_drop_age = register_cvar("gl_lan_drop_age", "8.0")
+    g_pcvar_adaptive = register_cvar("gl_lan_adaptive", "1")
+    g_pcvar_decals = register_cvar("gl_lan_decals", "96")
     g_pcvar_force_clients = register_cvar("gl_lan_force_client_rates", "1")
     g_pcvar_clean_armoury = register_cvar("gl_lan_clean_armoury", "0")
 
@@ -57,6 +66,7 @@ public plugin_cfg()
 {
     task_apply_settings()
     apply_map_profile()
+    get_adaptive_limits(g_lastWeaponboxLimit, g_lastGrenadeLimit)
 }
 
 public client_putinserver(id)
@@ -105,10 +115,11 @@ public cmd_status(id, level, cid)
         get_pcvar_num(g_pcvar_profiles),
         get_pcvar_num(g_pcvar_force_clients))
     console_print(id, "[GL LAN] limits: weaponbox=%d grenade=%d clean_armoury=%d",
-        get_pcvar_num(g_pcvar_weaponbox_limit),
-        get_pcvar_num(g_pcvar_grenade_limit),
+        g_lastWeaponboxLimit,
+        g_lastGrenadeLimit,
         get_pcvar_num(g_pcvar_clean_armoury))
-    console_print(id, "[GL LAN] last_cleanup: seen=%d removed=%d", g_lastCleanupSeen, g_lastCleanupRemoved)
+    console_print(id, "[GL LAN] adaptive=%d drop_age=%.1f decals=%d", get_pcvar_num(g_pcvar_adaptive), get_pcvar_float(g_pcvar_drop_age), get_pcvar_num(g_pcvar_decals))
+    console_print(id, "[GL LAN] last_cleanup: seen=%d removed=%d skipped=%d", g_lastCleanupSeen, g_lastCleanupRemoved, g_lastCleanupSkipped)
     return PLUGIN_HANDLED
 }
 
@@ -133,14 +144,17 @@ public task_cleanup()
 
     g_lastCleanupSeen = 0
     g_lastCleanupRemoved = 0
+    g_lastCleanupSkipped = 0
 
-    cleanup_class_limited("weaponbox", get_pcvar_num(g_pcvar_weaponbox_limit))
+    get_adaptive_limits(g_lastWeaponboxLimit, g_lastGrenadeLimit)
+
+    cleanup_class_limited("weaponbox", g_lastWeaponboxLimit)
     if (get_pcvar_num(g_pcvar_clean_armoury))
-        cleanup_class_limited("armoury_entity", get_pcvar_num(g_pcvar_weaponbox_limit))
-    cleanup_class_limited("grenade", get_pcvar_num(g_pcvar_grenade_limit))
+        cleanup_class_limited("armoury_entity", g_lastWeaponboxLimit)
+    cleanup_class_limited("grenade", g_lastGrenadeLimit)
 
     if (get_pcvar_num(g_pcvar_debug))
-        server_print("[GL LAN] cleanup seen=%d removed=%d", g_lastCleanupSeen, g_lastCleanupRemoved)
+        server_print("[GL LAN] cleanup profile=%s seen=%d removed=%d skipped=%d wb_limit=%d gr_limit=%d", g_lastProfile, g_lastCleanupSeen, g_lastCleanupRemoved, g_lastCleanupSkipped, g_lastWeaponboxLimit, g_lastGrenadeLimit)
 
     schedule_cleanup_task()
 }
@@ -197,6 +211,12 @@ stock schedule_client_task()
 
 stock apply_host_rates()
 {
+    new decals = get_pcvar_num(g_pcvar_decals)
+    if (decals < 32)
+        decals = 32
+    if (decals > 160)
+        decals = 160
+
     server_cmd("sv_lan 1")
     server_cmd("sv_maxrate 100000")
     server_cmd("sv_minrate 25000")
@@ -207,6 +227,7 @@ stock apply_host_rates()
     server_cmd("mp_logdetail 0")
     server_cmd("mp_logmessages 0")
     server_cmd("mp_logfile 0")
+    server_cmd("mp_decals %d", decals)
     server_cmd("decalfrequency 60")
     server_exec()
 }
@@ -224,36 +245,62 @@ stock apply_map_profile()
     g_lastProfile[0] = 0
 
     if (!get_pcvar_num(g_pcvar_profiles))
+    {
+        copy(g_lastProfile, charsmax(g_lastProfile), "manual")
         return
+    }
 
     new map[32]
     get_mapname(map, charsmax(map))
 
-    if (equali(map, "de_aztec"))
+    if (is_fast_small_map(map))
     {
-        copy(g_lastProfile, charsmax(g_lastProfile), "aztec")
+        copy(g_lastProfile, charsmax(g_lastProfile), "fast-small")
+        set_pcvar_float(g_pcvar_cleanup_interval, 10.0)
+        set_pcvar_num(g_pcvar_weaponbox_limit, 10)
+        set_pcvar_num(g_pcvar_grenade_limit, 6)
+        set_pcvar_float(g_pcvar_drop_age, 4.0)
+        set_pcvar_num(g_pcvar_decals, 64)
+        server_cmd("mp_decals 64")
+        server_exec()
+        return
+    }
+
+    if (is_heavy_map(map))
+    {
+        copy(g_lastProfile, charsmax(g_lastProfile), "heavy")
+        set_pcvar_float(g_pcvar_cleanup_interval, 12.0)
+        set_pcvar_num(g_pcvar_weaponbox_limit, 12)
+        set_pcvar_num(g_pcvar_grenade_limit, 8)
+        set_pcvar_float(g_pcvar_drop_age, 6.0)
+        set_pcvar_num(g_pcvar_decals, 80)
         server_cmd("mp_decals 80")
         server_cmd("sv_wateramp 0")
-        server_cmd("sv_waterfriction 1")
-        server_cmd("gl_lan_cleanup_interval 14.0")
-        server_cmd("gl_lan_weaponbox_limit 12")
-        server_cmd("gl_lan_grenade_limit 8")
         server_exec()
         return
     }
 
-    if (containi(map, "aztec") != -1 || containi(map, "dust") != -1 || containi(map, "inferno") != -1)
+    if (is_competitive_map(map))
     {
-        copy(g_lastProfile, charsmax(g_lastProfile), "balanced")
-        server_cmd("mp_decals 100")
-        server_cmd("gl_lan_cleanup_interval 16.0")
-        server_cmd("gl_lan_weaponbox_limit 16")
-        server_cmd("gl_lan_grenade_limit 10")
+        copy(g_lastProfile, charsmax(g_lastProfile), "competitive")
+        set_pcvar_float(g_pcvar_cleanup_interval, 14.0)
+        set_pcvar_num(g_pcvar_weaponbox_limit, 16)
+        set_pcvar_num(g_pcvar_grenade_limit, 10)
+        set_pcvar_float(g_pcvar_drop_age, 7.0)
+        set_pcvar_num(g_pcvar_decals, 96)
+        server_cmd("mp_decals 96")
         server_exec()
         return
     }
 
-    copy(g_lastProfile, charsmax(g_lastProfile), "default")
+    copy(g_lastProfile, charsmax(g_lastProfile), "universal")
+    set_pcvar_float(g_pcvar_cleanup_interval, 16.0)
+    set_pcvar_num(g_pcvar_weaponbox_limit, 18)
+    set_pcvar_num(g_pcvar_grenade_limit, 12)
+    set_pcvar_float(g_pcvar_drop_age, 8.0)
+    set_pcvar_num(g_pcvar_decals, 96)
+    server_cmd("mp_decals 96")
+    server_exec()
 }
 
 stock cleanup_class_limited(const classname[], limit)
@@ -273,16 +320,32 @@ stock cleanup_class_limited(const classname[], limit)
         g_lastCleanupSeen++
 
         if (seen <= limit)
+        {
+            g_lastCleanupSkipped++
             continue
+        }
 
         if (safe_remove_entity(ent, classname))
             g_lastCleanupRemoved++
+        else
+            g_lastCleanupSkipped++
     }
 }
 
 stock bool:safe_remove_entity(ent, const classname[])
 {
     if (!pev_valid(ent))
+        return false
+
+    new Float:created
+    pev(ent, pev_fuser4, created)
+    if (created <= 0.0)
+    {
+        set_pev(ent, pev_fuser4, get_gametime())
+        return false
+    }
+
+    if ((get_gametime() - created) < get_pcvar_float(g_pcvar_drop_age))
         return false
 
     new owner = pev(ent, pev_owner)
@@ -301,4 +364,69 @@ stock bool:safe_remove_entity(ent, const classname[])
 
     engfunc(EngFunc_RemoveEntity, ent)
     return true
+}
+
+stock get_adaptive_limits(&weaponboxLimit, &grenadeLimit)
+{
+    weaponboxLimit = get_pcvar_num(g_pcvar_weaponbox_limit)
+    grenadeLimit = get_pcvar_num(g_pcvar_grenade_limit)
+
+    if (!get_pcvar_num(g_pcvar_adaptive))
+        return
+
+    new players = get_playersnum()
+    if (players >= 10)
+    {
+        weaponboxLimit -= 4
+        grenadeLimit -= 3
+    }
+    else if (players >= 6)
+    {
+        weaponboxLimit -= 2
+        grenadeLimit -= 1
+    }
+    else if (players <= 2)
+    {
+        weaponboxLimit += 4
+        grenadeLimit += 2
+    }
+
+    if (weaponboxLimit < 6)
+        weaponboxLimit = 6
+    if (grenadeLimit < 4)
+        grenadeLimit = 4
+}
+
+stock bool:is_fast_small_map(const map[])
+{
+    return (containi(map, "aim_") == 0 ||
+        containi(map, "fy_") == 0 ||
+        containi(map, "awp_") == 0 ||
+        containi(map, "35hp") != -1 ||
+        containi(map, "he_") == 0)
+}
+
+stock bool:is_heavy_map(const map[])
+{
+    return (containi(map, "aztec") != -1 ||
+        containi(map, "chateau") != -1 ||
+        containi(map, "piranesi") != -1 ||
+        containi(map, "storm") != -1 ||
+        containi(map, "survivor") != -1 ||
+        containi(map, "torn") != -1 ||
+        containi(map, "747") != -1 ||
+        containi(map, "siege") != -1 ||
+        containi(map, "estate") != -1 ||
+        containi(map, "militia") != -1)
+}
+
+stock bool:is_competitive_map(const map[])
+{
+    return (containi(map, "de_") == 0 ||
+        containi(map, "cs_") == 0 ||
+        containi(map, "dust") != -1 ||
+        containi(map, "inferno") != -1 ||
+        containi(map, "nuke") != -1 ||
+        containi(map, "train") != -1 ||
+        containi(map, "cbble") != -1)
 }
