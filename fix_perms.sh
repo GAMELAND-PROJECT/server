@@ -39,6 +39,14 @@ if [ -f "$PROJECT_ROOT/cstrike/addons/amxmodx/scripting/amxxpc" ]; then
 fi
 echo "✅ Fixed: All .sh scripts in $PROJECT_ROOT"
 
+# Install the restricted privilege helper used by the web panel.
+# Keep this in the permissions step so older deploy sequences also recover it.
+if [ -f "$PROJECT_ROOT/panel/gameland-panel-sudo.sh" ]; then
+    install -d -m 0755 /usr/local/sbin
+    install -m 0755 "$PROJECT_ROOT/panel/gameland-panel-sudo.sh" /usr/local/sbin/gameland-panel-sudo
+    echo "✅ Installed: /usr/local/sbin/gameland-panel-sudo"
+fi
+
 # 4. Give execution permission to the global SVGL command if it exists
 if [ -f "/usr/local/bin/SVGL" ]; then
     chmod +x "/usr/local/bin/SVGL"
