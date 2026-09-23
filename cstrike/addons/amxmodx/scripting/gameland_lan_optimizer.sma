@@ -4,7 +4,7 @@
 #include <message_const>
 
 #define PLUGIN  "GameLand LAN Optimizer"
-#define VERSION "1.3.0"
+#define VERSION "1.4.0"
 #define AUTHOR  "GAMELAND"
 
 #define TASK_APPLY   41001
@@ -24,6 +24,8 @@ new g_pcvar_grenade_limit
 new g_pcvar_drop_age
 new g_pcvar_adaptive
 new g_pcvar_decals
+new g_pcvar_zmax
+new g_pcvar_worldperf
 new g_pcvar_tempfx
 new g_pcvar_waterfx
 new g_pcvar_impactfx
@@ -59,6 +61,8 @@ public plugin_init()
     g_pcvar_drop_age = register_cvar("gl_lan_drop_age", "8.0")
     g_pcvar_adaptive = register_cvar("gl_lan_adaptive", "1")
     g_pcvar_decals = register_cvar("gl_lan_decals", "96")
+    g_pcvar_zmax = register_cvar("gl_lan_zmax", "4096")
+    g_pcvar_worldperf = register_cvar("gl_lan_world_perf", "1")
     g_pcvar_tempfx = register_cvar("gl_lan_tempfx_filter", "1")
     g_pcvar_waterfx = register_cvar("gl_lan_suppress_waterfx", "1")
     g_pcvar_impactfx = register_cvar("gl_lan_suppress_impactfx", "1")
@@ -183,6 +187,7 @@ public cmd_status(id, level, cid)
         g_lastGrenadeLimit,
         get_pcvar_num(g_pcvar_clean_armoury))
     console_print(id, "[GL LAN] adaptive=%d drop_age=%.1f decals=%d", get_pcvar_num(g_pcvar_adaptive), get_pcvar_float(g_pcvar_drop_age), get_pcvar_num(g_pcvar_decals))
+    console_print(id, "[GL LAN] world_perf=%d zmax=%d", get_pcvar_num(g_pcvar_worldperf), get_pcvar_num(g_pcvar_zmax))
     console_print(id, "[GL LAN] last_cleanup: seen=%d removed=%d skipped=%d", g_lastCleanupSeen, g_lastCleanupRemoved, g_lastCleanupSkipped)
     console_print(id, "[GL LAN] tempfx=%d waterfx=%d impactfx=%d blocked=%d",
         get_pcvar_num(g_pcvar_tempfx),
@@ -303,6 +308,7 @@ stock apply_host_rates()
     server_cmd("mp_logfile 0")
     server_cmd("mp_decals %d", decals)
     server_cmd("sv_wateramp 0")
+    apply_world_performance()
     server_cmd("decalfrequency 60")
     server_exec()
 }
@@ -336,6 +342,7 @@ stock apply_map_profile()
         set_pcvar_num(g_pcvar_grenade_limit, 6)
         set_pcvar_float(g_pcvar_drop_age, 4.0)
         set_pcvar_num(g_pcvar_decals, 64)
+        set_pcvar_num(g_pcvar_zmax, 4096)
         set_pcvar_num(g_pcvar_impactfx, 1)
         set_pcvar_num(g_pcvar_waterfx, 1)
         set_pcvar_num(g_pcvar_smokefx, 1)
@@ -354,6 +361,7 @@ stock apply_map_profile()
         set_pcvar_num(g_pcvar_grenade_limit, 8)
         set_pcvar_float(g_pcvar_drop_age, 6.0)
         set_pcvar_num(g_pcvar_decals, 32)
+        set_pcvar_num(g_pcvar_zmax, 3072)
         set_pcvar_num(g_pcvar_impactfx, 1)
         set_pcvar_num(g_pcvar_waterfx, 1)
         set_pcvar_num(g_pcvar_smokefx, 1)
@@ -373,6 +381,7 @@ stock apply_map_profile()
         set_pcvar_num(g_pcvar_grenade_limit, 10)
         set_pcvar_float(g_pcvar_drop_age, 7.0)
         set_pcvar_num(g_pcvar_decals, 64)
+        set_pcvar_num(g_pcvar_zmax, 4096)
         set_pcvar_num(g_pcvar_impactfx, 1)
         set_pcvar_num(g_pcvar_waterfx, 1)
         set_pcvar_num(g_pcvar_smokefx, 1)
@@ -389,6 +398,7 @@ stock apply_map_profile()
     set_pcvar_num(g_pcvar_grenade_limit, 12)
     set_pcvar_float(g_pcvar_drop_age, 8.0)
     set_pcvar_num(g_pcvar_decals, 64)
+    set_pcvar_num(g_pcvar_zmax, 4096)
     set_pcvar_num(g_pcvar_impactfx, 1)
     set_pcvar_num(g_pcvar_waterfx, 1)
     set_pcvar_num(g_pcvar_smokefx, 1)
@@ -396,6 +406,23 @@ stock apply_map_profile()
     set_pcvar_num(g_pcvar_gibfx, 1)
     server_cmd("mp_decals 64")
     server_exec()
+}
+
+stock apply_world_performance()
+{
+    if (!get_pcvar_num(g_pcvar_worldperf))
+        return
+
+    new zmax = get_pcvar_num(g_pcvar_zmax)
+    if (zmax < 2048)
+        zmax = 2048
+    if (zmax > 8192)
+        zmax = 8192
+
+    server_cmd("sv_zmax %d", zmax)
+    server_cmd("sv_skycolor_r 0")
+    server_cmd("sv_skycolor_g 0")
+    server_cmd("sv_skycolor_b 0")
 }
 
 stock cleanup_class_limited(const classname[], limit)
