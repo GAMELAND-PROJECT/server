@@ -36,6 +36,7 @@ new g_pcvar_tracerfx
 new g_pcvar_force_clients
 new g_pcvar_clean_armoury
 new g_pcvar_round_clean_decals
+new g_pcvar_sv_lan
 
 new g_lastCleanupRemoved
 new g_lastCleanupSeen
@@ -75,6 +76,7 @@ public plugin_init()
     g_pcvar_force_clients = register_cvar("gl_lan_force_client_rates", "1")     // Default to 1 to auto-tune connected players interp/rate
     g_pcvar_clean_armoury = register_cvar("gl_lan_clean_armoury", "0")
     g_pcvar_round_clean_decals = register_cvar("gl_lan_round_clean_decals", "1") // Auto cleans burnt bullet holes and blood at round start
+    g_pcvar_sv_lan = register_cvar("gl_lan_force_sv_lan", "0") // 0 = Do NOT force sv_lan 1 on Dedicated/Internet servers! (Fixes LAN client restriction)
 
     register_concmd("gl_lan_status", "cmd_status", ADMIN_ALL, "- shows LAN optimizer status")
     register_concmd("gl_lan_optimize", "cmd_optimize", ADMIN_ALL, "- reapplies LAN host settings")
@@ -348,7 +350,10 @@ stock apply_host_rates()
     if (decals > 300)
         decals = 300
 
-    server_cmd("sv_lan 1")
+    if (get_pcvar_num(g_pcvar_sv_lan) || (!is_dedicated_server() && get_pcvar_num(g_pcvar_sv_lan)))
+    {
+        server_cmd("sv_lan 1")
+    }
     server_cmd("sys_ticrate 1000")
     server_cmd("sv_maxrate 100000")
     server_cmd("sv_minrate 25000")
