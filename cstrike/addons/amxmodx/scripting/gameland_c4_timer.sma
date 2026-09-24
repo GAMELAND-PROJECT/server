@@ -1,272 +1,186 @@
+/*
+ * CSB C4 Timer
+ * Copyright (C) 2026 counter-strike-boost.com
+ *
+ * Once the bomb is planted this shows a live HUD countdown of the exact seconds
+ * left, based on mp_c4timer and the moment of the plant. The colour ramps from
+ * green to red as the fuse burns down, and each CT is told whether they can
+ * still reach and defuse it in time given their defuse kit.
+ *
+ * Inspired by the classic "C4 Timer" plugins for AMX Mod X. This is an
+ * independent GPL re-implementation; no original code is reused.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option)
+ * any later version. It is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+ * Public License for more details: <https://www.gnu.org/licenses/>.
+ */
+
 #include <amxmodx>
-#include <fakemeta>
+#include <cstrike>
 
-#define PLUGIN  "GameLand C4 Pro HUD Timer"
-#define VERSION "4.1.0"
-#define AUTHOR  "GAMELAND"
+new const PLUGIN[] = "CSB C4 Timer"
+new const VERSION[] = "1.0.0"
+new const AUTHOR[]  = "counter-strike-boost.com"
 
-#define TASK_C4_TICK 52001
-#define MAX_CLIENTS  32
+/* stock defuse timings without / with a defuse kit */
+#define DEFUSE_NOKIT  10.0
+#define DEFUSE_KIT    5.0
 
-new g_pcvar_enable
-new g_pcvar_dhud
-new g_pcvar_pos_y
-new g_pcvar_debug
+new g_pEnabled, g_pBeep
+new g_pC4Timer
 
-new g_msgHideWeapon
-new g_msgStatusIcon
-new g_syncHudTimer
-
-new Float:g_c4ExplodeTime
-new bool:g_bombPlanted = false
-new bool:g_hudHidden[MAX_CLIENTS + 1] = {false, ...}
-
-// HIDEHUD_TIMER flag in GoldSrc CS 1.6 is (1<<4) = 16
-#define HIDEHUD_TIMER (1<<4)
+new bool:g_bPlanted = false
+new Float:g_flExplodeAt
+new g_iSync
 
 public plugin_init()
 {
     register_plugin(PLUGIN, VERSION, AUTHOR)
-    register_cvar("gameland_c4_timer_version", VERSION, FCVAR_SERVER | FCVAR_SPONLY)
 
-    g_pcvar_enable = register_cvar("gl_c4_hud_timer", "1")
-    g_pcvar_dhud   = register_cvar("gl_c4_timer_dhud", "1")       // 1 = Large director HUD (exact size of clock digits), 0 = Classic HUD
-    g_pcvar_pos_y  = register_cvar("gl_c4_timer_pos_y", "0.932")   // Adjusted lower to align exactly with the native HUD clock row
-    g_pcvar_debug  = register_cvar("gl_c4_timer_debug", "0")
+    g_pEnabled = register_cvar("csb_c4timer_enabled", "1")
+    g_pBeep    = register_cvar("csb_c4timer_beep", "1")
 
-    g_msgHideWeapon = get_user_msgid("HideWeapon")
-    g_msgStatusIcon = get_user_msgid("StatusIcon")
+    g_pC4Timer = get_cvar_pointer("mp_c4timer")
 
-    g_syncHudTimer = CreateHudSyncObj()
+    g_iSync = CreateHudSyncObj()
 
-    // 1. Logevent plant
-    register_logevent("logevent_c4_planted", 3, "2=Planted_The_Bomb")
+    register_logevent("evPlanted", 3, "2=Planted_The_Bomb")
+    register_logevent("evDefused", 3, "2=Defused_The_Bomb")
 
-    // 2. BarTime planting progress
-    register_event("BarTime", "event_bartime", "be", "1=3")
-
-    // 3. Stop events
-    register_logevent("logevent_round_end", 2, "1=Round_End")
-    register_event("HLTV", "event_round_start", "a", "1=0", "2=0")
-    register_event("SendAudio", "event_bomb_defused", "a", "2=%!MRAD_BOMBDEF")
-    register_event("SendAudio", "event_target_bombed", "a", "2=%!MRAD_TARGETBOM")
-    register_event("ResetHUD", "event_resethud", "b")
+    /* new round resets everything (HLTV new-round message) */
+    register_event("HLTV", "evNewRound", "a", "1=0", "2=0")
+    register_event("TextMsg", "evRestart", "a", "2=#Game_will_restart_in")
 }
 
-public client_disconnected(id)
+public evPlanted()
 {
-    g_hudHidden[id] = false
-}
-
-public event_resethud(id)
-{
-    if (g_bombPlanted && get_pcvar_num(g_pcvar_enable))
-    {
-        hide_player_timer(id, true)
-    }
-    else
-    {
-        hide_player_timer(id, false)
-    }
-}
-
-public event_round_start()
-{
-    stop_c4_timer()
-}
-
-public logevent_round_end()
-{
-    stop_c4_timer()
-}
-
-public event_bomb_defused()
-{
-    stop_c4_timer()
-}
-
-public event_target_bombed()
-{
-    stop_c4_timer()
-}
-
-public event_bartime(id)
-{
-    if (get_user_team(id) == 1 && !g_bombPlanted)
-    {
-        set_task(3.05, "task_check_plant_fallback")
-    }
-}
-
-public task_check_plant_fallback()
-{
-    if (!g_bombPlanted)
-    {
-        new ent = -1
-        while ((ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "grenade")) > 0)
-        {
-            new model[32]
-            pev(ent, pev_model, model, charsmax(model))
-            if (containi(model, "w_c4.mdl") != -1)
-            {
-                start_c4_timer()
-                break
-            }
-        }
-    }
-}
-
-public logevent_c4_planted()
-{
-    start_c4_timer()
-}
-
-stock start_c4_timer()
-{
-    if (!get_pcvar_num(g_pcvar_enable) || g_bombPlanted)
+    if (!get_pcvar_num(g_pEnabled))
         return
 
-    new c4cvar = get_cvar_num("mp_c4timer")
-    if (c4cvar < 10)
-        c4cvar = 35
+    new Float:c4timer = g_pC4Timer ? get_pcvar_float(g_pC4Timer) : 45.0
 
-    g_bombPlanted = true
-    g_c4ExplodeTime = get_gametime() + float(c4cvar)
+    if (c4timer <= 0.0)
+        c4timer = 45.0
 
-    // 1. Immediately hide native round timer for all players
-    for (new i = 1; i <= MAX_CLIENTS; i++)
-    {
-        if (is_user_connected(i))
-        {
-            hide_player_timer(i, true)
-            // Clear any lingering left-screen StatusIcon
-            clear_status_icon(i)
-        }
-    }
+    g_bPlanted = true
+    g_flExplodeAt = get_gametime() + c4timer
 
-    // 2. Start the precision tick (0.05s for smooth response and fluid pulse)
-    remove_task(TASK_C4_TICK)
-    set_task(0.05, "task_c4_tick", TASK_C4_TICK, _, _, "b")
-
-    if (get_pcvar_num(g_pcvar_debug))
-        server_print("[GL C4 Pro] C4 Timer started: %d seconds.", c4cvar)
+    set_task(0.2, "taskTick", 0, _, _, "b")
 }
 
-public task_c4_tick()
+public evDefused()
 {
-    if (!g_bombPlanted)
+    stopTimer()
+}
+
+public evNewRound()
+{
+    stopTimer()
+}
+
+public evRestart()
+{
+    stopTimer()
+}
+
+stopTimer()
+{
+    if (!g_bPlanted)
+        return
+
+    g_bPlanted = false
+    remove_task(0)
+    ClearSyncHud(0, g_iSync)
+}
+
+public taskTick()
+{
+    if (!g_bPlanted)
     {
-        remove_task(TASK_C4_TICK)
+        remove_task(0)
         return
     }
 
-    new Float:remaining = g_c4ExplodeTime - get_gametime()
-    if (remaining <= 0.0)
+    new Float:remain = g_flExplodeAt - get_gametime()
+
+    if (remain <= 0.0)
     {
-        stop_c4_timer()
+        stopTimer()
         return
     }
-
-    new sec = floatround(remaining, floatround_ceil)
-    new minutes = sec / 60
-    new seconds = sec % 60
 
     new r, g, b
-    static flash_state = 0
+    fuseColor(remain, r, g, b)
 
-    if (remaining <= 4.0)
+    /* the bomb is a shared threat - draw it to everyone, then add the
+       personal defuse note only for living CTs */
+    new players[32], num, pid
+    get_players(players, num, "ch")
+
+    new bars[16]
+    beepBars(remain, bars, charsmax(bars))
+
+    for (new i = 0; i < num; i++)
     {
-        // Intense heartbeat pulse in the final 4 seconds
-        flash_state = !flash_state
-        if (flash_state)
-        {
-            r = 255
-            g = 20
-            b = 20
-        }
+        pid = players[i]
+
+        new note[64]
+        note[0] = 0
+
+        if (is_user_alive(pid) && cs_get_user_team(pid) == CS_TEAM_CT)
+            defuseNote(pid, remain, note, charsmax(note))
+
+        set_hudmessage(r, g, b, 0.02, 0.20, 0, 0.0, 0.3, 0.0, 0.0, -1)
+
+        if (note[0])
+            ShowSyncHudMsg(pid, g_iSync, "C4: %.1f  %s^n%s", remain, bars, note)
         else
-        {
-            r = 160
-            g = 0
-            b = 0
-        }
-    }
-    else if (remaining <= 10.0)
-    {
-        // Warning Orange
-        r = 255
-        g = 130
-        b = 0
-    }
-    else
-    {
-        // Authentic CS 1.6 Gold/Amber HUD Color
-        r = 255
-        g = 190
-        b = 20
-    }
-
-    new Float:posY = get_pcvar_float(g_pcvar_pos_y)
-
-    if (get_pcvar_num(g_pcvar_dhud))
-    {
-        // DHUD font is significantly larger (exact size of the native GoldSrc clock digits)
-        set_dhudmessage(r, g, b, -1.0, posY, 0, 0.0, 0.12, 0.0, 0.0)
-        show_dhudmessage(0, "[C4] %d:%02d", minutes, seconds)
-    }
-    else
-    {
-        // Classic HUD font
-        set_hudmessage(r, g, b, -1.0, posY, 0, 0.0, 0.12, 0.0, 0.0, 1)
-        ShowSyncHudMsg(0, g_syncHudTimer, "[C4]  %d:%02d", minutes, seconds)
+            ShowSyncHudMsg(pid, g_iSync, "C4: %.1f  %s", remain, bars)
     }
 }
 
-stock hide_player_timer(id, bool:hide)
+fuseColor(Float:remain, &r, &g, &b)
 {
-    if (!is_user_connected(id))
+    if (remain <= 5.0)       { r = 255; g = 0;   b = 0;   }
+    else if (remain <= 15.0) { r = 255; g = 140; b = 0;   }
+    else                     { r = 0;   g = 220; b = 0;   }
+}
+
+beepBars(Float:remain, out[], len)
+{
+    if (!get_pcvar_num(g_pBeep))
+    {
+        out[0] = 0
         return
-
-    g_hudHidden[id] = hide
-
-    message_begin(MSG_ONE_UNRELIABLE, g_msgHideWeapon, _, id)
-    write_byte(hide ? HIDEHUD_TIMER : 0)
-    message_end()
-}
-
-stock clear_status_icon(id)
-{
-    // Cleanly remove any leftover C4 status icon from the left equipment panel
-    message_begin(MSG_ONE_UNRELIABLE, g_msgStatusIcon, _, id)
-    write_byte(0)
-    write_string("c4")
-    write_byte(0)
-    write_byte(0)
-    write_byte(0)
-    message_end()
-}
-
-stock stop_c4_timer()
-{
-    if (g_bombPlanted)
-    {
-        g_bombPlanted = false
-        remove_task(TASK_C4_TICK)
-
-        // Clear HUD sync message
-        ClearSyncHud(0, g_syncHudTimer)
-
-        // Restore native timer for all connected players
-        for (new i = 1; i <= MAX_CLIENTS; i++)
-        {
-            if (is_user_connected(i))
-            {
-                hide_player_timer(i, false)
-                clear_status_icon(i)
-            }
-        }
-
-        if (get_pcvar_num(g_pcvar_debug))
-            server_print("[GL C4 Pro] C4 Timer stopped and HUD restored.")
     }
+
+    /* more filled bars the closer the explosion is */
+    new filled
+
+    if (remain <= 5.0)       filled = 5
+    else if (remain <= 10.0) filled = 4
+    else if (remain <= 20.0) filled = 3
+    else if (remain <= 30.0) filled = 2
+    else                     filled = 1
+
+    new p = 0
+
+    for (new i = 0; i < 5 && p < len - 1; i++)
+        out[p++] = (i < filled) ? '|' : '.'
+
+    out[p] = 0
+}
+
+defuseNote(id, Float:remain, out[], len)
+{
+    new Float:need = cs_get_user_defuse(id) ? DEFUSE_KIT : DEFUSE_NOKIT
+
+    if (remain >= need)
+        formatex(out, len, "Defusable (%.0fs needed)", need)
+    else
+        formatex(out, len, "TOO LATE to defuse")
 }
