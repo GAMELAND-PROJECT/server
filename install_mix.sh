@@ -66,7 +66,7 @@ if [ -f "gameland_admin_tools.sma" ]; then
 fi
 
 # Compile GameLand Performance and Fixer Plugins
-for p in gameland_lan_optimizer gameland_sound_optimizer gameland_fastduck_fix gameland_c4_timer; do
+for p in gameland_lan_optimizer gameland_sound_optimizer gameland_fastduck_fix; do
     if [ -f "${p}.sma" ]; then
         echo "[3c/5] Compiling ${p}.sma..."
         ./amxxpc "${p}.sma" -i"include" -o"${PLUGINS_DIR}/${p}.amxx"
