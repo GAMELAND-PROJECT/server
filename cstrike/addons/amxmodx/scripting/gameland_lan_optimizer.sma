@@ -181,8 +181,8 @@ public message_tempentity(msgid, dest, id)
         return PLUGIN_HANDLED
     }
 
-    // Gibs / models
-    if (get_pcvar_num(g_pcvar_gibfx) && (type == TE_BLOODSTREAM || type == TE_BLOOD || type == TE_BLOODSPRITE || type == TE_MODEL || type == TE_EXPLODEMODEL || type == TE_BREAKMODEL))
+    // Gibs / breakable debris models (Keep blood effects intact for hit feedback!)
+    if (get_pcvar_num(g_pcvar_gibfx) && (type == TE_MODEL || type == TE_EXPLODEMODEL || type == TE_BREAKMODEL))
     {
         g_lastFxBlocked++
         return PLUGIN_HANDLED
@@ -479,9 +479,6 @@ stock apply_world_performance()
         zmax = 8192
 
     server_cmd("sv_zmax %d", zmax)
-    server_cmd("sv_skycolor_r 0")
-    server_cmd("sv_skycolor_g 0")
-    server_cmd("sv_skycolor_b 0")
 }
 
 stock cleanup_class_limited(const classname[], limit)

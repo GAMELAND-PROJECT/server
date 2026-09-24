@@ -33,7 +33,7 @@ public plugin_init()
     g_pcvar_footstep_boost = register_cvar("gl_snd_footstep_boost", "1")
     g_pcvar_footstep_enemy_boost = register_cvar("gl_snd_enemy_priority", "1")
     g_pcvar_footstep_vol = register_cvar("gl_snd_footstep_vol", "1.0")          // Crystal clear volume (0.1 - 1.0)
-    g_pcvar_footstep_atten = register_cvar("gl_snd_footstep_atten", "0.85")     // Lower attenuation = clearer at longer distance (default is 1.0)
+    g_pcvar_footstep_atten = register_cvar("gl_snd_footstep_atten", "1.0")      // ATTN_NORM (1.0) maintains accurate vertical 3D depth in de_nuke
     g_pcvar_ladder_boost = register_cvar("gl_snd_ladder_boost", "1")
     g_pcvar_ambient_clean = register_cvar("gl_snd_ambient_clean", "1")
     g_pcvar_ambient_volume = register_cvar("gl_snd_ambient_volume", "0.35")     // Calms down deafening map background hums
@@ -125,20 +125,16 @@ public forward_emit_sound(ent, channel, const sample[], Float:volume, Float:attn
                 return FMRES_IGNORED
 
             new Float:target_vol = get_pcvar_float(g_pcvar_footstep_vol)
+            // On multi-level vertical maps like de_nuke, overly aggressive attenuation (0.85) flattens 3D height cues,
+            // making upstairs footsteps sound like they are right next to you downstairs.
+            // Using ATTN_NORM (1.0) preserves GoldSrc 3D distance and vertical HRTF separation accurately.
             new Float:target_atten = get_pcvar_float(g_pcvar_footstep_atten)
-
-            // Clamp safe boundaries
-            if (target_vol > 1.0) target_vol = 1.0
-            if (target_vol < 0.2) target_vol = 0.2
-            if (target_atten < 0.5) target_atten = 0.5
+            if (target_atten < 0.95) target_atten = 0.95 // Keep natural vertical drop-off
             if (target_atten > 1.5) target_atten = 1.5
 
-            // Prioritize sound channel CHAN_BODY so footsteps don't get truncated by weapons (CHAN_WEAPON)
-            new target_channel = (channel == CHAN_STATIC || channel == CHAN_VOICE) ? channel : CHAN_BODY
-
-            // Resend with optimal attenuation and max clarity
+            // Resend with boost and natural 3D attenuation
             forward_return(FMV_CELL, 1)
-            engfunc(EngFunc_EmitSound, ent, target_channel, sample, target_vol, target_atten, flags, pitch)
+            engfunc(EngFunc_EmitSound, ent, channel, sample, target_vol, target_atten, flags, pitch)
 
             if (get_pcvar_num(g_pcvar_debug))
                 server_print("[GL SOUND] Optimized step: ent=%d sound=%s vol=%.2f atten=%.2f", ent, sample, target_vol, target_atten)
