@@ -2586,7 +2586,7 @@ public CS_OnBuyAttempt(id, item)
 		}
 	}
 	
-	if(item == CSI_SHIELDGUN || item == CSI_NVGS || item == CSI_SG550 || item == CSI_G3SG1 || item == CSI_SHIELD)
+	if(item == CSI_SHIELDGUN || item == CSI_NVGS || item == CSI_SG550 || item == CSI_G3SG1 || item == CSI_SHIELD || item == CSI_M249)
 	{
 		return PLUGIN_HANDLED
 	}
