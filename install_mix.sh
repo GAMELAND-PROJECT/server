@@ -65,6 +65,19 @@ if [ -f "gameland_admin_tools.sma" ]; then
     echo "  -> gameland_admin_tools.amxx compiled successfully!"
 fi
 
+# Compile GameLand Performance and Fixer Plugins
+for p in gameland_lan_optimizer gameland_sound_optimizer gameland_fastduck_fix gameland_c4_timer; do
+    if [ -f "${p}.sma" ]; then
+        echo "[3c/5] Compiling ${p}.sma..."
+        ./amxxpc "${p}.sma" -i"include" -o"${PLUGINS_DIR}/${p}.amxx"
+        if [ ! -f "${PLUGINS_DIR}/${p}.amxx" ]; then
+            echo "[ERROR] Failed to compile ${p}.sma!"
+            exit 1
+        fi
+        echo "  -> ${p}.amxx compiled successfully!"
+    fi
+done
+
 cd "${PROJECT_DIR}"
 
 # ─── 4. Register in plugins.ini ─────────────────────────

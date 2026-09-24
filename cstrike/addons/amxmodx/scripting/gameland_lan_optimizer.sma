@@ -4,7 +4,7 @@
 #include <message_const>
 
 #define PLUGIN  "GameLand LAN Optimizer"
-#define VERSION "1.4.0"
+#define VERSION "1.6.0"
 #define AUTHOR  "GAMELAND"
 
 #define TASK_APPLY   41001
@@ -35,6 +35,7 @@ new g_pcvar_gibfx
 new g_pcvar_tracerfx
 new g_pcvar_force_clients
 new g_pcvar_clean_armoury
+new g_pcvar_round_clean_decals
 
 new g_lastCleanupRemoved
 new g_lastCleanupSeen
@@ -43,6 +44,7 @@ new g_lastWeaponboxLimit
 new g_lastGrenadeLimit
 new g_lastFxBlocked
 new g_lastProfile[32]
+new g_smokeCounter = 0
 
 public plugin_init()
 {
@@ -60,23 +62,26 @@ public plugin_init()
     g_pcvar_grenade_limit = register_cvar("gl_lan_grenade_limit", "12")
     g_pcvar_drop_age = register_cvar("gl_lan_drop_age", "8.0")
     g_pcvar_adaptive = register_cvar("gl_lan_adaptive", "1")
-    g_pcvar_decals = register_cvar("gl_lan_decals", "96")
-    g_pcvar_zmax = register_cvar("gl_lan_zmax", "4096")
+    g_pcvar_decals = register_cvar("gl_lan_decals", "128")
+    g_pcvar_zmax = register_cvar("gl_lan_zmax", "8192")
     g_pcvar_worldperf = register_cvar("gl_lan_world_perf", "1")
     g_pcvar_tempfx = register_cvar("gl_lan_tempfx_filter", "1")
     g_pcvar_waterfx = register_cvar("gl_lan_suppress_waterfx", "1")
-    g_pcvar_impactfx = register_cvar("gl_lan_suppress_impactfx", "1")
-    g_pcvar_smokefx = register_cvar("gl_lan_suppress_smokefx", "1")
-    g_pcvar_lightfx = register_cvar("gl_lan_suppress_lightfx", "1")
+    g_pcvar_impactfx = register_cvar("gl_lan_suppress_impactfx", "0")
+    g_pcvar_smokefx = register_cvar("gl_lan_suppress_smokefx", "0")
+    g_pcvar_lightfx = register_cvar("gl_lan_suppress_lightfx", "0")
     g_pcvar_gibfx = register_cvar("gl_lan_suppress_gibfx", "1")
     g_pcvar_tracerfx = register_cvar("gl_lan_suppress_tracerfx", "0")
-    g_pcvar_force_clients = register_cvar("gl_lan_force_client_rates", "0")
+    g_pcvar_force_clients = register_cvar("gl_lan_force_client_rates", "1")     // Default to 1 to auto-tune connected players interp/rate
     g_pcvar_clean_armoury = register_cvar("gl_lan_clean_armoury", "0")
+    g_pcvar_round_clean_decals = register_cvar("gl_lan_round_clean_decals", "1") // Auto cleans burnt bullet holes and blood at round start
 
     register_concmd("gl_lan_status", "cmd_status", ADMIN_ALL, "- shows LAN optimizer status")
     register_concmd("gl_lan_optimize", "cmd_optimize", ADMIN_ALL, "- reapplies LAN host settings")
     register_concmd("gl_lan_cleanup_now", "cmd_cleanup_now", ADMIN_ALL, "- runs safe cleanup")
+    
     register_message(SVC_TEMPENTITY, "message_tempentity")
+    register_event("HLTV", "event_round_start", "a", "1=0", "2=0")
 
     set_task(3.0, "task_apply_settings", TASK_APPLY)
     schedule_cleanup_task()
@@ -99,6 +104,31 @@ public client_putinserver(id)
         set_task(4.0, "task_apply_client", id)
 }
 
+public event_round_start()
+{
+    if (!optimizer_enabled())
+        return
+
+    // Auto-clean burnt decals and blood at round start to maintain high FPS across all clients
+    if (get_pcvar_num(g_pcvar_round_clean_decals))
+    {
+        server_cmd("r_decals 0")
+        server_cmd("mp_decals 0")
+        server_exec()
+
+        new decals = get_pcvar_num(g_pcvar_decals)
+        server_cmd("r_decals %d", decals)
+        server_cmd("mp_decals %d", decals)
+        server_exec()
+    }
+
+    // Run quick cleanup of old discarded weapons
+    if (get_pcvar_num(g_pcvar_cleanup))
+    {
+        set_task(1.0, "task_cleanup")
+    }
+}
+
 public message_tempentity(msgid, dest, id)
 {
     if (!optimizer_enabled() || !get_pcvar_num(g_pcvar_tempfx))
@@ -106,36 +136,57 @@ public message_tempentity(msgid, dest, id)
 
     new type = get_msg_arg_int(1)
 
+    // Water FX
     if (get_pcvar_num(g_pcvar_waterfx) && (type == TE_BUBBLES || type == TE_BUBBLETRAIL || type == TE_FIZZ || type == TE_LAVASPLASH))
     {
         g_lastFxBlocked++
         return PLUGIN_HANDLED
     }
 
+    // Impact FX (only if explicitly enabled)
     if (get_pcvar_num(g_pcvar_impactfx) && (type == TE_GUNSHOT || type == TE_GUNSHOTDECAL || type == TE_MULTIGUNSHOT || type == TE_DECAL || type == TE_DECALHIGH || type == TE_WORLDDECAL || type == TE_WORLDDECALHIGH || type == TE_BSPDECAL || type == TE_SPARKS || type == TE_ARMOR_RICOCHET || type == TE_STREAK_SPLASH))
     {
         g_lastFxBlocked++
         return PLUGIN_HANDLED
     }
 
-    if (get_pcvar_num(g_pcvar_smokefx) && (type == TE_SMOKE || type == TE_SPRITE_SPRAY || type == TE_SPRAY || type == TE_PARTICLEBURST || type == TE_FIREFIELD))
+    // Smoke FX: Keep Flashbang and Explosion smoke subtle and natural (throttle heavy spam instead of complete removal)
+    if (type == TE_SMOKE)
+    {
+        if (get_pcvar_num(g_pcvar_smokefx))
+        {
+            // Throttling mode: block only 1 in 3 to keep smooth visible smoke
+            g_smokeCounter++
+            if ((g_smokeCounter % 3) == 0)
+            {
+                g_lastFxBlocked++
+                return PLUGIN_HANDLED
+            }
+        }
+        return PLUGIN_CONTINUE
+    }
+
+    if (get_pcvar_num(g_pcvar_smokefx) && (type == TE_SPRITE_SPRAY || type == TE_SPRAY || type == TE_PARTICLEBURST || type == TE_FIREFIELD))
     {
         g_lastFxBlocked++
         return PLUGIN_HANDLED
     }
 
+    // Dynamic lights
     if (get_pcvar_num(g_pcvar_lightfx) && (type == TE_DLIGHT || type == TE_ELIGHT || type == TE_GLOWSPRITE))
     {
         g_lastFxBlocked++
         return PLUGIN_HANDLED
     }
 
+    // Gibs / models
     if (get_pcvar_num(g_pcvar_gibfx) && (type == TE_BLOODSTREAM || type == TE_BLOOD || type == TE_BLOODSPRITE || type == TE_MODEL || type == TE_EXPLODEMODEL || type == TE_BREAKMODEL))
     {
         g_lastFxBlocked++
         return PLUGIN_HANDLED
     }
 
+    // Tracers
     if (get_pcvar_num(g_pcvar_tracerfx) && (type == TE_TRACER || type == TE_USERTRACER))
     {
         g_lastFxBlocked++
@@ -176,12 +227,13 @@ public cmd_status(id, level, cid)
 
     console_print(id, "[GL LAN] %s v%s", PLUGIN, VERSION)
     console_print(id, "[GL LAN] map=%s profile=%s players=%d/%d dedicated=%d", map, g_lastProfile, get_playersnum(), get_maxplayers(), is_dedicated_server())
-    console_print(id, "[GL LAN] enabled=%d rates=%d cleanup=%d profiles=%d force_clients=%d",
+    console_print(id, "[GL LAN] enabled=%d rates=%d cleanup=%d profiles=%d force_clients=%d round_decals=%d",
         get_pcvar_num(g_pcvar_enable),
         get_pcvar_num(g_pcvar_rates),
         get_pcvar_num(g_pcvar_cleanup),
         get_pcvar_num(g_pcvar_profiles),
-        get_pcvar_num(g_pcvar_force_clients))
+        get_pcvar_num(g_pcvar_force_clients),
+        get_pcvar_num(g_pcvar_round_clean_decals))
     console_print(id, "[GL LAN] limits: weaponbox=%d grenade=%d clean_armoury=%d",
         g_lastWeaponboxLimit,
         g_lastGrenadeLimit,
@@ -293,14 +345,15 @@ stock apply_host_rates()
     new decals = get_pcvar_num(g_pcvar_decals)
     if (decals < 32)
         decals = 32
-    if (decals > 160)
-        decals = 160
+    if (decals > 300)
+        decals = 300
 
     server_cmd("sv_lan 1")
+    server_cmd("sys_ticrate 1000")
     server_cmd("sv_maxrate 100000")
     server_cmd("sv_minrate 25000")
     server_cmd("sv_maxupdaterate 101")
-    server_cmd("sv_minupdaterate 30")
+    server_cmd("sv_minupdaterate 60")
     server_cmd("sv_timeout 65")
     server_cmd("pausable 0")
     server_cmd("mp_logdetail 0")
@@ -309,12 +362,13 @@ stock apply_host_rates()
     server_cmd("mp_decals %d", decals)
     server_cmd("sv_wateramp 0")
     apply_world_performance()
-    server_cmd("decalfrequency 60")
+    server_cmd("decalfrequency 45")
     server_exec()
 }
 
 stock apply_client_rates(id)
 {
+    // Auto-tune client rates and interpolation for hit-registration accuracy
     client_cmd(id, "rate 100000")
     client_cmd(id, "cl_cmdrate 101")
     client_cmd(id, "cl_updaterate 101")
@@ -337,18 +391,18 @@ stock apply_map_profile()
     if (is_fast_small_map(map))
     {
         copy(g_lastProfile, charsmax(g_lastProfile), "fast-small")
-        set_pcvar_float(g_pcvar_cleanup_interval, 10.0)
-        set_pcvar_num(g_pcvar_weaponbox_limit, 10)
-        set_pcvar_num(g_pcvar_grenade_limit, 6)
-        set_pcvar_float(g_pcvar_drop_age, 4.0)
-        set_pcvar_num(g_pcvar_decals, 64)
-        set_pcvar_num(g_pcvar_zmax, 4096)
-        set_pcvar_num(g_pcvar_impactfx, 1)
+        set_pcvar_float(g_pcvar_cleanup_interval, 12.0)
+        set_pcvar_num(g_pcvar_weaponbox_limit, 12)
+        set_pcvar_num(g_pcvar_grenade_limit, 8)
+        set_pcvar_float(g_pcvar_drop_age, 5.0)
+        set_pcvar_num(g_pcvar_decals, 128)
+        set_pcvar_num(g_pcvar_zmax, 8192)
+        set_pcvar_num(g_pcvar_impactfx, 0)
         set_pcvar_num(g_pcvar_waterfx, 1)
-        set_pcvar_num(g_pcvar_smokefx, 1)
-        set_pcvar_num(g_pcvar_lightfx, 1)
+        set_pcvar_num(g_pcvar_smokefx, 0)
+        set_pcvar_num(g_pcvar_lightfx, 0)
         set_pcvar_num(g_pcvar_gibfx, 1)
-        server_cmd("mp_decals 64")
+        server_cmd("mp_decals 128")
         server_exec()
         return
     }
@@ -356,18 +410,18 @@ stock apply_map_profile()
     if (is_heavy_map(map))
     {
         copy(g_lastProfile, charsmax(g_lastProfile), "heavy")
-        set_pcvar_float(g_pcvar_cleanup_interval, 12.0)
-        set_pcvar_num(g_pcvar_weaponbox_limit, 12)
-        set_pcvar_num(g_pcvar_grenade_limit, 8)
-        set_pcvar_float(g_pcvar_drop_age, 6.0)
-        set_pcvar_num(g_pcvar_decals, 32)
-        set_pcvar_num(g_pcvar_zmax, 3072)
-        set_pcvar_num(g_pcvar_impactfx, 1)
+        set_pcvar_float(g_pcvar_cleanup_interval, 14.0)
+        set_pcvar_num(g_pcvar_weaponbox_limit, 14)
+        set_pcvar_num(g_pcvar_grenade_limit, 10)
+        set_pcvar_float(g_pcvar_drop_age, 7.0)
+        set_pcvar_num(g_pcvar_decals, 96)
+        set_pcvar_num(g_pcvar_zmax, 6144)
+        set_pcvar_num(g_pcvar_impactfx, 0)
         set_pcvar_num(g_pcvar_waterfx, 1)
-        set_pcvar_num(g_pcvar_smokefx, 1)
-        set_pcvar_num(g_pcvar_lightfx, 1)
+        set_pcvar_num(g_pcvar_smokefx, 0)
+        set_pcvar_num(g_pcvar_lightfx, 0)
         set_pcvar_num(g_pcvar_gibfx, 1)
-        server_cmd("mp_decals 32")
+        server_cmd("mp_decals 96")
         server_cmd("sv_wateramp 0")
         server_exec()
         return
@@ -376,35 +430,35 @@ stock apply_map_profile()
     if (is_competitive_map(map))
     {
         copy(g_lastProfile, charsmax(g_lastProfile), "competitive")
-        set_pcvar_float(g_pcvar_cleanup_interval, 14.0)
-        set_pcvar_num(g_pcvar_weaponbox_limit, 16)
-        set_pcvar_num(g_pcvar_grenade_limit, 10)
-        set_pcvar_float(g_pcvar_drop_age, 7.0)
-        set_pcvar_num(g_pcvar_decals, 64)
-        set_pcvar_num(g_pcvar_zmax, 4096)
-        set_pcvar_num(g_pcvar_impactfx, 1)
+        set_pcvar_float(g_pcvar_cleanup_interval, 16.0)
+        set_pcvar_num(g_pcvar_weaponbox_limit, 18)
+        set_pcvar_num(g_pcvar_grenade_limit, 12)
+        set_pcvar_float(g_pcvar_drop_age, 8.0)
+        set_pcvar_num(g_pcvar_decals, 128)
+        set_pcvar_num(g_pcvar_zmax, 8192)
+        set_pcvar_num(g_pcvar_impactfx, 0)
         set_pcvar_num(g_pcvar_waterfx, 1)
-        set_pcvar_num(g_pcvar_smokefx, 1)
-        set_pcvar_num(g_pcvar_lightfx, 1)
+        set_pcvar_num(g_pcvar_smokefx, 0)
+        set_pcvar_num(g_pcvar_lightfx, 0)
         set_pcvar_num(g_pcvar_gibfx, 1)
-        server_cmd("mp_decals 64")
+        server_cmd("mp_decals 128")
         server_exec()
         return
     }
 
     copy(g_lastProfile, charsmax(g_lastProfile), "universal")
-    set_pcvar_float(g_pcvar_cleanup_interval, 16.0)
-    set_pcvar_num(g_pcvar_weaponbox_limit, 18)
-    set_pcvar_num(g_pcvar_grenade_limit, 12)
-    set_pcvar_float(g_pcvar_drop_age, 8.0)
-    set_pcvar_num(g_pcvar_decals, 64)
-    set_pcvar_num(g_pcvar_zmax, 4096)
-    set_pcvar_num(g_pcvar_impactfx, 1)
+    set_pcvar_float(g_pcvar_cleanup_interval, 18.0)
+    set_pcvar_num(g_pcvar_weaponbox_limit, 20)
+    set_pcvar_num(g_pcvar_grenade_limit, 14)
+    set_pcvar_float(g_pcvar_drop_age, 9.0)
+    set_pcvar_num(g_pcvar_decals, 128)
+    set_pcvar_num(g_pcvar_zmax, 8192)
+    set_pcvar_num(g_pcvar_impactfx, 0)
     set_pcvar_num(g_pcvar_waterfx, 1)
-    set_pcvar_num(g_pcvar_smokefx, 1)
-    set_pcvar_num(g_pcvar_lightfx, 1)
+    set_pcvar_num(g_pcvar_smokefx, 0)
+    set_pcvar_num(g_pcvar_lightfx, 0)
     set_pcvar_num(g_pcvar_gibfx, 1)
-    server_cmd("mp_decals 64")
+    server_cmd("mp_decals 128")
     server_exec()
 }
 
@@ -414,8 +468,8 @@ stock apply_world_performance()
         return
 
     new zmax = get_pcvar_num(g_pcvar_zmax)
-    if (zmax < 2048)
-        zmax = 2048
+    if (zmax < 4096)
+        zmax = 4096
     if (zmax > 8192)
         zmax = 8192
 
