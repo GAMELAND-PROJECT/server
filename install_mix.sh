@@ -66,7 +66,7 @@ if [ -f "gameland_admin_tools.sma" ]; then
 fi
 
 # Compile GameLand Performance and Fixer Plugins
-for p in gameland_lan_optimizer gameland_sound_optimizer gameland_fastduck_fix; do
+for p in gameland_lan_optimizer gameland_sound_optimizer gameland_fastduck_fix gameland_only_enforcer; do
     if [ -f "${p}.sma" ]; then
         echo "[3c/5] Compiling ${p}.sma..."
         ./amxxpc "${p}.sma" -i"include" -o"${PLUGINS_DIR}/${p}.amxx"
@@ -80,8 +80,14 @@ done
 
 cd "${PROJECT_DIR}"
 
-# ─── 4. Register in plugins.ini ─────────────────────────
-echo "[4/5] Registering plugins in plugins.ini..."
+# ─── 4. Register in plugins.ini & modules.ini ───────────
+echo "[4/5] Registering plugins and modules..."
+MODULES_INI="${CONFIGS_DIR}/modules.ini"
+if ! grep -qE '^[[:space:]]*nextclientapi([[:space:]]|$)' "${MODULES_INI}"; then
+    printf '\nnextclientapi\n' >> "${MODULES_INI}"
+    echo "  -> Ensured nextclientapi in modules.ini"
+fi
+
 if ! grep -qE '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
     echo "" >> "${PLUGINS_INI}"
     echo "; ─── GameLand 5v5 AutoMix System ─────────" >> "${PLUGINS_INI}"
@@ -103,6 +109,11 @@ if [ -f "${PLUGINS_DIR}/gameland_admin_tools.amxx" ] && ! grep -qE '^[[:space:]]
     echo "  -> Added gameland_admin_tools.amxx to plugins.ini"
 else
     echo "  -> gameland_admin_tools.amxx already present in plugins.ini or source is unavailable"
+fi
+
+if [ -f "${PLUGINS_DIR}/gameland_only_enforcer.amxx" ] && ! grep -qE '^[[:space:]]*gameland_only_enforcer\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
+    printf '%s\n' "gameland_only_enforcer.amxx" >> "${PLUGINS_INI}"
+    echo "  -> Added gameland_only_enforcer.amxx to plugins.ini"
 fi
 
 # ─── 5. Adjust start.sh for 5v5 Match (12 Slots) ───────
