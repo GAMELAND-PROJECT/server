@@ -39,6 +39,15 @@ fi
 
 echo "  -> Detected PHP socket: ${PHP_SOCK}"
 
+# Tune PHP-FPM execution limits & worker pool
+for pconf in /etc/php/*/fpm/pool.d/www.conf; do
+    if [ -f "$pconf" ]; then
+        sed -i 's/^pm\.max_children = .*/pm.max_children = 20/' "$pconf" || true
+        sed -i 's/^;request_terminate_timeout = .*/request_terminate_timeout = 300s/' "$pconf" || true
+    fi
+done
+systemctl restart php*-fpm 2>/dev/null || true
+
 # ─── 2. Setup Nginx Virtual Host ────────────────────────
 echo "[2/5] Configuring Nginx Site on Port ${PANEL_PORT}..."
 NGINX_CONF="/etc/nginx/sites-available/gameland-panel"
@@ -64,6 +73,12 @@ server {
         fastcgi_pass unix:${PHP_SOCK};
         fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
         include fastcgi_params;
+        fastcgi_read_timeout 300;
+        fastcgi_send_timeout 300;
+        fastcgi_connect_timeout 60;
+        fastcgi_buffer_size 128k;
+        fastcgi_buffers 4 256k;
+        fastcgi_busy_buffers_size 256k;
     }
 
     # Deny access to hidden files and internal scripts

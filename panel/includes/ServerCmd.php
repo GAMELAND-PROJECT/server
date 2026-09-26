@@ -441,9 +441,14 @@ class ServerCmd {
      */
     public static function getManagedPluginTargets() {
         return [
-            'mix_system.sma'            => 'mix_system.amxx',
-            'mix_system_voice_chat.sma' => 'mix_system_voice_chat.amxx',
-            'gameland_admin_tools.sma'  => 'gameland_admin_tools.amxx',
+            'gameland_only_enforcer.sma' => 'gameland_only_enforcer.amxx',
+            'gameland_lan_optimizer.sma' => 'gameland_lan_optimizer.amxx',
+            'gameland_sound_optimizer.sma' => 'gameland_sound_optimizer.amxx',
+            'gameland_fastduck_fix.sma'  => 'gameland_fastduck_fix.amxx',
+            'gameland_admin_tools.sma'   => 'gameland_admin_tools.amxx',
+            'mix_system.sma'             => 'mix_system.amxx',
+            'mix_system_voice_chat.sma'  => 'mix_system_voice_chat.amxx',
+            'player_drop.sma'            => 'player_drop.amxx',
         ];
     }
 
@@ -1112,8 +1117,7 @@ class ServerCmd {
 
     /**
      * Download the latest source files from GitHub repo and update server files
-     * Downloads .sma sources + configs + lang files.
-     * Does NOT download .amxx (they are gitignored and must be compiled).
+     * Fast, resilient, non-blocking: tests connectivity first with 2.5s probe.
      */
     public static function syncMixFromGitHub($serverInfo) {
         $repo    = defined('GITHUB_REPO')   ? GITHUB_REPO   : 'GAMELAND-PROJECT/MixSystem_SV_PL';
@@ -1134,9 +1138,67 @@ class ServerCmd {
             'data/lang/mix_system.txt'            => 'addons/amxmodx/data/lang/mix_system.txt',
         ];
 
+        // 1. Fast probe: test if GitHub raw is reachable within 2.5 seconds
+        $probeUrl = $baseUrl . 'configs/MixSettings.ini';
+        $probeOk = false;
+        if (function_exists('curl_init')) {
+            $ch = curl_init($probeUrl);
+            curl_setopt_array($ch, [
+                CURLOPT_NOBODY => true,
+                CURLOPT_TIMEOUT => 3,
+                CURLOPT_CONNECTTIMEOUT => 2,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_USERAGENT => 'GameLand-WebPanel/2.0',
+                CURLOPT_SSL_VERIFYPEER => false,
+            ]);
+            $token = defined('GITHUB_TOKEN') ? GITHUB_TOKEN : '';
+            if (!empty($token)) {
+                curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer {$token}"]);
+            }
+            curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($httpCode >= 200 && $httpCode < 400) {
+                $probeOk = true;
+            }
+        } else {
+            $ctx = self::githubRawContext(3);
+            $test = @file_get_contents($probeUrl, false, $ctx);
+            if ($test !== false) {
+                $probeOk = true;
+            }
+        }
+
+        if (!$probeOk) {
+            // Check if local git repo exists and can pull
+            $serverDir = $serverInfo['server_dir'] ?? dirname($cstrike);
+            if (is_dir($serverDir . '/.git')) {
+                $gitOut = [];
+                $gitCode = 1;
+                @exec("cd " . escapeshellarg($serverDir) . " && git pull --ff-only 2>&1", $gitOut, $gitCode);
+                if ($gitCode === 0) {
+                    return [
+                        'success' => true,
+                        'updated' => ['git-pull-success'],
+                        'failed'  => [],
+                        'commit'  => self::getGitRepoStatus(),
+                        'message' => 'Pulled latest updates via git pull.'
+                    ];
+                }
+            }
+
+            return [
+                'success' => false,
+                'network_blocked' => true,
+                'updated' => [],
+                'failed'  => ['GitHub raw CDN is unreachable from this server network.'],
+                'commit'  => null,
+                'message' => 'GitHub connection timed out or is filtered on this datacenter IP. Using local repository sources.'
+            ];
+        }
+
         $updatedFiles = [];
         $failedFiles  = [];
-        $context      = self::githubRawContext(12);
 
         foreach ($fileMap as $remotePath => $localRelPath) {
             $destFile = $cstrike . '/' . $localRelPath;
@@ -1145,8 +1207,31 @@ class ServerCmd {
                 @mkdir($destDir, 0775, true);
             }
 
-            $url     = $baseUrl . $remotePath;
-            $content = @file_get_contents($url, false, $context);
+            $url = $baseUrl . $remotePath;
+            $content = false;
+            if (function_exists('curl_init')) {
+                $ch = curl_init($url);
+                curl_setopt_array($ch, [
+                    CURLOPT_TIMEOUT => 4,
+                    CURLOPT_CONNECTTIMEOUT => 2,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_USERAGENT => 'GameLand-WebPanel/2.0',
+                    CURLOPT_SSL_VERIFYPEER => false,
+                ]);
+                $token = defined('GITHUB_TOKEN') ? GITHUB_TOKEN : '';
+                if (!empty($token)) {
+                    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer {$token}"]);
+                }
+                $content = curl_exec($ch);
+                $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+                if ($code < 200 || $code >= 400) {
+                    $content = false;
+                }
+            } else {
+                $ctx = self::githubRawContext(4);
+                $content = @file_get_contents($url, false, $ctx);
+            }
 
             if ($content !== false && strlen($content) > 10) {
                 if (@file_put_contents($destFile, $content) !== false) {
@@ -1182,6 +1267,7 @@ class ServerCmd {
 
     /**
      * Compile plugins using the server's amxxpc compiler
+     * Compiles all managed GameLand, security, and mix plugins
      */
     public static function compilePlugins($serverInfo) {
         $scriptingDir = $serverInfo['cstrike_dir'] . '/addons/amxmodx/scripting';
@@ -1189,6 +1275,10 @@ class ServerCmd {
 
         if (!is_dir($scriptingDir)) {
             return ['success' => false, 'message' => 'Scripting directory not found: ' . $scriptingDir, 'output' => '', 'compiled_count' => 0];
+        }
+
+        if (!is_dir($pluginsDir)) {
+            @mkdir($pluginsDir, 0775, true);
         }
 
         $compiler = $scriptingDir . '/amxxpc';
@@ -1213,9 +1303,10 @@ class ServerCmd {
 
         $targets = self::getManagedPluginTargets();
 
-        $output       = '';
+        $output        = '';
         $compiledCount = 0;
         $errorCount    = 0;
+        $compiledFiles = [];
 
         foreach ($targets as $src => $bin) {
             $srcPath = $scriptingDir . '/' . $src;
@@ -1245,17 +1336,32 @@ class ServerCmd {
             // Verify the .amxx was actually created and is non-zero
             if ($exitCode === 0 && file_exists($binPath) && filesize($binPath) > 100) {
                 $compiledCount++;
+                $compiledFiles[] = $bin;
             } else {
                 $errorCount++;
             }
         }
 
-        $mainOk = file_exists($pluginsDir . '/mix_system.amxx')
-               && filesize($pluginsDir . '/mix_system.amxx') > 100;
-
-        // If main plugin compiled OK, register it in plugins.ini
-        if ($mainOk) {
+        // Register compiled plugins in plugins.ini
+        if ($compiledCount > 0) {
             self::ensureMixRegistered($serverInfo);
+
+            // Propagate compiled .amxx to all other server instances automatically
+            $allServers = self::getManagedServers();
+            foreach ($allServers as $sId => $sConf) {
+                if (($sConf['cstrike_dir'] ?? '') !== $serverInfo['cstrike_dir']) {
+                    $otherPluginsDir = ($sConf['cstrike_dir'] ?? '') . '/addons/amxmodx/plugins';
+                    if (is_dir($otherPluginsDir)) {
+                        foreach ($compiledFiles as $binFile) {
+                            $srcBin = $pluginsDir . '/' . $binFile;
+                            if (file_exists($srcBin)) {
+                                @copy($srcBin, $otherPluginsDir . '/' . $binFile);
+                            }
+                        }
+                        self::ensureMixRegistered($sConf);
+                    }
+                }
+            }
         }
 
         // Persist an authoritative deployment record used by the panel.
@@ -1271,22 +1377,23 @@ class ServerCmd {
 
         if ($compiledCount === 0 && $errorCount === 0) {
             $message = 'No .sma source files found to compile.';
-        } elseif ($mainOk) {
-            $message = "Compiled {$compiledCount} mix plugin(s) successfully!" . ($errorCount > 0 ? " ({$errorCount} had errors — check log)" : '');
+        } elseif ($compiledCount > 0) {
+            $message = "Compiled {$compiledCount} plugin(s) successfully!" . ($errorCount > 0 ? " ({$errorCount} had errors — check log)" : '');
         } else {
-            $message = "Compilation failed. mix_system.amxx was not produced. Check compiler output below.";
+            $message = "Compilation failed. No .amxx binaries were produced. Check compiler output below.";
         }
 
         return [
-            'success'        => $errorCount === 0 && $compiledCount > 0,
+            'success'        => $compiledCount > 0 && $errorCount === 0,
             'output'         => trim($output),
             'compiled_count' => $compiledCount,
+            'compiled_files' => $compiledFiles,
             'message'        => $message
         ];
     }
 
     /**
-     * Ensure mix plugins are listed and ENABLED in plugins.ini
+     * Ensure GameLand & mix plugins are listed and ENABLED in plugins.ini
      */
     public static function ensureMixRegistered($serverInfo) {
         $pluginsIni = $serverInfo['cstrike_dir'] . '/addons/amxmodx/configs/plugins.ini';
@@ -1296,13 +1403,19 @@ class ServerCmd {
             return;
         }
 
-        // Only register files that actually exist as binaries
-        $mixFiles = [];
+        // Candidates to ensure are active in plugins.ini
         $candidates = [
-            'mix_system.amxx'            => 'AutoMix 5v5 System (main)',
-            'mix_system_voice_chat.amxx' => 'AutoMix Voice Chat',
-            'gameland_admin_tools.amxx'  => 'GameLand admin tools (/map, /j0-/j2, /ff0-/ff1)',
+            'gameland_only_enforcer.amxx'   => 'GameLand exclusive AllClient security enforcer',
+            'gameland_lan_optimizer.amxx'   => 'GameLand network latency & fps optimizer',
+            'gameland_sound_optimizer.amxx' => 'GameLand spatial sound & footsteps enhancer',
+            'gameland_fastduck_fix.amxx'    => 'GameLand fast duck / silent run enforcer',
+            'gameland_admin_tools.amxx'     => 'GameLand admin tools (/map, /j0-/j2, /ff0-/ff1)',
+            'mix_system.amxx'               => 'AutoMix 5v5 System (main)',
+            'mix_system_voice_chat.amxx'    => 'AutoMix Voice Chat',
+            'player_drop.amxx'              => 'AutoMix player drop/substitute',
         ];
+
+        $mixFiles = [];
         foreach ($candidates as $f => $desc) {
             if (file_exists($pluginsDir . '/' . $f)) {
                 $mixFiles[$f] = $desc;
@@ -1322,8 +1435,8 @@ class ServerCmd {
             } elseif (!preg_match('/^\s*' . preg_quote($mf, '/') . '/m', $content)) {
                 // Not present at all → add it
                 // Ensure we have a section header
-                if (!str_contains($content, '; 5v5 AutoMix System')) {
-                    $content .= "\n; 5v5 AutoMix System\n";
+                if (!str_contains($content, '; GameLand & AutoMix System')) {
+                    $content .= "\n; GameLand & AutoMix System\n";
                 }
                 $content .= $mf . " ; " . $desc . "\n";
                 $modified = true;

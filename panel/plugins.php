@@ -58,9 +58,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['sync_github'])) {
         }
         $downloadRes = ServerCmd::syncMixFromGitHub($activeServer);
         if (!$downloadRes['success']) {
-            $failedStr = !empty($downloadRes['failed']) ? implode(', ', $downloadRes['failed']) : 'unknown error';
-            $msg = "❌ Failed to download some files from GitHub: {$failedStr}";
-            $msgType = 'danger';
+            $failedStr = !empty($downloadRes['failed']) ? implode(', ', $downloadRes['failed']) : ($downloadRes['message'] ?? 'Network error');
+            $msg = "⚠️ GitHub Sync: {$failedStr}";
+            $msgType = 'warning';
+
+            if (isset($_POST['compile_after_sync'])) {
+                $compRes = ServerCmd::compilePlugins($activeServer);
+                $compileOutput = $compRes['output'];
+                if ($compRes['success']) {
+                    $msg .= " → ✅ Compiled {$compRes['compiled_count']} local plugins successfully!";
+                    $msgType = 'success';
+                } else {
+                    $msg .= " → ⚠️ Compile had errors. See log below.";
+                }
+
+                if (isset($_POST['restart_after_sync']) && $compRes['success']) {
+                    ServerCmd::controlService($activeServer['service_name'], 'restart');
+                    $msg .= " → 🔄 Server restarted!";
+                }
+            }
         } else {
             $updatedStr = implode(', ', $downloadRes['updated']);
             $msg = "✅ Downloaded " . count($downloadRes['updated']) . " files: {$updatedStr}";
@@ -79,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['sync_github'])) {
                 $msgType = 'info';
             }
 
-            if (isset($_POST['restart_after_sync']) && $downloadRes['success']) {
+            if (isset($_POST['restart_after_sync']) && ($compRes['success'] ?? true)) {
                 ServerCmd::controlService($activeServer['service_name'], 'restart');
                 $msg .= " → 🔄 Server restarted!";
             }
@@ -222,9 +238,31 @@ foreach ($plugins as $p) {
     <!-- Action Buttons -->
     <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
 
-        <!-- 1-Click Deploy -->
+        <!-- Fast Local Compile + Restart (Fastest & Safest) -->
         <form method="POST" action="plugins.php"
-              onsubmit="return confirm('Download latest source from GitHub, compile all plugins, and restart server?\n\nThis will briefly take the server offline!')">
+              onsubmit="return confirm('Compile all local plugins (AllClient Enforcer, Mix, Optimizers) and restart server?')">
+            <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
+            <input type="hidden" name="compile_plugins" value="1">
+            <input type="hidden" name="restart_after_compile" value="1">
+            <button type="submit" class="btn btn-warning"
+                    style="padding:0.8rem 1.4rem; font-weight:700; background:linear-gradient(135deg,#f59e0b,#d97706); box-shadow:0 4px 15px rgba(245,158,11,0.35); border:none; color:#fff;">
+                🚀 Fast Compile All &amp; Restart (Recommended)
+            </button>
+        </form>
+
+        <!-- Compile only, no restart -->
+        <form method="POST" action="plugins.php"
+              onsubmit="return confirm('Compile local .sma files? (No restart — useful while server is running)')">
+            <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
+            <input type="hidden" name="compile_plugins" value="1">
+            <button type="submit" class="btn btn-secondary" style="padding:0.8rem 1.2rem;">
+                🔨 Compile Only (No Restart)
+            </button>
+        </form>
+
+        <!-- 1-Click Deploy from GitHub -->
+        <form method="POST" action="plugins.php"
+              onsubmit="return confirm('Sync latest sources from GitHub, compile all plugins, and restart server?')">
             <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
             <input type="hidden" name="sync_github" value="1">
             <input type="hidden" name="compile_after_sync" value="1">
@@ -234,8 +272,8 @@ foreach ($plugins as $p) {
                 Deploy to all servers
             </label>
             <button type="submit" class="btn btn-primary"
-                    style="padding:0.8rem 1.4rem; font-weight:700; background:linear-gradient(135deg,#06b6d4,#4f46e5); box-shadow:0 4px 15px rgba(6,182,212,0.3);">
-                ⚡ 1-Click Deploy: Download → Compile → Restart
+                    style="padding:0.8rem 1.3rem; font-weight:700; background:linear-gradient(135deg,#06b6d4,#4f46e5); box-shadow:0 4px 15px rgba(6,182,212,0.3);">
+                ⚡ GitHub Sync → Compile → Restart
             </button>
         </form>
 
@@ -246,38 +284,7 @@ foreach ($plugins as $p) {
             <input type="hidden" name="sync_github" value="1">
             <input type="hidden" name="compile_after_sync" value="1">
             <button type="submit" class="btn btn-secondary" style="padding:0.8rem 1.2rem;">
-                📥 Download &amp; Compile Only
-            </button>
-        </form>
-
-        <!-- Download .sma only -->
-        <form method="POST" action="plugins.php"
-              onsubmit="return confirm('Download latest .sma source files only? (.amxx will NOT be updated until you compile)')">
-            <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
-            <input type="hidden" name="sync_github" value="1">
-            <button type="submit" class="btn btn-secondary" style="padding:0.8rem 1.2rem; border-color:#3b82f6;">
-                📄 Sync Source Only
-            </button>
-        </form>
-
-        <!-- Compile Local + Restart -->
-        <form method="POST" action="plugins.php"
-              onsubmit="return confirm('Compile local .sma files (no GitHub download) and restart server?')">
-            <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
-            <input type="hidden" name="compile_plugins" value="1">
-            <input type="hidden" name="restart_after_compile" value="1">
-            <button type="submit" class="btn btn-warning" style="padding:0.8rem 1.2rem;">
-                ⚙️ Compile Local &amp; Restart
-            </button>
-        </form>
-
-        <!-- Compile only, no restart -->
-        <form method="POST" action="plugins.php"
-              onsubmit="return confirm('Compile local .sma files? (No restart — useful while server is running)')">
-            <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
-            <input type="hidden" name="compile_plugins" value="1">
-            <button type="submit" class="btn btn-secondary" style="padding:0.8rem 1.2rem;">
-                🔨 Compile Only
+                📥 GitHub Sync &amp; Compile Only
             </button>
         </form>
 
