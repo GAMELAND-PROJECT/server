@@ -45,8 +45,10 @@ NGINX_CONF="/etc/nginx/sites-available/gameland-panel"
 
 cat > "${NGINX_CONF}" <<EOF
 server {
-    listen ${PANEL_PORT} default_server;
-    listen [::]:${PANEL_PORT} default_server;
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    listen ${PANEL_PORT};
+    listen [::]:${PANEL_PORT};
 
     root ${PANEL_DIR};
     index index.php index.html;
@@ -75,6 +77,7 @@ server {
 }
 EOF
 
+rm -f /etc/nginx/sites-enabled/default
 ln -sf "${NGINX_CONF}" /etc/nginx/sites-enabled/gameland-panel
 nginx -t
 systemctl restart nginx
