@@ -29,12 +29,31 @@ public client_putinserver(id)
         return;
     }
 
-    // Step 1: Query the permanent protected engine cvar from client memory
-    query_client_cvar(id, "gl_allclient_signature", "OnCvarSignatureResult");
+    // Step 1: Early secondary check: verify UserInfo token
+    new token[64];
+    get_user_info(id, "_gltoken", token, charsmax(token));
+    if (equal(token, ALLCLIENT_TOKEN))
+    {
+        g_isVerified[id] = true;
+        new name[32];
+        get_user_name(id, name, charsmax(name));
+        server_print("[GAMELAND] [VERIFIED] Player '%s' pre-authenticated via UserInfo token.", name);
+    }
 
-    // Step 2: Set strict 1.2s timeout enforcement task
+    // Step 2: Query client cvar after 0.25s delay ensuring client message buffer is receptive
     remove_task(id);
-    set_task(1.2, "EnforceTimeoutDrop", id);
+    set_task(0.25, "TaskQueryClientCvar", id);
+
+    // Step 3: Strict 4.0s timeout enforcement task
+    set_task(4.0, "EnforceTimeoutDrop", id);
+}
+
+public TaskQueryClientCvar(id)
+{
+    if (is_user_connected(id) && !is_user_bot(id) && !is_user_hltv(id))
+    {
+        query_client_cvar(id, "gl_allclient_signature", "OnCvarSignatureResult");
+    }
 }
 
 public client_disconnected(id)
@@ -49,15 +68,15 @@ public OnCvarSignatureResult(id, const cvar[], const value[], const param[])
     if (!is_user_connected(id) || is_user_bot(id) || is_user_hltv(id))
         return;
 
-    // Check if the client returned the permanent protected engine signature
-    if (equal(value, ALLCLIENT_SIGNATURE))
+    // Check if the client returned the permanent engine signature OR protected status (from AllClient build)
+    if (equal(value, ALLCLIENT_SIGNATURE) || equal(value, "CVAR is protected"))
     {
         g_isVerified[id] = true;
         remove_task(id);
 
         new name[32];
         get_user_name(id, name, charsmax(name));
-        server_print("[GAMELAND] [VERIFIED] Player '%s' successfully authenticated via permanent AllClient engine signature.", name);
+        server_print("[GAMELAND] [VERIFIED] Player '%s' successfully authenticated via AllClient engine signature ('%s').", name, value);
     }
     else
     {
