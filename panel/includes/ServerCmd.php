@@ -1124,18 +1124,38 @@ class ServerCmd {
         $branch  = defined('GITHUB_BRANCH') ? GITHUB_BRANCH : 'main';
         $baseUrl = "https://raw.githubusercontent.com/{$repo}/{$branch}/";
         $cstrike = $serverInfo['cstrike_dir'];
+        $serverDir = $serverInfo['server_dir'] ?? dirname($cstrike);
 
-        // File mapping: GitHub relative path => local destination relative to cstrike
-        $fileMap = [
-            'scripting/include/mix_system.inc'    => 'addons/amxmodx/scripting/include/mix_system.inc',
-            'scripting/mix_system.sma'            => 'addons/amxmodx/scripting/mix_system.sma',
-            'scripting/mix_system_voice_chat.sma' => 'addons/amxmodx/scripting/mix_system_voice_chat.sma',
-            'scripting/gameland_admin_tools.sma'  => 'addons/amxmodx/scripting/gameland_admin_tools.sma',
-            'configs/MixSettings.ini'             => 'addons/amxmodx/configs/MixSettings.ini',
-            'configs/start.cfg'                   => 'addons/amxmodx/configs/start.cfg',
-            'configs/stop.cfg'                    => 'addons/amxmodx/configs/stop.cfg',
-            'configs/overtime.cfg'                => 'addons/amxmodx/configs/overtime.cfg',
-            'data/lang/mix_system.txt'            => 'addons/amxmodx/data/lang/mix_system.txt',
+        // Always attempt fast git pull first if local git repository exists
+        $gitPulled = false;
+        if (is_dir($serverDir . '/.git')) {
+            $gitOut = [];
+            $gitCode = 1;
+            @exec("cd " . escapeshellarg($serverDir) . " && git pull --ff-only 2>&1", $gitOut, $gitCode);
+            if ($gitCode === 0) {
+                $gitPulled = true;
+            }
+        }
+
+        // Target file mapping: [Remote Repo, Remote Path, Local Relative to cstrike]
+        $syncTargets = [
+            // MixSystem Repository
+            ['repo' => $repo, 'remote' => 'scripting/include/mix_system.inc',    'local' => 'addons/amxmodx/scripting/include/mix_system.inc'],
+            ['repo' => $repo, 'remote' => 'scripting/mix_system.sma',            'local' => 'addons/amxmodx/scripting/mix_system.sma'],
+            ['repo' => $repo, 'remote' => 'scripting/mix_system_voice_chat.sma', 'local' => 'addons/amxmodx/scripting/mix_system_voice_chat.sma'],
+            ['repo' => $repo, 'remote' => 'scripting/gameland_admin_tools.sma',  'local' => 'addons/amxmodx/scripting/gameland_admin_tools.sma'],
+            ['repo' => $repo, 'remote' => 'configs/MixSettings.ini',             'local' => 'addons/amxmodx/configs/MixSettings.ini'],
+            ['repo' => $repo, 'remote' => 'configs/start.cfg',                   'local' => 'addons/amxmodx/configs/start.cfg'],
+            ['repo' => $repo, 'remote' => 'configs/stop.cfg',                    'local' => 'addons/amxmodx/configs/stop.cfg'],
+            ['repo' => $repo, 'remote' => 'configs/overtime.cfg',                'local' => 'addons/amxmodx/configs/overtime.cfg'],
+            ['repo' => $repo, 'remote' => 'data/lang/mix_system.txt',            'local' => 'addons/amxmodx/data/lang/mix_system.txt'],
+
+            // GameLand Main Server Repository
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_fastduck_fix.sma',    'local' => 'addons/amxmodx/scripting/gameland_fastduck_fix.sma'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_only_enforcer.sma',   'local' => 'addons/amxmodx/scripting/gameland_only_enforcer.sma'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_lan_optimizer.sma',   'local' => 'addons/amxmodx/scripting/gameland_lan_optimizer.sma'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_sound_optimizer.sma', 'local' => 'addons/amxmodx/scripting/gameland_sound_optimizer.sma'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'panel/includes/ServerCmd.php',                                  'local' => '../panel/includes/ServerCmd.php'],
         ];
 
         // 1. Fast probe: test if GitHub raw is reachable within 2.5 seconds
@@ -1170,21 +1190,14 @@ class ServerCmd {
         }
 
         if (!$probeOk) {
-            // Check if local git repo exists and can pull
-            $serverDir = $serverInfo['server_dir'] ?? dirname($cstrike);
-            if (is_dir($serverDir . '/.git')) {
-                $gitOut = [];
-                $gitCode = 1;
-                @exec("cd " . escapeshellarg($serverDir) . " && git pull --ff-only 2>&1", $gitOut, $gitCode);
-                if ($gitCode === 0) {
-                    return [
-                        'success' => true,
-                        'updated' => ['git-pull-success'],
-                        'failed'  => [],
-                        'commit'  => self::getGitRepoStatus(),
-                        'message' => 'Pulled latest updates via git pull.'
-                    ];
-                }
+            if ($gitPulled) {
+                return [
+                    'success' => true,
+                    'updated' => ['git-pull-success'],
+                    'failed'  => [],
+                    'commit'  => self::getGitRepoStatus(),
+                    'message' => 'Pulled latest updates via git pull.'
+                ];
             }
 
             return [
@@ -1200,14 +1213,18 @@ class ServerCmd {
         $updatedFiles = [];
         $failedFiles  = [];
 
-        foreach ($fileMap as $remotePath => $localRelPath) {
+        foreach ($syncTargets as $t) {
+            $targetRepo = $t['repo'];
+            $remotePath = $t['remote'];
+            $localRelPath = $t['local'];
+
             $destFile = $cstrike . '/' . $localRelPath;
             $destDir  = dirname($destFile);
             if (!is_dir($destDir)) {
                 @mkdir($destDir, 0775, true);
             }
 
-            $url = $baseUrl . $remotePath;
+            $url = "https://raw.githubusercontent.com/{$targetRepo}/{$branch}/" . $remotePath;
             $content = false;
             if (function_exists('curl_init')) {
                 $ch = curl_init($url);
