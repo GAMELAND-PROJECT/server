@@ -449,6 +449,7 @@ class ServerCmd {
             'mix_system.sma'             => 'mix_system.amxx',
             'mix_system_voice_chat.sma'  => 'mix_system_voice_chat.amxx',
             'player_drop.sma'            => 'player_drop.amxx',
+            'backweapons.sma'            => 'backweapons.amxx',
         ];
     }
 
@@ -1137,25 +1138,28 @@ class ServerCmd {
             }
         }
 
-        // Target file mapping: [Remote Repo, Remote Path, Local Relative to cstrike]
+        // Target file mapping: [Remote Repo, Remote Path, Local Relative to cstrike, Local Dev Source]
         $syncTargets = [
             // MixSystem Repository
-            ['repo' => $repo, 'remote' => 'scripting/include/mix_system.inc',    'local' => 'addons/amxmodx/scripting/include/mix_system.inc'],
-            ['repo' => $repo, 'remote' => 'scripting/mix_system.sma',            'local' => 'addons/amxmodx/scripting/mix_system.sma'],
-            ['repo' => $repo, 'remote' => 'scripting/mix_system_voice_chat.sma', 'local' => 'addons/amxmodx/scripting/mix_system_voice_chat.sma'],
-            ['repo' => $repo, 'remote' => 'scripting/gameland_admin_tools.sma',  'local' => 'addons/amxmodx/scripting/gameland_admin_tools.sma'],
-            ['repo' => $repo, 'remote' => 'configs/MixSettings.ini',             'local' => 'addons/amxmodx/configs/MixSettings.ini'],
-            ['repo' => $repo, 'remote' => 'configs/start.cfg',                   'local' => 'addons/amxmodx/configs/start.cfg'],
-            ['repo' => $repo, 'remote' => 'configs/stop.cfg',                    'local' => 'addons/amxmodx/configs/stop.cfg'],
-            ['repo' => $repo, 'remote' => 'configs/overtime.cfg',                'local' => 'addons/amxmodx/configs/overtime.cfg'],
-            ['repo' => $repo, 'remote' => 'data/lang/mix_system.txt',            'local' => 'addons/amxmodx/data/lang/mix_system.txt'],
+            ['repo' => $repo, 'remote' => 'scripting/include/mix_system.inc',    'local' => 'addons/amxmodx/scripting/include/mix_system.inc',    'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/scripting/include/mix_system.inc'],
+            ['repo' => $repo, 'remote' => 'scripting/mix_system.sma',            'local' => 'addons/amxmodx/scripting/mix_system.sma',            'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/scripting/mix_system.sma'],
+            ['repo' => $repo, 'remote' => 'scripting/mix_system_voice_chat.sma', 'local' => 'addons/amxmodx/scripting/mix_system_voice_chat.sma', 'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/scripting/mix_system_voice_chat.sma'],
+            ['repo' => $repo, 'remote' => 'scripting/gameland_admin_tools.sma',  'local' => 'addons/amxmodx/scripting/gameland_admin_tools.sma',  'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/scripting/gameland_admin_tools.sma'],
+            ['repo' => $repo, 'remote' => 'configs/MixSettings.ini',             'local' => 'addons/amxmodx/configs/MixSettings.ini',             'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/configs/MixSettings.ini'],
+            ['repo' => $repo, 'remote' => 'configs/start.cfg',                   'local' => 'addons/amxmodx/configs/start.cfg',                   'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/configs/start.cfg'],
+            ['repo' => $repo, 'remote' => 'configs/stop.cfg',                    'local' => 'addons/amxmodx/configs/stop.cfg',                    'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/configs/stop.cfg'],
+            ['repo' => $repo, 'remote' => 'configs/overtime.cfg',                'local' => 'addons/amxmodx/configs/overtime.cfg',                'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/configs/overtime.cfg'],
+            ['repo' => $repo, 'remote' => 'data/lang/mix_system.txt',            'local' => 'addons/amxmodx/data/lang/mix_system.txt',            'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/data/lang/mix_system.txt'],
 
-            // GameLand Main Server Repository
-            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_fastduck_fix.sma',    'local' => 'addons/amxmodx/scripting/gameland_fastduck_fix.sma'],
-            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_only_enforcer.sma',   'local' => 'addons/amxmodx/scripting/gameland_only_enforcer.sma'],
-            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_lan_optimizer.sma',   'local' => 'addons/amxmodx/scripting/gameland_lan_optimizer.sma'],
-            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_sound_optimizer.sma', 'local' => 'addons/amxmodx/scripting/gameland_sound_optimizer.sma'],
-            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'panel/includes/ServerCmd.php',                                  'local' => '../panel/includes/ServerCmd.php'],
+            // GameLand Core Plugins Repository
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_fastduck_fix.sma',    'local' => 'addons/amxmodx/scripting/gameland_fastduck_fix.sma',    'local_src' => dirname($serverDir) . '/GameLand_Core_Plugins/scripting/gameland_fastduck_fix.sma'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_only_enforcer.sma',   'local' => 'addons/amxmodx/scripting/gameland_only_enforcer.sma',   'local_src' => dirname($serverDir) . '/GameLand_Core_Plugins/scripting/gameland_only_enforcer.sma'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_lan_optimizer.sma',   'local' => 'addons/amxmodx/scripting/gameland_lan_optimizer.sma',   'local_src' => dirname($serverDir) . '/GameLand_Core_Plugins/scripting/gameland_lan_optimizer.sma'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_sound_optimizer.sma', 'local' => 'addons/amxmodx/scripting/gameland_sound_optimizer.sma', 'local_src' => dirname($serverDir) . '/GameLand_Core_Plugins/scripting/gameland_sound_optimizer.sma'],
+
+            // Back Weapons Repository
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/backweapons.sma',               'local' => 'addons/amxmodx/scripting/backweapons.sma',               'local_src' => dirname($serverDir) . '/back gun/backweapons.sma'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'panel/includes/ServerCmd.php',                                  'local' => '../panel/includes/ServerCmd.php',                        'local_src' => null],
         ];
 
         // 1. Fast probe: test if GitHub raw is reachable within 2.5 seconds
@@ -1224,30 +1228,37 @@ class ServerCmd {
                 @mkdir($destDir, 0775, true);
             }
 
-            $url = "https://raw.githubusercontent.com/{$targetRepo}/{$branch}/" . $remotePath;
             $content = false;
-            if (function_exists('curl_init')) {
-                $ch = curl_init($url);
-                curl_setopt_array($ch, [
-                    CURLOPT_TIMEOUT => 4,
-                    CURLOPT_CONNECTTIMEOUT => 2,
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_USERAGENT => 'GameLand-WebPanel/2.0',
-                    CURLOPT_SSL_VERIFYPEER => false,
-                ]);
-                $token = defined('GITHUB_TOKEN') ? GITHUB_TOKEN : '';
-                if (!empty($token)) {
-                    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer {$token}"]);
+            $localSrc = $t['local_src'] ?? null;
+            if ($localSrc && is_file($localSrc)) {
+                $content = @file_get_contents($localSrc);
+            }
+
+            if ($content === false) {
+                $url = "https://raw.githubusercontent.com/{$targetRepo}/{$branch}/" . $remotePath;
+                if (function_exists('curl_init')) {
+                    $ch = curl_init($url);
+                    curl_setopt_array($ch, [
+                        CURLOPT_TIMEOUT => 4,
+                        CURLOPT_CONNECTTIMEOUT => 2,
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_USERAGENT => 'GameLand-WebPanel/2.0',
+                        CURLOPT_SSL_VERIFYPEER => false,
+                    ]);
+                    $token = defined('GITHUB_TOKEN') ? GITHUB_TOKEN : '';
+                    if (!empty($token)) {
+                        curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer {$token}"]);
+                    }
+                    $content = curl_exec($ch);
+                    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    curl_close($ch);
+                    if ($code < 200 || $code >= 400) {
+                        $content = false;
+                    }
+                } else {
+                    $ctx = self::githubRawContext(4);
+                    $content = @file_get_contents($url, false, $ctx);
                 }
-                $content = curl_exec($ch);
-                $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                curl_close($ch);
-                if ($code < 200 || $code >= 400) {
-                    $content = false;
-                }
-            } else {
-                $ctx = self::githubRawContext(4);
-                $content = @file_get_contents($url, false, $ctx);
             }
 
             if ($content !== false && strlen($content) > 10) {
@@ -1430,6 +1441,7 @@ class ServerCmd {
             'mix_system.amxx'               => 'AutoMix 5v5 System (main)',
             'mix_system_voice_chat.amxx'    => 'AutoMix Voice Chat',
             'player_drop.amxx'              => 'AutoMix player drop/substitute',
+            'backweapons.amxx'              => 'GameLand Back Weapons display',
         ];
 
         $mixFiles = [];

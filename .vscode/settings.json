@@ -1,0 +1,20 @@
+{
+    "git.enabled": true,
+    "git.autoRepositoryDetection": "subFolders",
+    "git.repositoryScanMaxDepth": 4,
+    "git.scanRepositories": [
+        "F:\\SV GAMELAND\\server",
+        "F:\\SV GAMELAND\\hitbox_fixer_GL",
+        "F:\\SV GAMELAND\\MixSystem_SV_PL",
+        "F:\\SV GAMELAND\\GameLand_Core_Plugins",
+        "F:\\SV GAMELAND\\back gun",
+        "F:\\SV GAMELAND\\BasePack_SV",
+        "F:\\SV GAMELAND\\modern-cs16-panel"
+    ],
+    "git.openRepositoryInParentFolders": "always",
+    "files.associations": {
+        "*.sma": "pawn",
+        "*.inc": "pawn",
+        "*.cfg": "ini"
+    }
+}
