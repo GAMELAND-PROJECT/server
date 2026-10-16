@@ -490,7 +490,14 @@ class ServerCmd {
     /**
      * Get systemctl service status
      */
+    /**
+     * Get systemctl service status
+     */
     public static function getServiceStatus($serviceName) {
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            $output = @shell_exec('tasklist /FI "IMAGENAME eq hlds.exe" 2>&1');
+            return (stripos((string)$output, 'hlds.exe') !== false) ? 'running' : 'stopped';
+        }
         $cleanService = escapeshellarg($serviceName);
         $output = @shell_exec("systemctl is-active {$cleanService} 2>&1");
         $status = trim((string)$output);
@@ -531,8 +538,14 @@ class ServerCmd {
         if (!file_exists($logPath)) {
             return "Log file not found at: {$logPath}\nMake sure the server has been launched at least once.";
         }
+        $cleanLines = max(1, (int)$lines);
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            $content = @file($logPath);
+            if ($content === false) return "Could not read log file.";
+            $slice = array_slice($content, -$cleanLines);
+            return implode("", $slice) ?: "No logs available.";
+        }
         $cleanPath = escapeshellarg($logPath);
-        $cleanLines = (int)$lines;
         $output = @shell_exec("tail -n {$cleanLines} {$cleanPath} 2>&1");
         return $output ? $output : "No logs available.";
     }
@@ -1140,7 +1153,7 @@ class ServerCmd {
 
         // Target file mapping: [Remote Repo, Remote Path, Local Relative to cstrike, Local Dev Source]
         $syncTargets = [
-            // MixSystem Repository
+            // MixSystem Repository Sources & Includes
             ['repo' => $repo, 'remote' => 'scripting/include/mix_system.inc',    'local' => 'addons/amxmodx/scripting/include/mix_system.inc',    'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/scripting/include/mix_system.inc'],
             ['repo' => $repo, 'remote' => 'scripting/mix_system.sma',            'local' => 'addons/amxmodx/scripting/mix_system.sma',            'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/scripting/mix_system.sma'],
             ['repo' => $repo, 'remote' => 'scripting/mix_system_voice_chat.sma', 'local' => 'addons/amxmodx/scripting/mix_system_voice_chat.sma', 'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/scripting/mix_system_voice_chat.sma'],
@@ -1151,18 +1164,29 @@ class ServerCmd {
             ['repo' => $repo, 'remote' => 'configs/overtime.cfg',                'local' => 'addons/amxmodx/configs/overtime.cfg',                'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/configs/overtime.cfg'],
             ['repo' => $repo, 'remote' => 'data/lang/mix_system.txt',            'local' => 'addons/amxmodx/data/lang/mix_system.txt',            'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/data/lang/mix_system.txt'],
 
-            // GameLand Core Plugins Repository
+            // MixSystem Pre-compiled Binaries (External Build Artifacts)
+            ['repo' => $repo, 'remote' => 'plugins/mix_system.amxx',            'local' => 'addons/amxmodx/plugins/mix_system.amxx',            'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/plugins/mix_system.amxx'],
+            ['repo' => $repo, 'remote' => 'plugins/mix_system_voice_chat.amxx', 'local' => 'addons/amxmodx/plugins/mix_system_voice_chat.amxx', 'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/plugins/mix_system_voice_chat.amxx'],
+            ['repo' => $repo, 'remote' => 'plugins/gameland_admin_tools.amxx',  'local' => 'addons/amxmodx/plugins/gameland_admin_tools.amxx',  'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/plugins/gameland_admin_tools.amxx'],
+            ['repo' => $repo, 'remote' => 'plugins/gameland_fastduck_fix.amxx', 'local' => 'addons/amxmodx/plugins/gameland_fastduck_fix.amxx', 'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/plugins/gameland_fastduck_fix.amxx'],
+            ['repo' => $repo, 'remote' => 'plugins/player_drop.amxx',            'local' => 'addons/amxmodx/plugins/player_drop.amxx',            'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/plugins/player_drop.amxx'],
+
+            // GameLand Core Plugins Repository Sources & Binaries
             ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_fastduck_fix.sma',    'local' => 'addons/amxmodx/scripting/gameland_fastduck_fix.sma',    'local_src' => dirname($serverDir) . '/GameLand_Core_Plugins/scripting/gameland_fastduck_fix.sma'],
             ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_only_enforcer.sma',   'local' => 'addons/amxmodx/scripting/gameland_only_enforcer.sma',   'local_src' => dirname($serverDir) . '/GameLand_Core_Plugins/scripting/gameland_only_enforcer.sma'],
             ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_lan_optimizer.sma',   'local' => 'addons/amxmodx/scripting/gameland_lan_optimizer.sma',   'local_src' => dirname($serverDir) . '/GameLand_Core_Plugins/scripting/gameland_lan_optimizer.sma'],
             ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/gameland_sound_optimizer.sma', 'local' => 'addons/amxmodx/scripting/gameland_sound_optimizer.sma', 'local_src' => dirname($serverDir) . '/GameLand_Core_Plugins/scripting/gameland_sound_optimizer.sma'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/plugins/gameland_lan_optimizer.amxx',   'local' => 'addons/amxmodx/plugins/gameland_lan_optimizer.amxx',   'local_src' => dirname($serverDir) . '/GameLand_Core_Plugins/plugins/gameland_lan_optimizer.amxx'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/plugins/gameland_sound_optimizer.amxx', 'local' => 'addons/amxmodx/plugins/gameland_sound_optimizer.amxx', 'local_src' => dirname($serverDir) . '/GameLand_Core_Plugins/plugins/gameland_sound_optimizer.amxx'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/plugins/gameland_only_enforcer.amxx',   'local' => 'addons/amxmodx/plugins/gameland_only_enforcer.amxx',   'local_src' => dirname($serverDir) . '/GameLand_Core_Plugins/plugins/gameland_only_enforcer.amxx'],
 
-            // Back Weapons Repository
+            // Back Weapons Repository Sources & Binaries
             ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/backweapons.sma',               'local' => 'addons/amxmodx/scripting/backweapons.sma',               'local_src' => dirname($serverDir) . '/back gun/backweapons.sma'],
+            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/plugins/backweapons.amxx',               'local' => 'addons/amxmodx/plugins/backweapons.amxx',               'local_src' => dirname($serverDir) . '/back gun/backweapons.amxx'],
             ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'panel/includes/ServerCmd.php',                                  'local' => '../panel/includes/ServerCmd.php',                        'local_src' => null],
         ];
 
-        // 1. Fast probe: test if GitHub raw is reachable within 2.5 seconds
+        // 1. Probe GitHub raw connectivity (test if reachable)
         $probeUrl = $baseUrl . 'configs/MixSettings.ini';
         $probeOk = false;
         if (function_exists('curl_init')) {
@@ -1193,27 +1217,6 @@ class ServerCmd {
             }
         }
 
-        if (!$probeOk) {
-            if ($gitPulled) {
-                return [
-                    'success' => true,
-                    'updated' => ['git-pull-success'],
-                    'failed'  => [],
-                    'commit'  => self::getGitRepoStatus(),
-                    'message' => 'Pulled latest updates via git pull.'
-                ];
-            }
-
-            return [
-                'success' => false,
-                'network_blocked' => true,
-                'updated' => [],
-                'failed'  => ['GitHub raw CDN is unreachable from this server network.'],
-                'commit'  => null,
-                'message' => 'GitHub connection timed out or is filtered on this datacenter IP. Using local repository sources.'
-            ];
-        }
-
         $updatedFiles = [];
         $failedFiles  = [];
 
@@ -1228,13 +1231,18 @@ class ServerCmd {
                 @mkdir($destDir, 0775, true);
             }
 
-            $content = false;
+            // Always prioritize local external repository source if available on disk
             $localSrc = $t['local_src'] ?? null;
             if ($localSrc && is_file($localSrc)) {
-                $content = @file_get_contents($localSrc);
+                if (@copy($localSrc, $destFile) || (@file_put_contents($destFile, @file_get_contents($localSrc)) !== false)) {
+                    $updatedFiles[] = basename($destFile);
+                    continue;
+                }
             }
 
-            if ($content === false) {
+            // Remote GitHub fallback
+            $content = false;
+            if ($probeOk) {
                 $url = "https://raw.githubusercontent.com/{$targetRepo}/{$branch}/" . $remotePath;
                 if (function_exists('curl_init')) {
                     $ch = curl_init($url);
@@ -1259,17 +1267,23 @@ class ServerCmd {
                     $ctx = self::githubRawContext(4);
                     $content = @file_get_contents($url, false, $ctx);
                 }
+
+                if ($content !== false && strlen($content) > 10) {
+                    if (@file_put_contents($destFile, $content) !== false) {
+                        $updatedFiles[] = basename($destFile);
+                        continue;
+                    }
+                }
             }
 
-            if ($content !== false && strlen($content) > 10) {
-                if (@file_put_contents($destFile, $content) !== false) {
-                    $updatedFiles[] = basename($destFile);
-                } else {
-                    $failedFiles[] = basename($destFile) . ' (write error — check permissions)';
-                }
-            } else {
-                $failedFiles[] = basename($destFile) . ' (download failed from ' . $url . ')';
+            if (!file_exists($destFile)) {
+                $failedFiles[] = basename($destFile);
             }
+        }
+
+        // Register any newly synced plugins in plugins.ini immediately
+        if (count($updatedFiles) > 0) {
+            self::ensureMixRegistered($serverInfo);
         }
 
         // Save last sync metadata (commit SHA + time + file list)
@@ -1285,11 +1299,15 @@ class ServerCmd {
             json_encode($syncMeta, JSON_PRETTY_PRINT)
         );
 
+        $isSuccess = count($updatedFiles) > 0;
         return [
-            'success' => count($updatedFiles) > 0 && count($failedFiles) === 0,
+            'success' => $isSuccess,
             'updated' => $updatedFiles,
             'failed'  => $failedFiles,
             'commit'  => $commit,
+            'message' => $isSuccess
+                ? "Synchronized " . count($updatedFiles) . " plugin files successfully."
+                : ($probeOk ? "No updates found." : "Local sources not found and GitHub raw CDN unreachable.")
         ];
     }
 
@@ -1310,10 +1328,17 @@ class ServerCmd {
         }
 
         $compiler = $scriptingDir . '/amxxpc';
+        if (file_exists($compiler . '.exe')) {
+            $compiler .= '.exe';
+        } elseif (!file_exists($compiler) && file_exists($scriptingDir . '/amxxpc32')) {
+            $compiler = $scriptingDir . '/amxxpc32';
+        }
 
-        // Ensure compiler is executable
+        // Ensure compiler is executable on Linux/Unix
         if (file_exists($compiler)) {
-            @chmod($compiler, 0755);
+            if (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
+                @chmod($compiler, 0755);
+            }
         } else {
             return [
                 'success'        => false,
@@ -1323,10 +1348,12 @@ class ServerCmd {
             ];
         }
 
-        // Also make shared library executable
-        foreach (['amxxpc32.so', 'amxxpc64.so'] as $lib) {
-            $libPath = $scriptingDir . '/' . $lib;
-            if (file_exists($libPath)) @chmod($libPath, 0755);
+        // Also make shared library executable on Unix
+        if (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
+            foreach (['amxxpc32.so', 'amxxpc64.so'] as $lib) {
+                $libPath = $scriptingDir . '/' . $lib;
+                if (file_exists($libPath)) @chmod($libPath, 0755);
+            }
         }
 
         $targets = self::getManagedPluginTargets();
@@ -1335,6 +1362,8 @@ class ServerCmd {
         $compiledCount = 0;
         $errorCount    = 0;
         $compiledFiles = [];
+
+        $isWin = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN');
 
         foreach ($targets as $src => $bin) {
             $srcPath = $scriptingDir . '/' . $src;
@@ -1345,15 +1374,24 @@ class ServerCmd {
                 continue;
             }
 
-            // Build command: cd into scripting dir so includes resolve correctly
-            // IMPORTANT: -i"include" is required for reapi.inc and mix_system.inc to be found
+            // Build cross-platform execution command
             $includeDir = escapeshellarg($scriptingDir . '/include');
-            $cmd = "cd " . escapeshellarg($scriptingDir)
-                 . " && ./amxxpc " . escapeshellarg($src)
-                 . " -o" . escapeshellarg($binPath)
-                 . " -i\"include\""
-                 . " -i" . $includeDir
-                 . " 2>&1";
+            if ($isWin) {
+                $cmd = "cd /D " . escapeshellarg($scriptingDir)
+                     . " && " . escapeshellarg($compiler) . " " . escapeshellarg($src)
+                     . " -o" . escapeshellarg($binPath)
+                     . " -i\"include\""
+                     . " -i" . $includeDir
+                     . " 2>&1";
+            } else {
+                $compilerBinary = basename($compiler);
+                $cmd = "cd " . escapeshellarg($scriptingDir)
+                     . " && ./" . $compilerBinary . " " . escapeshellarg($src)
+                     . " -o" . escapeshellarg($binPath)
+                     . " -i\"include\""
+                     . " -i" . $includeDir
+                     . " 2>&1";
+            }
 
             $exitCode = 0;
             $lines = [];

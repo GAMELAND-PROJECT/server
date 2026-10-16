@@ -1,5 +1,5 @@
 <?php
-$pageTitle = 'Match Demos (HLTV)';
+$pageTitle = 'Match Demos Archive';
 $activeNav = 'demos';
 require_once __DIR__ . '/includes/header.php';
 
@@ -17,26 +17,65 @@ if (!is_dir($demosDir)) {
 // Handle manual trigger scan request from web
 $syncMessage = '';
 if (isset($_GET['sync'])) {
-    if (file_exists($compressScript)) {
-        $output = @shell_exec('bash ' . escapeshellarg($compressScript) . ' --once 2>&1');
-        $syncMessage = 'Demos scanned and synchronized successfully!';
+    if (file_exists($compressScript) && strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
+        @shell_exec('bash ' . escapeshellarg($compressScript) . ' --once 2>&1');
     }
+    // Also scan cstrikeDir for raw demos and move them if any
+    if (is_dir($cstrikeDir)) {
+        $rawFiles = @glob($cstrikeDir . '/*.dem');
+        if (!empty($rawFiles)) {
+            foreach ($rawFiles as $rf) {
+                $base = basename($rf);
+                if (stripos($base, 'GL_') === 0 || stripos($base, 'hltv') === 0) {
+                    @rename($rf, $demosDir . $base);
+                }
+            }
+        }
+    }
+    $syncMessage = 'Demos scanned and synchronized successfully!';
 }
 
-// Handle delete request
+// Handle delete single demo request
 $deleteMessage = '';
 $deleteError = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_demo'])) {
-    $demoToDelete = basename($_POST['delete_demo']); // basename for security
-    $demoPath = $demosDir . $demoToDelete;
-    if (file_exists($demoPath) && is_file($demoPath)) {
-        if (@unlink($demoPath)) {
-            $deleteMessage = htmlspecialchars($demoToDelete) . ' was successfully deleted.';
-        } else {
-            $deleteError = 'Failed to delete ' . htmlspecialchars($demoToDelete) . '.';
-        }
+    if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
+        $deleteError = 'Security token invalid or expired. Please refresh and try again.';
     } else {
-        $deleteError = 'File not found or invalid.';
+        $demoToDelete = basename($_POST['delete_demo']);
+        $demoPath = $demosDir . $demoToDelete;
+        if (file_exists($demoPath) && is_file($demoPath)) {
+            if (@unlink($demoPath)) {
+                $deleteMessage = htmlspecialchars($demoToDelete) . ' was successfully deleted.';
+            } else {
+                $deleteError = 'Failed to delete ' . htmlspecialchars($demoToDelete) . '.';
+            }
+        } else {
+            $deleteError = 'File not found or invalid.';
+        }
+    }
+}
+
+// Handle purge all demos request
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['purge_all_demos'])) {
+    if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
+        $deleteError = 'Security token invalid or expired. Please refresh and try again.';
+    } else {
+        $purgedCount = 0;
+        if (is_dir($demosDir)) {
+            $files = scandir($demosDir);
+            foreach ($files as $file) {
+                if ($file !== '.' && $file !== '..') {
+                    $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                    if ($ext === 'zip' || $ext === 'dem') {
+                        if (@unlink($demosDir . $file)) {
+                            $purgedCount++;
+                        }
+                    }
+                }
+            }
+        }
+        $deleteMessage = "Successfully deleted {$purgedCount} archived demo file(s).";
     }
 }
 
@@ -52,7 +91,7 @@ if (file_exists($recordingMarker)) {
 // Check for pending raw demos in cstrike
 $pendingDemos = [];
 if (is_dir($cstrikeDir)) {
-    $rawFiles = @glob($cstrikeDir . '/GL_*.dem');
+    $rawFiles = @glob($cstrikeDir . '/*.dem');
     if (!empty($rawFiles)) {
         foreach ($rawFiles as $rf) {
             $pendingDemos[] = basename($rf);
@@ -103,14 +142,14 @@ usort($demos, function($a, $b) {
 
 <?php if ($deleteMessage): ?>
 <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
-    <i class="fas fa-trash-alt me-2"></i> <?= $deleteMessage ?>
+    <i class="fas fa-check-circle me-2"></i> <?= $deleteMessage ?>
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
 </div>
 <?php endif; ?>
 
 <?php if ($deleteError): ?>
 <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
-    <i class="fas fa-exclamation-triangle me-2"></i> <?= $deleteError ?>
+    <i class="fas fa-exclamation-triangle me-2"></i> <?= htmlspecialchars($deleteError) ?>
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
 </div>
 <?php endif; ?>
@@ -120,25 +159,34 @@ usort($demos, function($a, $b) {
         <div>
             <?php if ($isRecording): ?>
                 <span class="badge bg-danger p-2 shadow-sm fs-6">
-                    <i class="fas fa-circle fa-beat me-1"></i> HLTV Recording Live: <strong><?= htmlspecialchars($activeDemoName) ?></strong>
+                    <i class="fas fa-circle fa-beat me-1"></i> Recording Live: <strong><?= htmlspecialchars($activeDemoName) ?></strong>
                 </span>
             <?php else: ?>
-                <span class="badge bg-success p-2 shadow-sm fs-6">
-                    <i class="fas fa-video me-1"></i> HLTV Ready (Port 27020)
+                <span class="badge bg-secondary p-2 shadow-sm fs-6">
+                    <i class="fas fa-archive me-1"></i> Demos Archive
                 </span>
             <?php endif; ?>
 
             <?php if (!empty($pendingDemos) && !$isRecording): ?>
                 <span class="badge bg-warning text-dark p-2 ms-2 shadow-sm fs-6">
-                    <i class="fas fa-hourglass-half me-1"></i> <?= count($pendingDemos) ?> demo(s) waiting in queue
+                    <i class="fas fa-hourglass-half me-1"></i> <?= count($pendingDemos) ?> demo(s) in queue
                 </span>
             <?php endif; ?>
         </div>
 
-        <div>
+        <div class="d-flex gap-2">
             <a href="demos.php?sync=1" class="btn btn-primary btn-sm shadow-sm">
-                <i class="fas fa-sync-alt me-1"></i> Refresh & Sync Demos
+                <i class="fas fa-sync-alt me-1"></i> Refresh & Sync
             </a>
+            <?php if (!empty($demos)): ?>
+            <form method="post" action="demos.php" onsubmit="return confirm('Are you sure you want to delete ALL archived demos?');" class="d-inline m-0">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(Auth::csrf_token()) ?>">
+                <input type="hidden" name="purge_all_demos" value="1">
+                <button type="submit" class="btn btn-outline-danger btn-sm shadow-sm">
+                    <i class="fas fa-trash-alt me-1"></i> Purge All
+                </button>
+            </form>
+            <?php endif; ?>
         </div>
     </div>
 </div>
@@ -147,7 +195,7 @@ usort($demos, function($a, $b) {
     <div class="col-12">
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-film me-2"></i> HLTV Match Demos</h5>
+                <h5 class="mb-0"><i class="fas fa-film me-2"></i> Match Demos Archive</h5>
                 <span class="badge bg-info text-dark rounded-pill"><?= count($demos) ?> Available</span>
             </div>
             <div class="card-body p-0">
@@ -168,9 +216,9 @@ usort($demos, function($a, $b) {
                             <tr>
                                 <td colspan="6" class="text-muted py-5">
                                     <i class="fas fa-video-slash fa-2x mb-3 text-secondary d-block"></i>
-                                    <h5>No demos found yet</h5>
+                                    <h5>No demos found in archive</h5>
                                     <p class="mb-0 text-secondary">
-                                        Start a 5v5 match with <code>.start</code> or manually test using <code>hs1</code> (start) and <code>hs0</code> (stop) in game console!
+                                        Archived demos placed in <code>panel/demos/</code> or <code>cstrike/</code> will appear here automatically.
                                     </p>
                                 </td>
                             </tr>
@@ -203,6 +251,7 @@ usort($demos, function($a, $b) {
                                                 <i class="fas fa-download me-1"></i> Download
                                             </a>
                                             <form method="post" action="demos.php" onsubmit="return confirm('Are you sure you want to delete this demo?');" class="d-inline m-0">
+                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(Auth::csrf_token()) ?>">
                                                 <input type="hidden" name="delete_demo" value="<?= htmlspecialchars($demo['name']) ?>">
                                                 <button type="submit" class="btn btn-sm btn-danger shadow-sm px-3">
                                                     <i class="fas fa-trash-alt me-1"></i> Delete
@@ -218,8 +267,8 @@ usort($demos, function($a, $b) {
                 </div>
             </div>
             <div class="card-footer bg-light text-muted small d-flex justify-content-between">
-                <span><i class="fas fa-info-circle me-1"></i> Demos are recorded by HLTV proxy and compressed automatically upon match end or <code>hs0</code>.</span>
-                <span>Location: <code>panel/demos/</code></span>
+                <span><i class="fas fa-info-circle me-1"></i> Match Demos archive location: <code>panel/demos/</code></span>
+                <span>Total Stored: <?= count($demos) ?></span>
             </div>
         </div>
     </div>
