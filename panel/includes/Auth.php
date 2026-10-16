@@ -101,12 +101,26 @@ class Auth {
 
     public static function csrf_token() {
         if (empty($_SESSION['csrf_token'])) {
-            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+            $sig = self::getAuthSignature();
+            $_SESSION['csrf_token'] = hash_hmac('sha256', 'CSRF:' . PANEL_USER, $sig);
         }
         return $_SESSION['csrf_token'];
     }
 
     public static function verify_csrf($token) {
-        return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], (string)$token);
+        if (empty($token) || !is_string($token)) {
+            return false;
+        }
+        // Check against deterministic token derived from auth signature
+        $sig = self::getAuthSignature();
+        $deterministicToken = hash_hmac('sha256', 'CSRF:' . PANEL_USER, $sig);
+        if (hash_equals($deterministicToken, (string)$token)) {
+            return true;
+        }
+        // Also check if matches the active session token
+        if (!empty($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], (string)$token)) {
+            return true;
+        }
+        return false;
     }
 }
