@@ -2,6 +2,11 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/Auth.php';
 
+if (Auth::isLoggedIn()) {
+    header('Location: dashboard.php');
+    exit;
+}
+
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $user = trim($_POST['username'] ?? '');
@@ -10,6 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (Auth::login($user, $pass)) {
         session_write_close();
         header('Location: dashboard.php');
+        echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=dashboard.php"></head><body><script>window.location.replace("dashboard.php");</script><p>Redirecting to dashboard... <a href="dashboard.php">Click here</a></p></body></html>';
         exit;
     } else {
         $error = 'Invalid username or password!';

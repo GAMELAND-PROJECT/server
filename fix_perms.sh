@@ -56,10 +56,10 @@ fi
 
 # 5. Fix permissions for Web Panel, Sessions, Demos and AMXX folders
 mkdir -p "$PROJECT_ROOT/panel/demos"
-chmod -R 777 "$PROJECT_ROOT/panel/demos" 2>/dev/null
 mkdir -p "$PROJECT_ROOT/panel/sessions"
-chown -R www-data:www-data "$PROJECT_ROOT/panel/sessions" 2>/dev/null || true
-chmod -R 775 "$PROJECT_ROOT/panel/sessions" 2>/dev/null || true
+chown -R www-data:www-data "$PROJECT_ROOT/panel" 2>/dev/null || true
+chmod -R 775 "$PROJECT_ROOT/panel" 2>/dev/null || true
+chmod -R 777 "$PROJECT_ROOT/panel/sessions" "$PROJECT_ROOT/panel/demos" 2>/dev/null || true
 chmod 755 /var/lib/php 2>/dev/null || true
 chmod 777 "$PROJECT_ROOT/cstrike" 2>/dev/null
 chmod -R 777 "$PROJECT_ROOT/cstrike/addons/amxmodx" 2>/dev/null
