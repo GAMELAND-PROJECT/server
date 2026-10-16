@@ -8,6 +8,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $pass = trim($_POST['password'] ?? '');
 
     if (Auth::login($user, $pass)) {
+        session_write_close();
         header('Location: dashboard.php');
         exit;
     } else {

@@ -4,6 +4,19 @@
  * Supports Multi-Server instances
  */
 
+// Use dedicated panel session folder to prevent Linux /var/lib/php permission drops
+$panelSessionPath = __DIR__ . '/sessions';
+if (!is_dir($panelSessionPath)) {
+    @mkdir($panelSessionPath, 0775, true);
+}
+if (is_dir($panelSessionPath) && is_writable($panelSessionPath)) {
+    session_save_path($panelSessionPath);
+}
+@ini_set('session.cookie_httponly', '1');
+@ini_set('session.use_only_cookies', '1');
+@ini_set('session.cookie_secure', '0');
+@ini_set('session.cookie_samesite', 'Lax');
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }

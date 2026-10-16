@@ -86,7 +86,7 @@ server {
         deny all;
     }
 
-    location ~* /(includes|install_panel\.sh) {
+    location ~* /(includes|sessions|install_panel\.sh) {
         deny all;
     }
 }
@@ -142,6 +142,12 @@ install -m 0755 "${PANEL_DIR}/gameland-panel-sudo.sh" /usr/local/sbin/gameland-p
 mkdir -p "${SERVER_DIR}/instances" /opt/gameland/instances
 chown -R www-data:www-data "${SERVER_DIR}/instances" /opt/gameland/instances 2>/dev/null || true
 chmod -R 775 "${SERVER_DIR}/instances" /opt/gameland/instances 2>/dev/null || true
+
+# Ensure dedicated session folder exists and is writable by www-data
+mkdir -p "${PANEL_DIR}/sessions"
+chown -R www-data:www-data "${PANEL_DIR}/sessions"
+chmod -R 775 "${PANEL_DIR}/sessions"
+chmod 755 /var/lib/php 2>/dev/null || true
 
 # Make sure logs dir is readable
 mkdir -p "${SERVER_DIR}/logs"
