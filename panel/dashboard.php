@@ -3,9 +3,14 @@ $pageTitle = 'Dashboard';
 $activeNav = 'dashboard';
 require_once __DIR__ . '/includes/header.php';
 
-// Fetch live server info via A2S query
-$rcon = new GoldSourceRcon($activeServer['ip'], $activeServer['port'], $activeServer['rcon_password'], 1.0);
-$info = $rcon->getInfo();
+// Fetch live server info via A2S query safely
+$info = false;
+try {
+    $rcon = new GoldSourceRcon($activeServer['ip'], $activeServer['port'], $activeServer['rcon_password'], 1.0);
+    $info = $rcon->getInfo();
+} catch (Throwable $e) {
+    $info = false;
+}
 ?>
 
 <!-- CSRF for JS AJAX -->
