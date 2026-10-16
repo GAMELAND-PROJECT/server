@@ -54,13 +54,17 @@ if [ -f "/usr/local/bin/SVGL" ]; then
     echo "✅ Fixed: /usr/local/bin/SVGL"
 fi
 
-# 5. Fix permissions for Web Panel, Demos and AMXX folders
+# 5. Fix permissions for Web Panel, Sessions, Demos and AMXX folders
 mkdir -p "$PROJECT_ROOT/panel/demos"
 chmod -R 777 "$PROJECT_ROOT/panel/demos" 2>/dev/null
+mkdir -p "$PROJECT_ROOT/panel/sessions"
+chown -R www-data:www-data "$PROJECT_ROOT/panel/sessions" 2>/dev/null || true
+chmod -R 775 "$PROJECT_ROOT/panel/sessions" 2>/dev/null || true
+chmod 755 /var/lib/php 2>/dev/null || true
 chmod 777 "$PROJECT_ROOT/cstrike" 2>/dev/null
 chmod -R 777 "$PROJECT_ROOT/cstrike/addons/amxmodx" 2>/dev/null
 touch "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
 chmod 666 "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
-echo "✅ Fixed: Web Panel & Demos write permissions"
+echo "✅ Fixed: Web Panel, Sessions & Demos write permissions"
 
 echo "🎉 All permissions have been successfully fixed!"
