@@ -52,9 +52,14 @@ echo "✅ Fixed: All .sh scripts in $PROJECT_ROOT"
 # Install the restricted privilege helper used by the web panel.
 # Keep this in the permissions step so older deploy sequences also recover it.
 if [ -f "$PROJECT_ROOT/panel/gameland-panel-sudo.sh" ]; then
+    chmod +x "$PROJECT_ROOT/panel/gameland-panel-sudo.sh"
     install -d -m 0755 /usr/local/sbin
-    install -m 0755 "$PROJECT_ROOT/panel/gameland-panel-sudo.sh" /usr/local/sbin/gameland-panel-sudo
-    echo "✅ Installed: /usr/local/sbin/gameland-panel-sudo"
+    cat > /usr/local/sbin/gameland-panel-sudo << 'EOF'
+#!/bin/bash
+exec /bin/bash /opt/gameland/server/panel/gameland-panel-sudo.sh "$@"
+EOF
+    chmod 0755 /usr/local/sbin/gameland-panel-sudo
+    echo "✅ Installed dynamic wrapper: /usr/local/sbin/gameland-panel-sudo"
 
     # Configure passwordless sudo for web panel user (www-data)
     SUDOERS_FILE="/etc/sudoers.d/gameland-panel"

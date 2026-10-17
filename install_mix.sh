@@ -11,10 +11,27 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 PROJECT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+CONFIGS_DIR="${PROJECT_DIR}/cstrike/addons/amxmodx/configs"
 SCRIPTING_DIR="${PROJECT_DIR}/cstrike/addons/amxmodx/scripting"
 PLUGINS_DIR="${PROJECT_DIR}/cstrike/addons/amxmodx/plugins"
-CONFIGS_DIR="${PROJECT_DIR}/cstrike/addons/amxmodx/configs"
 PLUGINS_INI="${CONFIGS_DIR}/plugins.ini"
+
+# Ensure configs and *.ini are always world-writable
+chmod -R 777 "${CONFIGS_DIR}" 2>/dev/null || true
+chmod 666 "${CONFIGS_DIR}"/*.ini 2>/dev/null || true
+chown -R www-data:www-data "${CONFIGS_DIR}" 2>/dev/null || true
+
+# Install or refresh dynamic forwarder wrapper to /usr/local/sbin/gameland-panel-sudo
+cat > /usr/local/sbin/gameland-panel-sudo << 'EOF'
+#!/bin/bash
+exec /bin/bash /opt/gameland/server/panel/gameland-panel-sudo.sh "$@"
+EOF
+chmod 0755 /usr/local/sbin/gameland-panel-sudo 2>/dev/null || true
+
+if [ "${1:-}" = "fixperms_only" ]; then
+    echo "[OK] Permissions fixed."
+    exit 0
+fi
 
 echo "================================================="
 echo "   GameLand 5v5 Mix System - Setup & Compiler   "

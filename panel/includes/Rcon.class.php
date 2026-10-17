@@ -20,7 +20,8 @@ class GoldSourceRcon {
 
     private function normalizeHost($host) {
         $h = trim((string)$host);
-        if ($h === '' || $h === '0.0.0.0' || $h === 'localhost') {
+        $serverAddr = $_SERVER['SERVER_ADDR'] ?? '';
+        if ($h === '' || $h === '0.0.0.0' || $h === 'localhost' || $h === '127.0.0.1' || ($serverAddr !== '' && $h === $serverAddr) || $h === '185.236.38.83') {
             return '127.0.0.1';
         }
         return $h;

@@ -877,10 +877,17 @@ class ServerCmd {
             return true;
         }
 
-        // 4. Privileged helper via /tmp
+        // 4. Privileged self-healing: invoke compile fixperms_only (runs install_mix.sh as root, allowed in all sudoers)
+        $helper = self::getPrivilegedHelperPath();
+        @exec("sudo -n " . escapeshellarg($helper) . " compile fixperms_only 2>&1");
+        @chmod($usersIniPath, 0666);
+        if (@file_put_contents($usersIniPath, $content) !== false) {
+            return true;
+        }
+
+        // 5. Privileged helper via /tmp
         $tempFile = '/tmp/users_ini_' . uniqid() . '.tmp';
         if (@file_put_contents($tempFile, $content) !== false) {
-            $helper = self::getPrivilegedHelperPath();
             @exec("sudo -n " . escapeshellarg($helper) . " write_users_ini " . escapeshellarg($tempFile) . " " . escapeshellarg($usersIniPath) . " 2>&1");
             @unlink($tempFile);
             if (file_exists($usersIniPath) && @file_get_contents($usersIniPath) === $content) {
@@ -888,8 +895,7 @@ class ServerCmd {
             }
         }
 
-        // 5. Privileged fixperms and retry
-        $helper = self::getPrivilegedHelperPath();
+        // 6. Privileged fixperms and retry
         @exec("sudo -n " . escapeshellarg($helper) . " fixperms 2>&1");
         @chmod($usersIniPath, 0666);
         if (@file_put_contents($usersIniPath, $content) !== false) {

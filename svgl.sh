@@ -58,6 +58,11 @@ ensure_registry() {
     if [[ ! -f "$REGISTRY_FILE" ]]; then
         printf '{\n  "servers": []\n}\n' > "$REGISTRY_FILE"
     fi
+    if [[ -d "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" ]]; then
+        chmod -R 777 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
+        chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/"*.ini 2>/dev/null || true
+        chown -R www-data:www-data "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
+    fi
 }
 
 need_root_for_systemd() {
