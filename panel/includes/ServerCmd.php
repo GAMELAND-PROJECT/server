@@ -184,8 +184,15 @@ class ServerCmd {
         ];
 
         $cfg = rtrim($server['server_dir'], '/') . '/cstrike/server.cfg';
+        $glCfg = rtrim($server['server_dir'], '/') . '/cstrike/gameland.cfg';
         if (is_file($cfg)) {
             $content = (string)file_get_contents($cfg);
+            if (preg_match('/^\s*hostname\s+"?([^"\r\n]+)"?/mi', $content, $m)) {
+                $settings['hostname'] = trim($m[1]);
+            }
+        }
+        if (empty($settings['hostname']) && is_file($glCfg)) {
+            $content = (string)file_get_contents($glCfg);
             if (preg_match('/^\s*hostname\s+"?([^"\r\n]+)"?/mi', $content, $m)) {
                 $settings['hostname'] = trim($m[1]);
             }
@@ -304,7 +311,7 @@ class ServerCmd {
             return ['success' => false, 'message' => 'Invalid slot count. Use 1-32.'];
         }
         if ($name === '') {
-            $name = 'GameLand CS 1.6 ' . $id;
+            $name = 'GAMELAND #' . $id;
         }
         if (trim((string)$hostname) === '') {
             $hostname = $name;
