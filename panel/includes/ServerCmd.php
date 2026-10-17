@@ -1207,7 +1207,6 @@ class ServerCmd {
             // Back Weapons Repository Sources & Binaries
             ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/scripting/backweapons.sma',               'local' => 'addons/amxmodx/scripting/backweapons.sma',               'local_src' => dirname($serverDir) . '/back gun/backweapons.sma'],
             ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'cstrike/addons/amxmodx/plugins/backweapons.amxx',               'local' => 'addons/amxmodx/plugins/backweapons.amxx',               'local_src' => dirname($serverDir) . '/back gun/backweapons.amxx'],
-            ['repo' => 'GAMELAND-PROJECT/server', 'remote' => 'panel/includes/ServerCmd.php',                                  'local' => '../panel/includes/ServerCmd.php',                        'local_src' => null],
         ];
 
         // 1. Probe GitHub raw connectivity (test if reachable)
