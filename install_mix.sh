@@ -40,7 +40,7 @@ echo "================================================="
 
 # ─── 1. Ensure Compiler Execution Permission ────────────
 echo "[1/5] Checking AMXX compiler & server binaries..."
-chmod +x "${PROJECT_DIR}/hlds_linux" "${PROJECT_DIR}/hlds_run" "${PROJECT_DIR}/hltv" "${PROJECT_DIR}"/*.sh 2>/dev/null || true
+chmod +x "${PROJECT_DIR}/hlds_linux" "${PROJECT_DIR}/hlds_run" "${PROJECT_DIR}"/*.sh 2>/dev/null || true
 chmod +x "${SCRIPTING_DIR}/amxxpc" || true
 chmod +x "${SCRIPTING_DIR}/amxxpc32.so" || true
 export LD_LIBRARY_PATH=".:${SCRIPTING_DIR}:${LD_LIBRARY_PATH:-}"
@@ -110,7 +110,7 @@ fi
 
 # Ensure all 9 GameLand & Mix plugins are registered in plugins.ini
 for plugin_entry in \
-    "mix_system.amxx:GAMELAND mix and server-side HLTV manager" \
+    "mix_system.amxx:GAMELAND 5v5 mix and match manager" \
     "mix_system_voice_chat.amxx:automatic sv_alltalk state for mix rounds" \
     "gameland_admin_tools.amxx:/map menu and sv_alltalk shortcuts" \
     "player_drop.amxx:AutoMix player drop / substitute" \

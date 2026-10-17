@@ -268,8 +268,6 @@ SERVER_PORT="${port}"
 MAX_PLAYERS="12"
 MAP="de_dust2"
 TMUX_SESSION="gameland_${id}"
-HLTV_SESSION="gameland_hltv_${id}"
-COMPRESSOR_SESSION="demo_compressor_${id}"
 STEAMCMD_LINUX32="/opt/steamcmd/linux32"
 EOF
 

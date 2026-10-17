@@ -37,13 +37,7 @@ if [ -f "$PROJECT_ROOT/hlds_run" ]; then
     echo "✅ Fixed: hlds_run"
 fi
 
-# 2. Give execution permission to HLTV binary
-if [ -f "$PROJECT_ROOT/hltv" ]; then
-    chmod +x "$PROJECT_ROOT/hltv"
-    echo "✅ Fixed: hltv"
-fi
-
-# 3. Give execution permission to all bash scripts and AMXX compiler
+# 2. Give execution permission to all bash scripts and AMXX compiler
 chmod +x "$PROJECT_ROOT"/*.sh
 if [ -f "$PROJECT_ROOT/cstrike/addons/amxmodx/scripting/amxxpc" ]; then
     chmod +x "$PROJECT_ROOT/cstrike/addons/amxmodx/scripting/amxxpc"
@@ -147,8 +141,6 @@ if [ -d "$PROJECT_ROOT/instances" ]; then
     chown -R www-data:www-data "$PROJECT_ROOT/instances" 2>/dev/null || true
 fi
 
-touch "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
-chmod 666 "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
-echo "✅ Fixed: Web Panel, Sessions, AMXX Configs & Demos write permissions"
+echo "✅ Fixed: Web Panel, Sessions, and AMXX Configs write permissions"
 
 echo "🎉 All permissions have been successfully fixed!"

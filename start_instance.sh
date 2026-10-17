@@ -76,13 +76,4 @@ if [[ -n "$tmux_pid" ]]; then
     echo "$tmux_pid" > "${SERVER_DIR}/${INSTANCE_ID}.pid"
 fi
 
-if [[ -x "${SERVER_DIR}/start_hltv.sh" ]]; then
-    GL_INSTANCE_ID="$INSTANCE_ID" GL_HLTV_SESSION="$HLTV_SESSION" GL_COMPRESSOR_SESSION="$COMPRESSOR_SESSION" GL_SERVER_PORT="$SERVER_PORT" GL_SKIP_COMPRESSOR=1 \
-        /bin/bash "${SERVER_DIR}/start_hltv.sh" || true
-fi
-
-if [[ -x "${SERVER_DIR}/compress_demos.sh" || -f "${SERVER_DIR}/compress_demos.sh" ]]; then
-    screen -A -m -d -S "$COMPRESSOR_SESSION" /bin/bash "${SERVER_DIR}/compress_demos.sh" || true
-fi
-
 echo "[SUCCESS] Instance '${INSTANCE_ID}' started in tmux session '${TMUX_SESSION}'."

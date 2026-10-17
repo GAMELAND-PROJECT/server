@@ -44,7 +44,7 @@ if [ -f "/opt/gameland/persistent/servers.json" ]; then
 fi
 
 # 5. Ensure execute permissions on all binaries and scripts
-chmod +x "${SCRIPT_DIR}/hlds_linux" "${SCRIPT_DIR}/hlds_run" "${SCRIPT_DIR}/hltv" "${SCRIPT_DIR}"/*.sh 2>/dev/null || true
+chmod +x "${SCRIPT_DIR}/hlds_linux" "${SCRIPT_DIR}/hlds_run" "${SCRIPT_DIR}"/*.sh 2>/dev/null || true
 
 # 6. Recompile and restart cleanly
 echo "[*] Compiling mix system plugins..."
