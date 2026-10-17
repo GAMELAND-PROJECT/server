@@ -83,10 +83,14 @@ class ServerCmd {
     }
 
     public static function saveAdminEverywhere($auth, $password, $access, $flags, $comment, $all = false, $selectedId = null, $oldAuth = '') {
+        $activeServer = get_active_server();
         $servers = self::getManagedServers();
         if (!$all) {
-            $selectedId = $selectedId ?: (get_active_server()['id'] ?? 'main');
-            $servers = isset($servers[$selectedId]) ? [$selectedId => $servers[$selectedId]] : [];
+            $selectedId = $selectedId ?: ($activeServer['id'] ?? 'main');
+            $servers = isset($servers[$selectedId]) ? [$selectedId => $servers[$selectedId]] : [$activeServer['id'] => $activeServer];
+        }
+        if (empty($servers)) {
+            $servers = [$activeServer['id'] => $activeServer];
         }
         $results = [];
         foreach ($servers as $id => $server) {
@@ -106,10 +110,14 @@ class ServerCmd {
     }
 
     public static function deleteAdminEverywhere($auth, $all = false, $selectedId = null) {
+        $activeServer = get_active_server();
         $servers = self::getManagedServers();
         if (!$all) {
-            $selectedId = $selectedId ?: (get_active_server()['id'] ?? 'main');
-            $servers = isset($servers[$selectedId]) ? [$selectedId => $servers[$selectedId]] : [];
+            $selectedId = $selectedId ?: ($activeServer['id'] ?? 'main');
+            $servers = isset($servers[$selectedId]) ? [$selectedId => $servers[$selectedId]] : [$activeServer['id'] => $activeServer];
+        }
+        if (empty($servers)) {
+            $servers = [$activeServer['id'] => $activeServer];
         }
         $results = [];
         foreach ($servers as $id => $server) {
@@ -791,7 +799,7 @@ class ServerCmd {
                 continue;
             }
 
-            // Match: "auth" "password" "access" "flags" ; comment
+            // Standard match: "auth" "password" "access" "flags" [; comment]
             if (preg_match('/^"([^"]+)"\s+"([^"]*)"\s+"([^"]+)"\s+"([^"]+)"(?:\s*;?\s*(.*))?$/', $trimmed, $m)) {
                 $admins[] = [
                     'line_num' => $index,
@@ -801,23 +809,94 @@ class ServerCmd {
                     'flags'    => $m[4],
                     'comment'  => isset($m[5]) ? trim($m[5]) : ''
                 ];
-            } elseif (preg_match('/^"([^"]+)"\s+"([^"]*)"\s+"([^"]+)"\s+"([^"]+)"/', $trimmed, $m)) {
-                $comment = '';
-                $commentPos = strpos($trimmed, ';');
-                if ($commentPos !== false) {
-                    $comment = trim(substr($trimmed, $commentPos + 1));
-                }
+            } elseif (preg_match('/^"([^"]+)"\s+"([^"]*)"\s+([a-zA-Z]+)\s+([a-zA-Z]+)(?:\s*;?\s*(.*))?$/', $trimmed, $m)) {
+                // Quoted auth & pass, unquoted access & flags
                 $admins[] = [
                     'line_num' => $index,
                     'auth'     => $m[1],
                     'password' => $m[2],
                     'access'   => $m[3],
                     'flags'    => $m[4],
-                    'comment'  => $comment
+                    'comment'  => isset($m[5]) ? trim($m[5]) : ''
                 ];
+            } elseif (preg_match('/^"([^"]+)"/', $trimmed, $m)) {
+                // Fallback token extraction for any loose format
+                $comment = '';
+                $commentPos = strpos($trimmed, ';');
+                $codePart = ($commentPos !== false) ? substr($trimmed, 0, $commentPos) : $trimmed;
+                if ($commentPos !== false) {
+                    $comment = trim(substr($trimmed, $commentPos + 1));
+                }
+                preg_match_all('/"([^"]*)"|(\S+)/', $codePart, $matches);
+                $tokens = [];
+                for ($ti = 0; $ti < count($matches[0]); $ti++) {
+                    $tokens[] = ($matches[1][$ti] !== '') ? $matches[1][$ti] : $matches[2][$ti];
+                }
+                if (count($tokens) >= 4) {
+                    $admins[] = [
+                        'line_num' => $index,
+                        'auth'     => $tokens[0],
+                        'password' => $tokens[1],
+                        'access'   => $tokens[2],
+                        'flags'    => $tokens[3],
+                        'comment'  => $comment
+                    ];
+                }
             }
         }
         return $admins;
+    }
+
+    /**
+     * Safely write content to users.ini with 5 levels of fallback resilience
+     */
+    public static function writeUsersIniFile($usersIniPath, $content) {
+        $dir = dirname($usersIniPath);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+
+        // 1. Direct write attempt
+        if (@file_put_contents($usersIniPath, $content) !== false) {
+            @chmod($usersIniPath, 0666);
+            return true;
+        }
+
+        // 2. Chmod and retry
+        @chmod($usersIniPath, 0666);
+        if (@file_put_contents($usersIniPath, $content) !== false) {
+            return true;
+        }
+
+        // 3. Unlink (delete) and recreate. In Linux POSIX, unlinking succeeds
+        // if the containing directory has write permissions (configs is 777),
+        // even if the file itself was created as root:root 0644!
+        @unlink($usersIniPath);
+        if (@file_put_contents($usersIniPath, $content) !== false) {
+            @chmod($usersIniPath, 0666);
+            return true;
+        }
+
+        // 4. Privileged helper via /tmp
+        $tempFile = '/tmp/users_ini_' . uniqid() . '.tmp';
+        if (@file_put_contents($tempFile, $content) !== false) {
+            $helper = self::getPrivilegedHelperPath();
+            @exec("sudo -n " . escapeshellarg($helper) . " write_users_ini " . escapeshellarg($tempFile) . " " . escapeshellarg($usersIniPath) . " 2>&1");
+            @unlink($tempFile);
+            if (file_exists($usersIniPath) && @file_get_contents($usersIniPath) === $content) {
+                return true;
+            }
+        }
+
+        // 5. Privileged fixperms and retry
+        $helper = self::getPrivilegedHelperPath();
+        @exec("sudo -n " . escapeshellarg($helper) . " fixperms 2>&1");
+        @chmod($usersIniPath, 0666);
+        if (@file_put_contents($usersIniPath, $content) !== false) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -831,8 +910,21 @@ class ServerCmd {
         $comment = trim((string)$comment);
         $oldAuth = trim((string)$oldAuth);
 
-        if (empty($auth) || empty($access) || empty($flags)) {
-            return ['success' => false, 'message' => 'Identity (Auth), Access Flags, and Account Flags are required.'];
+        // Sanitize quotes to avoid corrupting users.ini format
+        $auth = str_replace('"', '', $auth);
+        $password = str_replace('"', '', $password);
+        $access = preg_replace('/[^a-zA-Z]/', '', $access);
+        $flags = preg_replace('/[^a-zA-Z]/', '', $flags);
+        $comment = str_replace(["\r", "\n", '"'], '', $comment);
+
+        if (empty($auth)) {
+            return ['success' => false, 'message' => 'نام کاربری یا شناسه ادمین (Auth) نمی‌تواند خالی باشد.'];
+        }
+        if (empty($access)) {
+            $access = 'abcdefghijklmnopqrstuv';
+        }
+        if (empty($flags)) {
+            $flags = (str_starts_with($auth, 'STEAM_') || str_starts_with($auth, 'VALVE_')) ? 'ce' : 'a';
         }
 
         if (!file_exists($usersIniPath)) {
@@ -845,14 +937,6 @@ class ServerCmd {
         $lineStr = sprintf('"%s" "%s" "%s" "%s"', $auth, $password, $access, $flags);
         if ($comment !== '') {
             $lineStr .= ' ; ' . $comment;
-        }
-
-        $dir = dirname($usersIniPath);
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0777, true);
-        }
-        if (file_exists($usersIniPath)) {
-            @chmod($usersIniPath, 0666);
         }
 
         $lines = file_exists($usersIniPath) ? @file($usersIniPath, FILE_IGNORE_NEW_LINES) : [];
@@ -881,21 +965,13 @@ class ServerCmd {
             $lines[] = $lineStr;
         }
 
-        $res = @file_put_contents($usersIniPath, implode("\n", $lines) . "\n");
-        if ($res === false) {
-            // Self-healing: trigger sudo fixperms helper and retry
-            $helper = self::getPrivilegedHelperPath();
-            @exec("sudo -n " . escapeshellarg($helper) . " fixperms 2>&1");
-            @chmod($usersIniPath, 0666);
-            $res = @file_put_contents($usersIniPath, implode("\n", $lines) . "\n");
+        $content = implode("\n", $lines) . "\n";
+        $ok = self::writeUsersIniFile($usersIniPath, $content);
+        if (!$ok) {
+            return ['success' => false, 'message' => 'عدم دسترسی به نوشتن در users.ini (' . $usersIniPath . '). لطفاً دستور sudo bash fix_perms.sh را در ترمینال اجرا کنید.'];
         }
 
-        if ($res === false) {
-            return ['success' => false, 'message' => 'Unable to write to users.ini (' . $usersIniPath . '). Check file permissions.'];
-        }
-
-        @chmod($usersIniPath, 0666);
-        return ['success' => true, 'message' => $found ? "Admin '$auth' updated successfully." : "Admin '$auth' added successfully."];
+        return ['success' => true, 'message' => $found ? "ادمین '$auth' با موفقیت بروزرسانی شد." : "ادمین '$auth' با موفقیت به سرور اضافه شد."];
     }
 
     /**
@@ -903,6 +979,7 @@ class ServerCmd {
      */
     public static function deleteAdmin($usersIniPath, $auth) {
         $auth = trim((string)$auth);
+        $authClean = str_replace('"', '', $auth);
         if (!file_exists($usersIniPath)) {
             $fallback = dirname(__DIR__, 2) . '/cstrike/addons/amxmodx/configs/users.ini';
             if (file_exists($fallback)) {
@@ -912,7 +989,6 @@ class ServerCmd {
             }
         }
 
-        @chmod($usersIniPath, 0666);
         $lines = @file($usersIniPath, FILE_IGNORE_NEW_LINES);
         if ($lines === false) {
             return ['success' => false, 'message' => 'Unable to read users.ini.'];
@@ -924,7 +1000,7 @@ class ServerCmd {
         foreach ($lines as $line) {
             $t = trim($line);
             if (preg_match('/^"([^"]+)"/', $t, $m)) {
-                if (strcasecmp($m[1], $auth) === 0) {
+                if (strcasecmp($m[1], $authClean) === 0 || strcasecmp($m[1], $auth) === 0) {
                     $deleted = true;
                     continue; // skip this line
                 }
@@ -933,24 +1009,16 @@ class ServerCmd {
         }
 
         if (!$deleted) {
-            return ['success' => false, 'message' => "Admin '$auth' not found."];
+            return ['success' => false, 'message' => "ادمین '$auth' در فایل یافت نشد."];
         }
 
-        $res = @file_put_contents($usersIniPath, implode("\n", $newLines) . "\n");
-        if ($res === false) {
-            // Self-healing: trigger sudo fixperms helper and retry
-            $helper = self::getPrivilegedHelperPath();
-            @exec("sudo -n " . escapeshellarg($helper) . " fixperms 2>&1");
-            @chmod($usersIniPath, 0666);
-            $res = @file_put_contents($usersIniPath, implode("\n", $newLines) . "\n");
+        $content = implode("\n", $newLines) . "\n";
+        $ok = self::writeUsersIniFile($usersIniPath, $content);
+        if (!$ok) {
+            return ['success' => false, 'message' => 'خطا در ذخیره حذف ادمین روی فایل users.ini.'];
         }
 
-        if ($res === false) {
-            return ['success' => false, 'message' => 'Unable to write to users.ini while deleting.'];
-        }
-
-        @chmod($usersIniPath, 0666);
-        return ['success' => true, 'message' => "Admin '$auth' removed successfully."];
+        return ['success' => true, 'message' => "ادمین '$auth' با موفقیت از سرور حذف شد."];
     }
 
     /**

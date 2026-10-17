@@ -28,11 +28,23 @@ case "$action" in
         exec /bin/bash "${PROJECT_DIR}/install_mix.sh"
         ;;
     fixperms)
+        chmod -R 777 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
         chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/users.ini" 2>/dev/null || true
         chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
         chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/maps.ini" 2>/dev/null || true
         chown -R www-data:www-data "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
         exit 0
+        ;;
+    write_users_ini)
+        src="${2:-}"
+        dest="${3:-${PROJECT_DIR}/cstrike/addons/amxmodx/configs/users.ini}"
+        if [ -f "$src" ]; then
+            cp -f "$src" "$dest"
+            chmod 666 "$dest"
+            chown www-data:www-data "$dest" 2>/dev/null || true
+            exit 0
+        fi
+        exit 1
         ;;
     *) exit 2 ;;
 esac
