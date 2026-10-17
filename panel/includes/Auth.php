@@ -16,9 +16,7 @@ class Auth {
             $_SESSION['gameland_logged_in'] = true;
             $_SESSION['gameland_user'] = PANEL_USER;
             $_SESSION['last_activity'] = time();
-            if (empty($_SESSION['csrf_token'])) {
-                $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-            }
+            $_SESSION['csrf_token'] = self::getAuthSignature();
             return true;
         }
         return false;
@@ -59,7 +57,7 @@ class Auth {
             $_SESSION['gameland_logged_in'] = true;
             $_SESSION['gameland_user'] = $username;
             $_SESSION['last_activity'] = time();
-            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+            $_SESSION['csrf_token'] = self::getAuthSignature();
 
             // Set signed fallback cookie (cross-compatible across all PHP session backends)
             $expires = time() + SESSION_TIMEOUT;
@@ -100,25 +98,26 @@ class Auth {
     }
 
     public static function csrf_token() {
-        if (empty($_SESSION['csrf_token'])) {
-            $sig = self::getAuthSignature();
-            $_SESSION['csrf_token'] = hash_hmac('sha256', 'CSRF:' . PANEL_USER, $sig);
-        }
-        return $_SESSION['csrf_token'];
+        return self::getAuthSignature();
     }
 
     public static function verify_csrf($token) {
-        if (empty($token) || !is_string($token)) {
+        $token = trim((string)$token);
+        if ($token === '') {
             return false;
         }
-        // Check against deterministic token derived from auth signature
         $sig = self::getAuthSignature();
-        $deterministicToken = hash_hmac('sha256', 'CSRF:' . PANEL_USER, $sig);
-        if (hash_equals($deterministicToken, (string)$token)) {
+        if (hash_equals($sig, $token)) {
             return true;
         }
-        // Also check if matches the active session token
-        if (!empty($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], (string)$token)) {
+        $alt = hash_hmac('sha256', 'CSRF:' . PANEL_USER, $sig);
+        if (hash_equals($alt, $token)) {
+            return true;
+        }
+        if (!empty($_SESSION['csrf_token']) && hash_equals((string)$_SESSION['csrf_token'], $token)) {
+            return true;
+        }
+        if (!empty($_COOKIE['gl_auth']) && hash_equals((string)$_COOKIE['gl_auth'], $token)) {
             return true;
         }
         return false;
