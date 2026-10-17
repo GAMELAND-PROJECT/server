@@ -1461,7 +1461,7 @@ class ServerCmd {
             // Remote GitHub fallback
             $content = false;
             if ($probeOk) {
-                $url = "https://raw.githubusercontent.com/{$targetRepo}/{$branch}/" . $remotePath;
+                $url = "https://raw.githubusercontent.com/{$targetRepo}/{$branch}/" . $remotePath . '?t=' . time();
                 if (function_exists('curl_init')) {
                     $ch = curl_init($url);
                     curl_setopt_array($ch, [
