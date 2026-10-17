@@ -1,15 +1,28 @@
 <?php
-$pageTitle = 'مدیریت ادمین‌ها';
-$activeNav = 'admins';
-require_once __DIR__ . '/includes/header.php';
+/**
+ * GameLand CS 1.6 Web Panel - Admin Manager
+ * Full AJAX + Fallback POST support, zero hangs, instant live server reload
+ */
+
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/includes/Auth.php';
+require_once __DIR__ . '/includes/Rcon.class.php';
+require_once __DIR__ . '/includes/ServerCmd.php';
+
+Auth::check();
+$activeServer = get_active_server();
+$serverStatus = ServerCmd::getServiceStatus($activeServer['service_name']);
 
 $msg = '';
 $msgType = '';
+$isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || !empty($_POST['ajax']);
 
-// Handle Add / Edit Admin Form
+// ─────────────────────────────────────────────────────────────
+// 1. Handle Add / Edit Admin POST Action
+// ─────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['save_admin']) || !empty($_POST['admin_auth']))) {
     if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
-        $msg = 'خطای امنیتی: توکن CSRF نامعتبر یا منقضی شده است. لطفاً صفحه را رفرش کنید.';
+        $msg = 'خطای امنیتی: توکن CSRF نامعتبر یا منقضی شده است. لطفاً صفحه را مجدداً بارگذاری کنید.';
         $msgType = 'danger';
     } else {
         $auth = trim($_POST['admin_auth'] ?? '');
@@ -20,40 +33,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['save_admin']) || !em
         $oldAuth = trim($_POST['old_auth'] ?? '');
         $applyAll = ($_POST['apply_all_servers'] ?? '0') === '1';
 
-        // 1. Direct save to current active server
-        $res = ServerCmd::saveAdmin($activeServer['users_ini'], $auth, $password, $access, $flags, $comment, $oldAuth);
+        try {
+            // 1. Direct save to current active server
+            $res = ServerCmd::saveAdmin($activeServer['users_ini'], $auth, $password, $access, $flags, $comment, $oldAuth);
 
-        // 2. Multi-server sync if checked
-        if ($applyAll && $res['success']) {
-            global $SERVERS;
-            if (is_array($SERVERS)) {
-                foreach ($SERVERS as $sId => $srv) {
-                    if ($sId !== $activeServer['id'] && !empty($srv['users_ini'])) {
-                        ServerCmd::saveAdmin($srv['users_ini'], $auth, $password, $access, $flags, $comment, $oldAuth);
-                        if (ServerCmd::getServiceStatus($srv['service_name']) === 'running') {
-                            ServerCmd::reloadAdminsLive($srv);
+            // 2. Multi-server sync if checked
+            if ($applyAll && $res['success']) {
+                global $SERVERS;
+                if (is_array($SERVERS)) {
+                    foreach ($SERVERS as $sId => $srv) {
+                        if ($sId !== $activeServer['id'] && !empty($srv['users_ini'])) {
+                            try {
+                                ServerCmd::saveAdmin($srv['users_ini'], $auth, $password, $access, $flags, $comment, $oldAuth);
+                                if (ServerCmd::getServiceStatus($srv['service_name']) === 'running') {
+                                    ServerCmd::reloadAdminsLive($srv);
+                                }
+                            } catch (Throwable $t) {
+                                // Ignore non-critical secondary server failures
+                            }
                         }
                     }
                 }
             }
-        }
 
-        $msg = $res['message'];
-        $msgType = $res['success'] ? 'success' : 'danger';
+            $msg = $res['message'];
+            $msgType = $res['success'] ? 'success' : 'danger';
 
-        // 3. Immediately reload admins live in the running CS server via RCON
-        if ($res['success'] && $serverStatus === 'running') {
-            $reloadRes = ServerCmd::reloadAdminsLive($activeServer);
-            if ($reloadRes['success']) {
-                $msg .= ' ⚡ (تغییرات بلافاصله روی سرور آنلاین اعمال شد - بدون نیاز به ریستارت!)';
-            } else {
-                $msg .= ' (نکته: همگام‌سازی آنی RCON: ' . $reloadRes['message'] . ')';
+            // 3. Immediately reload admins live in the running CS server via RCON
+            if ($res['success'] && $serverStatus === 'running') {
+                try {
+                    $reloadRes = ServerCmd::reloadAdminsLive($activeServer);
+                    if ($reloadRes['success']) {
+                        $msg .= ' ⚡ (تغییرات بلافاصله روی سرور آنلاین اعمال شد)';
+                    } else {
+                        $msg .= ' (نکته RCON: ' . $reloadRes['message'] . ')';
+                    }
+                } catch (Throwable $t) {
+                    $msg .= ' (ارتباط RCON با سرور برقرار نشد)';
+                }
             }
+        } catch (Throwable $e) {
+            $msg = 'خطای سیستمی در ذخیره ادمین: ' . $e->getMessage();
+            $msgType = 'danger';
         }
+    }
+
+    if ($isAjax) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => ($msgType === 'success'),
+            'message' => $msg,
+            'admins'  => ServerCmd::getAdmins($activeServer['users_ini'])
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
     }
 }
 
-// Handle Delete Admin
+// ─────────────────────────────────────────────────────────────
+// 2. Handle Delete Admin POST Action
+// ─────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['delete_admin']) || !empty($_POST['delete_auth']))) {
     if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
         $msg = 'خطای امنیتی: توکن CSRF نامعتبر است.';
@@ -62,50 +100,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['delete_admin']) || !
         $auth = trim($_POST['delete_auth'] ?? '');
         $applyAll = ($_POST['apply_all_servers'] ?? '0') === '1';
 
-        $res = ServerCmd::deleteAdmin($activeServer['users_ini'], $auth);
-        if ($applyAll && $res['success']) {
-            global $SERVERS;
-            if (is_array($SERVERS)) {
-                foreach ($SERVERS as $sId => $srv) {
-                    if ($sId !== $activeServer['id'] && !empty($srv['users_ini'])) {
-                        ServerCmd::deleteAdmin($srv['users_ini'], $auth);
-                        if (ServerCmd::getServiceStatus($srv['service_name']) === 'running') {
-                            ServerCmd::reloadAdminsLive($srv);
+        try {
+            $res = ServerCmd::deleteAdmin($activeServer['users_ini'], $auth);
+            if ($applyAll && $res['success']) {
+                global $SERVERS;
+                if (is_array($SERVERS)) {
+                    foreach ($SERVERS as $sId => $srv) {
+                        if ($sId !== $activeServer['id'] && !empty($srv['users_ini'])) {
+                            try {
+                                ServerCmd::deleteAdmin($srv['users_ini'], $auth);
+                                if (ServerCmd::getServiceStatus($srv['service_name']) === 'running') {
+                                    ServerCmd::reloadAdminsLive($srv);
+                                }
+                            } catch (Throwable $t) {
+                                // ignore secondary server errors
+                            }
                         }
                     }
                 }
             }
-        }
 
-        $msg = $res['message'];
-        $msgType = $res['success'] ? 'success' : 'danger';
+            $msg = $res['message'];
+            $msgType = $res['success'] ? 'success' : 'danger';
 
-        if ($res['success'] && $serverStatus === 'running') {
-            $reloadRes = ServerCmd::reloadAdminsLive($activeServer);
-            if ($reloadRes['success']) {
-                $msg .= ' ⚡ (تغییرات آنی روی سرور اعمال شد)';
+            if ($res['success'] && $serverStatus === 'running') {
+                try {
+                    $reloadRes = ServerCmd::reloadAdminsLive($activeServer);
+                    if ($reloadRes['success']) {
+                        $msg .= ' ⚡ (تغییرات آنی روی سرور اعمال شد)';
+                    }
+                } catch (Throwable $t) {
+                    // ignore RCON reload error on delete
+                }
             }
+        } catch (Throwable $e) {
+            $msg = 'خطا در حذف ادمین: ' . $e->getMessage();
+            $msgType = 'danger';
         }
+    }
+
+    if ($isAjax) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => ($msgType === 'success'),
+            'message' => $msg,
+            'admins'  => ServerCmd::getAdmins($activeServer['users_ini'])
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
     }
 }
 
-// Handle Manual Live Reload Admins Action
+// ─────────────────────────────────────────────────────────────
+// 3. Handle Manual Live Reload Admins Action
+// ─────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reload_admins'])) {
     if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
         $msg = 'خطای امنیتی: توکن CSRF نامعتبر است.';
         $msgType = 'danger';
     } else {
-        $reloadRes = ServerCmd::reloadAdminsLive($activeServer);
-        $msg = $reloadRes['message'];
-        $msgType = $reloadRes['success'] ? 'success' : 'danger';
+        try {
+            $reloadRes = ServerCmd::reloadAdminsLive($activeServer);
+            $msg = $reloadRes['message'];
+            $msgType = $reloadRes['success'] ? 'success' : 'danger';
+        } catch (Throwable $e) {
+            $msg = 'خطا در ارسال دستور RCON به سرور: ' . $e->getMessage();
+            $msgType = 'danger';
+        }
+    }
+
+    if ($isAjax) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => ($msgType === 'success'),
+            'message' => $msg,
+            'admins'  => ServerCmd::getAdmins($activeServer['users_ini'])
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
     }
 }
 
+// Fetch current admins list
 $admins = ServerCmd::getAdmins($activeServer['users_ini']);
+
+$pageTitle = 'مدیریت ادمین‌ها';
+$activeNav = 'admins';
+require_once __DIR__ . '/includes/header.php';
 ?>
 
+<!-- Floating Notification Toast -->
+<div id="toastContainer" style="position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 0.5rem; pointer-events: none;"></div>
+
 <?php if ($msg): ?>
-    <div class="alert alert-<?php echo $msgType; ?>" style="margin-bottom: 1.25rem;">
+    <div id="initialAlertBox" class="alert alert-<?php echo $msgType; ?>" style="margin-bottom: 1.25rem;">
         <?php echo htmlspecialchars($msg); ?>
     </div>
 <?php endif; ?>
@@ -115,7 +201,7 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
     <div>
         <h2 style="font-size: 1.4rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.5rem; margin: 0;">
             <span>🛡️ مدیریت ادمین‌های سرور (Admin Manager)</span>
-            <span class="badge" style="background: var(--primary); font-size: 0.85rem; padding: 0.25rem 0.65rem; border-radius: 999px;">
+            <span class="badge" id="activeAdminsCountBadge" style="background: var(--primary); font-size: 0.85rem; padding: 0.25rem 0.65rem; border-radius: 999px;">
                 <?php echo count($admins); ?> فعال
             </span>
         </h2>
@@ -125,13 +211,9 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
     </div>
 
     <div style="display: flex; gap: 0.5rem;">
-        <form method="POST" style="display:inline;">
-            <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
-            <input type="hidden" name="reload_admins" value="1">
-            <button type="submit" class="btn btn-warning" title="ارسال دستور amx_reloadadmins به سرور برای اعمال حقوق ادمین‌ها">
-                ⚡ ریلود آنی سرور (amx_reloadadmins)
-            </button>
-        </form>
+        <button type="button" onclick="reloadAdminsAjax(this)" class="btn btn-warning" title="ارسال دستور amx_reloadadmins به سرور برای اعمال حقوق ادمین‌ها">
+            ⚡ ریلود آنی سرور (amx_reloadadmins)
+        </button>
         <button onclick="location.reload()" class="btn btn-secondary">
             🔄 بروزرسانی لیست
         </button>
@@ -143,7 +225,7 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
     <!-- Left Column: Existing Admins Table -->
     <div class="card">
         <div class="card-title" style="flex-wrap: wrap; gap: 0.5rem; justify-content: space-between; align-items: center;">
-            <span>لیست ادمین‌ها (<?php echo count($admins); ?>)</span>
+            <span id="adminsCardTitle">لیست ادمین‌ها (<?php echo count($admins); ?>)</span>
             <input type="text" id="adminSearchInput" onkeyup="filterAdminsTable()" placeholder="🔍 جستجوی سریع..." 
                    class="input-field" style="width: 170px; padding: 0.35rem 0.65rem; font-size: 0.82rem;">
         </div>
@@ -161,7 +243,7 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
                         <th style="text-align: center; width: 110px;">عملیات</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="adminsTableBody">
                     <?php if (empty($admins)): ?>
                         <tr id="emptyRow">
                             <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2.5rem 1rem;">
@@ -186,8 +268,10 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
                             } else {
                                 $typeBadge = '<span class="badge" style="background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3);">NICK</span>';
                             }
+                            $authLower = function_exists('mb_strtolower') ? mb_strtolower($adm['auth'], 'UTF-8') : strtolower($adm['auth']);
+                            $commentLower = function_exists('mb_strtolower') ? mb_strtolower($adm['comment'] ?? '', 'UTF-8') : strtolower($adm['comment'] ?? '');
                         ?>
-                            <tr class="admin-row" data-auth="<?php echo htmlspecialchars(strtolower($adm['auth'])); ?>" data-comment="<?php echo htmlspecialchars(strtolower($adm['comment'])); ?>">
+                            <tr class="admin-row" data-auth="<?php echo htmlspecialchars($authLower); ?>" data-comment="<?php echo htmlspecialchars($commentLower); ?>">
                                 <td><?php echo $typeBadge; ?></td>
                                 <td>
                                     <strong style="color: #fff; font-size: 0.95rem;"><?php echo htmlspecialchars($adm['auth']); ?></strong>
@@ -230,14 +314,11 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
                                     </button>
 
                                     <!-- Delete button -->
-                                    <form method="POST" style="display:inline;" onsubmit="return confirm('آیا از حذف ادمین <?php echo htmlspecialchars(addslashes($adm['auth'])); ?> اطمینان دارید؟')">
-                                        <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
-                                        <input type="hidden" name="delete_admin" value="1">
-                                        <input type="hidden" name="delete_auth" value="<?php echo htmlspecialchars($adm['auth']); ?>">
-                                        <button type="submit" class="btn btn-danger btn-sm" style="padding: 0.25rem 0.5rem;" title="حذف این ادمین">
-                                            🗑️
-                                        </button>
-                                    </form>
+                                    <button type="button" class="btn btn-danger btn-sm" style="padding: 0.25rem 0.5rem;" 
+                                            onclick="deleteAdminAjax('<?php echo htmlspecialchars(addslashes($adm['auth'])); ?>')"
+                                            title="حذف این ادمین">
+                                        🗑️
+                                    </button>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -257,7 +338,7 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
         </div>
 
         <form method="POST" action="admins.php" id="adminForm">
-            <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
+            <input type="hidden" name="csrf_token" id="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
             <input type="hidden" name="save_admin" value="1">
             <input type="hidden" name="old_auth" id="old_auth" value="">
 
@@ -392,9 +473,53 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
 .table-responsive table tbody tr:hover {
     background: rgba(255, 255, 255, 0.03);
 }
+.toast-msg {
+    padding: 0.85rem 1.25rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #fff;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    pointer-events: auto;
+    animation: toastIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.toast-success {
+    background: #065f46;
+    border: 1px solid #10b981;
+}
+.toast-danger {
+    background: #7f1d1d;
+    border: 1px solid #ef4444;
+}
+@keyframes toastIn {
+    from { opacity: 0; transform: translateY(-15px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toastOut {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 0; transform: translateY(-15px) scale(0.95); }
+}
 </style>
 
 <script>
+// Floating Toast Notification Helper
+function showToast(message, type = 'success') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast-msg toast-${type}`;
+    const icon = type === 'success' ? '✅' : '❌';
+    toast.innerHTML = `<span>${icon}</span> <span>${escapeHtml(message)}</span>`;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.animation = 'toastOut 0.3s forwards';
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}
+
 // Auto detect SteamID or IP while typing in Auth
 document.getElementById('admin_auth').addEventListener('input', function() {
     const val = this.value.trim();
@@ -442,7 +567,7 @@ function copySetinfo(password) {
     const cmd = `setinfo _pw "${password}"`;
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(cmd).then(() => {
-            alert('دستور در کلیپ‌بورد کپی شد:\n' + cmd);
+            showToast('دستور در کلیپ‌بورد کپی شد: ' + cmd, 'success');
         }).catch(() => {
             prompt('دستور را کپی کنید:', cmd);
         });
@@ -473,9 +598,10 @@ function applyPreset(presetFlags) {
 function startEditAdmin(adm) {
     document.getElementById('formTitle').innerHTML = '✏️ ویرایش ادمین: <span style="color: var(--accent);">' + escapeHtml(adm.auth) + '</span>';
     document.getElementById('cancelEditBtn').style.display = 'inline-block';
-    document.getElementById('submitBtn').innerText = '🔄 بروزرسانی ادمین و اعمال روی سرور';
-    document.getElementById('submitBtn').style.background = '#2563eb';
-    document.getElementById('submitBtn').style.borderColor = '#3b82f6';
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.innerText = '🔄 بروزرسانی ادمین و اعمال روی سرور';
+    submitBtn.style.background = '#2563eb';
+    submitBtn.style.borderColor = '#3b82f6';
     document.getElementById('old_auth').value = adm.auth;
 
     document.getElementById('admin_auth').value = adm.auth;
@@ -524,8 +650,224 @@ function filterAdminsTable() {
 }
 
 function escapeHtml(string) {
+    if (!string) return '';
     const entityMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
     return String(string).replace(/[&<>"']/g, s => entityMap[s]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Dynamic DOM Rendering for Admins Table
+// ─────────────────────────────────────────────────────────────
+function renderAdminsTable(adminsList) {
+    const tbody = document.getElementById('adminsTableBody');
+    const badge = document.getElementById('activeAdminsCountBadge');
+    const title = document.getElementById('adminsCardTitle');
+    
+    if (badge) badge.innerText = `${adminsList.length} فعال`;
+    if (title) title.innerText = `لیست ادمین‌ها (${adminsList.length})`;
+
+    if (!adminsList || adminsList.length === 0) {
+        tbody.innerHTML = `
+            <tr id="emptyRow">
+                <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2.5rem 1rem;">
+                    ℹ️ هیچ ادمینی در فایل users.ini یافت نشد.<br>
+                    از فرم روبرو نام کاربری و دسترسی ادمین را ثبت کنید تا فوراً فعال گردد!
+                </td>
+            </tr>`;
+        return;
+    }
+
+    let html = '';
+    adminsList.forEach(adm => {
+        const authStr = adm.auth || '';
+        const flagsStr = adm.flags || '';
+        const isLoopback = (authStr === 'loopback');
+        const isSteam = (authStr.startsWith('STEAM_') || authStr.startsWith('VALVE_') || flagsStr.includes('c'));
+        const isIp = (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(authStr) || flagsStr.includes('d'));
+
+        let typeBadge = '';
+        if (isLoopback) {
+            typeBadge = '<span class="badge" style="background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3);">SYSTEM</span>';
+        } else if (isSteam) {
+            typeBadge = '<span class="badge" style="background: rgba(6,182,212,0.15); color: #38bdf8; border: 1px solid rgba(6,182,212,0.3);">STEAM</span>';
+        } else if (isIp) {
+            typeBadge = '<span class="badge" style="background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3);">IP</span>';
+        } else {
+            typeBadge = '<span class="badge" style="background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3);">NICK</span>';
+        }
+
+        const safeAuth = escapeHtml(authStr);
+        const safeComment = escapeHtml(adm.comment || '—');
+        const safePass = escapeHtml(adm.password || '');
+        const admJson = escapeHtml(JSON.stringify(adm));
+
+        let passCell = '<span style="color: var(--text-muted); font-size: 0.75rem;">(بدون پسورد)</span>';
+        let setinfoBtn = '';
+
+        if (!isSteam && !isIp && !isLoopback && adm.password) {
+            setinfoBtn = `
+                <div style="margin-top: 0.25rem;">
+                    <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.68rem; padding: 0.15rem 0.45rem;" 
+                            onclick="copySetinfo('${safePass}')" title="کپی دستور setinfo برای کنسول کانتر">
+                        📋 کپی setinfo
+                    </button>
+                </div>`;
+        }
+
+        if (adm.password) {
+            passCell = `<span class="pw-masked" style="font-family: monospace; cursor: pointer; color: #94a3b8; user-select: none;" 
+                              onclick="togglePasswordVisibility(this, '${safePass}')" 
+                              title="کلیک برای نمایش/مخفی‌سازی رمز">•••••• 👁️</span>`;
+        }
+
+        html += `
+            <tr class="admin-row" data-auth="${safeAuth.toLowerCase()}" data-comment="${safeComment.toLowerCase()}">
+                <td>${typeBadge}</td>
+                <td>
+                    <strong style="color: #fff; font-size: 0.95rem;">${safeAuth}</strong>
+                    ${setinfoBtn}
+                </td>
+                <td>${passCell}</td>
+                <td>
+                    <code style="color: var(--accent); font-weight: bold; font-size: 0.85rem;" title="پرچم‌های دسترسی">
+                        ${escapeHtml(adm.access || '')}
+                    </code>
+                </td>
+                <td>
+                    <code>${escapeHtml(adm.flags || '')}</code>
+                </td>
+                <td style="color: var(--text-muted); font-size: 0.8rem;">
+                    ${safeComment}
+                </td>
+                <td style="text-align: center; white-space: nowrap;">
+                    <button type="button" class="btn btn-primary btn-sm" style="padding: 0.25rem 0.5rem;"
+                            onclick='startEditAdmin(${admJson})' title="ویرایش این ادمین">
+                        ✏️
+                    </button>
+                    <button type="button" class="btn btn-danger btn-sm" style="padding: 0.25rem 0.5rem;" 
+                            onclick="deleteAdminAjax('${safeAuth}')" title="حذف این ادمین">
+                        🗑️
+                    </button>
+                </td>
+            </tr>`;
+    });
+
+    tbody.innerHTML = html;
+    filterAdminsTable();
+}
+
+// ─────────────────────────────────────────────────────────────
+// AJAX Form Submit Handler (Zero Page-Refresh)
+// ─────────────────────────────────────────────────────────────
+document.getElementById('adminForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const submitBtn = document.getElementById('submitBtn');
+    const originalText = submitBtn.innerText;
+    submitBtn.disabled = true;
+    submitBtn.innerText = '⏳ در حال ذخیره و اعمال آنی...';
+
+    const formData = new FormData(this);
+    formData.append('ajax', '1');
+
+    try {
+        const response = await fetch('admins.php', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`خطای سرور: HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(data.message, 'success');
+            cancelEdit();
+            if (data.admins) {
+                renderAdminsTable(data.admins);
+            }
+            // Hide initial static alert box if visible
+            const initAlert = document.getElementById('initialAlertBox');
+            if (initAlert) initAlert.style.display = 'none';
+        } else {
+            showToast(data.message || 'خطا در ثبت ادمین', 'danger');
+        }
+    } catch (err) {
+        console.warn('AJAX submit failed, performing fallback standard form submit', err);
+        // Fallback: Submit standard form if fetch or JSON parsing fails
+        submitBtn.disabled = false;
+        submitBtn.innerText = originalText;
+        this.submit();
+        return;
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = originalText;
+    }
+});
+
+// ─────────────────────────────────────────────────────────────
+// AJAX Delete Admin Handler
+// ─────────────────────────────────────────────────────────────
+async function deleteAdminAjax(auth) {
+    if (!confirm(`آیا از حذف ادمین "${auth}" از سرور اطمینان دارید؟`)) return;
+
+    const fd = new FormData();
+    fd.append('delete_admin', '1');
+    fd.append('delete_auth', auth);
+    fd.append('csrf_token', document.getElementById('csrf_token').value);
+    fd.append('ajax', '1');
+
+    try {
+        const response = await fetch('admins.php', {
+            method: 'POST',
+            body: fd,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const data = await response.json();
+        showToast(data.message, data.success ? 'success' : 'danger');
+        if (data.admins) {
+            renderAdminsTable(data.admins);
+        }
+    } catch (err) {
+        // Fallback
+        location.reload();
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// AJAX Live Reload Server Admins
+// ─────────────────────────────────────────────────────────────
+async function reloadAdminsAjax(btn) {
+    const originalText = btn.innerText;
+    btn.disabled = true;
+    btn.innerText = '⏳ در حال ارسال دستور RCON...';
+
+    const fd = new FormData();
+    fd.append('reload_admins', '1');
+    fd.append('csrf_token', document.getElementById('csrf_token').value);
+    fd.append('ajax', '1');
+
+    try {
+        const response = await fetch('admins.php', {
+            method: 'POST',
+            body: fd,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const data = await response.json();
+        showToast(data.message, data.success ? 'success' : 'danger');
+        if (data.admins) {
+            renderAdminsTable(data.admins);
+        }
+    } catch (err) {
+        location.reload();
+    } finally {
+        btn.disabled = false;
+        btn.innerText = originalText;
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

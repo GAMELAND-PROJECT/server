@@ -25,20 +25,22 @@ case "$action" in
         exec /usr/bin/systemctl "$operation" "$service"
         ;;
     compile)
-        exec /bin/bash "${PROJECT_DIR}/install_mix.sh"
+        exec /bin/bash "${PROJECT_DIR}/install_mix.sh" "${2:-}"
         ;;
     fixperms)
         chmod -R 777 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
-        chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/users.ini" 2>/dev/null || true
-        chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
-        chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/maps.ini" 2>/dev/null || true
+        chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs"/*.ini 2>/dev/null || true
         chown -R www-data:www-data "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
+        chmod -R 775 "${PROJECT_DIR}/panel" 2>/dev/null || true
+        chmod -R 777 "${PROJECT_DIR}/panel/sessions" "${PROJECT_DIR}/panel/demos" 2>/dev/null || true
+        chown -R www-data:www-data "${PROJECT_DIR}/panel" 2>/dev/null || true
         exit 0
         ;;
     write_users_ini)
         src="${2:-}"
         dest="${3:-${PROJECT_DIR}/cstrike/addons/amxmodx/configs/users.ini}"
         if [ -f "$src" ]; then
+            mkdir -p "$(dirname "$dest")" 2>/dev/null || true
             cp -f "$src" "$dest"
             chmod 666 "$dest"
             chown www-data:www-data "$dest" 2>/dev/null || true

@@ -21,44 +21,71 @@ class GoldSourceRcon {
     private function normalizeHost($host) {
         $h = trim((string)$host);
         $serverAddr = $_SERVER['SERVER_ADDR'] ?? '';
-        if ($h === '' || $h === '0.0.0.0' || $h === 'localhost' || $h === '127.0.0.1' || ($serverAddr !== '' && $h === $serverAddr) || $h === '185.236.38.83') {
+        $httpHost = explode(':', $_SERVER['HTTP_HOST'] ?? '')[0];
+        $serverName = $_SERVER['SERVER_NAME'] ?? '';
+        if ($h === '' || $h === '0.0.0.0' || $h === 'localhost' || $h === '127.0.0.1' || 
+            ($serverAddr !== '' && $h === $serverAddr) || 
+            ($httpHost !== '' && $h === $httpHost) || 
+            ($serverName !== '' && $h === $serverName) || 
+            $h === '185.236.38.83') {
             return '127.0.0.1';
         }
         return $h;
     }
 
     private function connectTo($targetHost) {
-        $sock = @fsockopen("udp://" . $targetHost, $this->port, $errno, $errstr, $this->timeout);
+        $timeoutSec = max(0.5, (float)$this->timeout);
+        $sock = @fsockopen("udp://" . $targetHost, $this->port, $errno, $errstr, $timeoutSec);
         if (!$sock) {
             throw new Exception("Unable to connect to UDP ($targetHost:{$this->port}): $errstr ($errno)");
         }
-        stream_set_timeout($sock, (int)$this->timeout, (int)(($this->timeout - (int)$this->timeout) * 1000000));
+        $sec = (int)$timeoutSec;
+        $usec = (int)(($timeoutSec - $sec) * 1000000);
+        @stream_set_timeout($sock, $sec, $usec);
         return $sock;
     }
 
     private function readPacketsFrom($sock) {
         $response = '';
+        $deadline = microtime(true) + max(0.5, (float)$this->timeout);
+
         while ($sock && !feof($sock)) {
+            $remaining = $deadline - microtime(true);
+            if ($remaining <= 0) {
+                break;
+            }
+
+            $r = [$sock];
+            $w = null;
+            $e = null;
+            $sec = (int)$remaining;
+            $usec = (int)(($remaining - $sec) * 1000000);
+
+            // Wait until socket has readable packet or timeout occurs
+            $changed = @stream_select($r, $w, $e, $sec, $usec);
+            if ($changed === false || $changed === 0) {
+                break;
+            }
+
             $packet = @fread($sock, 4096);
             if ($packet === false || strlen($packet) === 0) {
                 break;
             }
-            
+
             // Check for GoldSource header 0xFFFFFFFF
             if (substr($packet, 0, 4) === "\xFF\xFF\xFF\xFF") {
                 $response .= substr($packet, 4);
             } else {
                 $response .= $packet;
             }
-            
-            // Short wait for multi-packet GoldSource responses
-            $info = stream_get_meta_data($sock);
-            if ($info['unread_bytes'] == 0) {
-                usleep(25000); // 25ms
-                $info = stream_get_meta_data($sock);
-                if ($info['unread_bytes'] == 0) {
-                    break;
-                }
+
+            // Short 15ms wait to see if multi-part packet is coming
+            $r2 = [$sock];
+            $w2 = null;
+            $e2 = null;
+            $hasMore = @stream_select($r2, $w2, $e2, 0, 15000);
+            if ($hasMore === false || $hasMore === 0) {
+                break;
             }
         }
         return $response;
@@ -71,7 +98,7 @@ class GoldSourceRcon {
             $res = $this->readPacketsFrom($sock);
             @fclose($sock);
             return $res;
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return '';
         }
     }

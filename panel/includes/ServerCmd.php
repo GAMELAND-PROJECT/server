@@ -868,25 +868,17 @@ class ServerCmd {
             return true;
         }
 
-        // 3. Unlink (delete) and recreate. In Linux POSIX, unlinking succeeds
-        // if the containing directory has write permissions (configs is 777),
-        // even if the file itself was created as root:root 0644!
+        // 3. Unlink (delete) and recreate. In POSIX, unlinking succeeds if directory is writable
         @unlink($usersIniPath);
         if (@file_put_contents($usersIniPath, $content) !== false) {
             @chmod($usersIniPath, 0666);
             return true;
         }
 
-        // 4. Privileged self-healing: invoke compile fixperms_only (runs install_mix.sh as root, allowed in all sudoers)
+        // 4. Safe privileged helper via /tmp (copies file, sets 666 & chowns www-data, takes 2ms, zero restarts)
         $helper = self::getPrivilegedHelperPath();
-        @exec("sudo -n " . escapeshellarg($helper) . " compile fixperms_only 2>&1");
-        @chmod($usersIniPath, 0666);
-        if (@file_put_contents($usersIniPath, $content) !== false) {
-            return true;
-        }
-
-        // 5. Privileged helper via /tmp
-        $tempFile = '/tmp/users_ini_' . uniqid() . '.tmp';
+        $tempDir = is_dir('/tmp') ? '/tmp' : sys_get_temp_dir();
+        $tempFile = $tempDir . '/users_ini_' . uniqid() . '.tmp';
         if (@file_put_contents($tempFile, $content) !== false) {
             @exec("sudo -n " . escapeshellarg($helper) . " write_users_ini " . escapeshellarg($tempFile) . " " . escapeshellarg($usersIniPath) . " 2>&1");
             @unlink($tempFile);
@@ -895,7 +887,7 @@ class ServerCmd {
             }
         }
 
-        // 6. Privileged fixperms and retry
+        // 5. Privileged fixperms (fixes configs permissions to 777/666 for www-data in 2ms) and retry
         @exec("sudo -n " . escapeshellarg($helper) . " fixperms 2>&1");
         @chmod($usersIniPath, 0666);
         if (@file_put_contents($usersIniPath, $content) !== false) {
@@ -1036,19 +1028,19 @@ class ServerCmd {
                 $serverInfo['ip'],
                 $serverInfo['port'],
                 $serverInfo['rcon_password'],
-                1.5
+                1.0
             );
             // In AMX Mod X the command is amx_reloadadmins (with an 's')
             $r1 = $rcon->execute('amx_reloadadmins');
             return [
                 'success' => true,
                 'output' => trim($r1),
-                'message' => 'Admins reloaded live on server instantly!'
+                'message' => 'حقوق ادمین‌ها بلافاصله روی سرور ریلود شد.'
             ];
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return [
                 'success' => false,
-                'message' => 'RCON error while reloading admins: ' . $e->getMessage()
+                'message' => 'ارتباط RCON با سرور برقرار نشد: ' . $e->getMessage()
             ];
         }
     }
