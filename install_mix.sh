@@ -175,23 +175,39 @@ echo "  -> Wrote deploy record: ${CONFIGS_DIR}/.mix_last_build.json (${COMPILED_
 echo "[5/5] Optimizing server config for 5v5..."
 sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="12"/' "${PROJECT_DIR}/start.sh"
 
+# Sync updated plugins and MixSettings to all server instances in /opt/gameland/instances
+if [ -d "${PROJECT_DIR}/instances" ] || [ -d "/opt/gameland/instances" ]; then
+    INST_DIR="${PROJECT_DIR}/instances"
+    [ -d "$INST_DIR" ] || INST_DIR="/opt/gameland/instances"
+    for inst in "${INST_DIR}"/*; do
+        if [ -d "${inst}/cstrike/addons/amxmodx/plugins" ]; then
+            cp -f "${PLUGINS_DIR}"/*.amxx "${inst}/cstrike/addons/amxmodx/plugins/" 2>/dev/null || true
+            cp -f "${CONFIGS_DIR}/MixSettings.ini" "${inst}/cstrike/addons/amxmodx/configs/" 2>/dev/null || true
+            echo "  -> Synced plugins & configs to instance: $(basename "$inst")"
+        fi
+    done
+fi
+
 echo ""
 echo "================================================="
 echo "   [SUCCESS] 5v5 Mix System Ready!              "
 echo "================================================="
 echo " Commands for Admins in-game:"
-echo "   say /start     -> Start the 5v5 Match (Knife round first)"
+echo "   say /a         -> Master Admin Panel (Add/Remove Admins, Teams, Mix, Maps)"
+echo "   say /rev       -> Revive ALL dead players immediately (CT & TR)"
+echo "   say /spec      -> Move all players to Spectator -> Hostname: [Pick]"
+echo "   say /warm      -> Start WarmUp -> Hostname: [WarmUp]"
+echo "   say /knife     -> Start Knife Round -> Hostname: [Knife]"
+echo "   say /mix       -> Start 5v5 Match Vote (Knife vs Direct Live)"
+echo "   say /live (/lv)-> Direct Live 3-Restart Countdown -> Hostname: CT [X] TR [Y]"
 echo "   say /stop      -> Stop Match and return to WarmUp"
-echo "   say /warm      -> Start WarmUp"
-echo "   say /knife     -> Start Knife Round"
-echo "   say /score     -> View current match score"
-echo "   say /pause     -> Pause match"
-echo "   say /specall   -> Move all players to spectator"
-echo "   amx_ct <nick>  -> Move player to CT"
-echo "   amx_t <nick>   -> Move player to Terrorist"
-echo "   amx_spec <nick>-> Move player to Spectator"
+echo "   say /score     -> View current match score and halftime stats"
+echo "   say /pause     -> Pause / Unpause match"
+echo "   say /st        -> Swap teams"
+echo "   say /kspec     -> Kick spectators"
 echo "================================================="
 echo " Restarting gameland.service to load plugins..."
 systemctl restart gameland.service
 sleep 2
 systemctl status gameland.service --no-pager
+
