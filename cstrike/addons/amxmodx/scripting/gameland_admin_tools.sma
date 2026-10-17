@@ -1591,9 +1591,6 @@ stock ApplyRestrictedJoinKey(id, key, bool:showMenu)
 	if(key == 0)
 	{
 		MoveToFreeSpectator(id)
-		SetCvar(g_pForceCamera, 0)
-		SetCvar(g_pForceChaseCam, 0)
-		SetCvar(g_pFadeToBlack, 0)
 		client_print_color(id, print_team_default, "^4[GAMELAND] ^1You were moved to Spectator.")
 	}
 	else if(key == 1)
