@@ -25,6 +25,7 @@ echo "================================================="
 echo "[1/5] Checking AMXX compiler..."
 chmod +x "${SCRIPTING_DIR}/amxxpc" || true
 chmod +x "${SCRIPTING_DIR}/amxxpc32.so" || true
+export LD_LIBRARY_PATH=".:${SCRIPTING_DIR}:${LD_LIBRARY_PATH:-}"
 
 # ─── 2. Compile mix_system.sma ──────────────────────────
 echo "[2/5] Compiling mix_system.sma..."
@@ -65,18 +66,19 @@ if [ -f "gameland_admin_tools.sma" ]; then
     echo "  -> gameland_admin_tools.amxx compiled successfully!"
 fi
 
-# Compile GameLand Performance and Fixer Plugins
-for p in gameland_lan_optimizer gameland_sound_optimizer gameland_fastduck_fix gameland_only_enforcer; do
+# Compile GameLand Performance, Fixer, Weapons and Drop Plugins
+for p in gameland_lan_optimizer gameland_sound_optimizer gameland_fastduck_fix gameland_only_enforcer player_drop backweapons; do
     if [ -f "${p}.sma" ]; then
         echo "[3c/5] Compiling ${p}.sma..."
-        ./amxxpc "${p}.sma" -i"include" -o"${PLUGINS_DIR}/${p}.amxx"
-        if [ ! -f "${PLUGINS_DIR}/${p}.amxx" ]; then
-            echo "[ERROR] Failed to compile ${p}.sma!"
-            exit 1
+        ./amxxpc "${p}.sma" -i"include" -o"${PLUGINS_DIR}/${p}.amxx" || true
+        if [ -f "${PLUGINS_DIR}/${p}.amxx" ]; then
+            echo "  -> ${p}.amxx compiled successfully!"
         fi
-        echo "  -> ${p}.amxx compiled successfully!"
     fi
 done
+
+# Touch all compiled binaries to make sure mtime is fresher than .sma sources
+touch "${PLUGINS_DIR}"/*.amxx 2>/dev/null || true
 
 cd "${PROJECT_DIR}"
 

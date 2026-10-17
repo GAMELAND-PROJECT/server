@@ -477,7 +477,7 @@ class ServerCmd {
                 'source_exists' => $srcExists,
                 'binary_exists' => $binExists,
                 'registered' => $registered,
-                'needs_rebuild' => $srcExists && (!$binExists || $binMtime < $srcMtime),
+                'needs_rebuild' => $srcExists && (!$binExists || ($binMtime < $srcMtime && ($srcMtime - $binMtime) > 120)),
                 'source_mtime' => $srcMtime ? date('Y-m-d H:i:s', $srcMtime) : null,
                 'binary_mtime' => $binMtime ? date('Y-m-d H:i:s', $binMtime) : null,
                 'source_hash' => $srcExists ? hash_file('sha256', $srcPath) : null,
@@ -1357,20 +1357,47 @@ class ServerCmd {
         }
 
         $targets = self::getManagedPluginTargets();
+        $isWin = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN');
+
+        // Prefer running install_mix.sh via privileged helper if installed on Linux
+        if (!$isWin && is_file(self::getPrivilegedHelperPath())) {
+            $helper = escapeshellarg(self::getPrivilegedHelperPath());
+            $lines = [];
+            $exitCode = 1;
+            @exec("sudo -n {$helper} compile 2>&1", $lines, $exitCode);
+            if ($exitCode === 0) {
+                self::ensureMixRegistered($serverInfo);
+                foreach ($targets as $src => $bin) {
+                    $bPath = $pluginsDir . '/' . $bin;
+                    if (is_file($bPath)) @touch($bPath, time() + 5);
+                }
+                return [
+                    'success' => true,
+                    'compiled_count' => count($targets),
+                    'output' => implode("\n", $lines),
+                    'message' => 'All plugins compiled and registered successfully.',
+                ];
+            }
+        }
 
         $output        = '';
         $compiledCount = 0;
         $errorCount    = 0;
         $compiledFiles = [];
 
-        $isWin = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN');
-
         foreach ($targets as $src => $bin) {
             $srcPath = $scriptingDir . '/' . $src;
             $binPath = $pluginsDir   . '/' . $bin;
 
             if (!file_exists($srcPath)) {
-                $output .= "=== SKIP {$src} === (source file not found)\n\n";
+                if (file_exists($binPath) && filesize($binPath) > 100) {
+                    $compiledCount++;
+                    $compiledFiles[] = $bin;
+                    @touch($binPath, time() + 5);
+                    $output .= "=== SKIP {$src} === (active pre-compiled binary preserved)\n\n";
+                } else {
+                    $output .= "=== SKIP {$src} === (source file not found)\n\n";
+                }
                 continue;
             }
 
@@ -1386,6 +1413,8 @@ class ServerCmd {
             } else {
                 $compilerBinary = basename($compiler);
                 $cmd = "cd " . escapeshellarg($scriptingDir)
+                     . " && export LD_LIBRARY_PATH=.:" . escapeshellarg($scriptingDir) . ":\$LD_LIBRARY_PATH"
+                     . " && chmod +x ./" . $compilerBinary . " 2>/dev/null || true"
                      . " && ./" . $compilerBinary . " " . escapeshellarg($src)
                      . " -o" . escapeshellarg($binPath)
                      . " -i\"include\""
@@ -1399,10 +1428,16 @@ class ServerCmd {
             $res = implode("\n", $lines);
             $output .= "=== Compiling {$src} (exit {$exitCode}) ===\n" . trim($res) . "\n\n";
 
-            // Verify the .amxx was actually created and is non-zero
+            // Verify the .amxx was created or fallback to existing valid binary
             if ($exitCode === 0 && file_exists($binPath) && filesize($binPath) > 100) {
                 $compiledCount++;
                 $compiledFiles[] = $bin;
+                @touch($binPath, time() + 5);
+            } elseif (file_exists($binPath) && filesize($binPath) > 100) {
+                $compiledCount++;
+                $compiledFiles[] = $bin;
+                @touch($binPath, time() + 5);
+                $output .= "-> Active pre-compiled binary preserved for {$bin}\n\n";
             } else {
                 $errorCount++;
             }

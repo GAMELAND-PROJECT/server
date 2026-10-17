@@ -24,5 +24,8 @@ case "$action" in
         [[ "$service" =~ ^gameland(\@[a-zA-Z0-9_-]{2,32})?\.service$ ]] || exit 2
         exec /usr/bin/systemctl "$operation" "$service"
         ;;
+    compile)
+        exec /bin/bash "${PROJECT_DIR}/install_mix.sh"
+        ;;
     *) exit 2 ;;
 esac
