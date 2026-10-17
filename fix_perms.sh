@@ -46,6 +46,16 @@ if [ -f "$PROJECT_ROOT/panel/gameland-panel-sudo.sh" ]; then
     install -d -m 0755 /usr/local/sbin
     install -m 0755 "$PROJECT_ROOT/panel/gameland-panel-sudo.sh" /usr/local/sbin/gameland-panel-sudo
     echo "✅ Installed: /usr/local/sbin/gameland-panel-sudo"
+
+    # Configure passwordless sudo for web panel user (www-data)
+    SUDOERS_FILE="/etc/sudoers.d/gameland-panel"
+    cat > "${SUDOERS_FILE}" <<EOF
+Defaults:www-data !requiretty
+Cmnd_Alias GAMELAND_PANEL_HELPER = /usr/local/sbin/gameland-panel-sudo
+www-data ALL=(root) NOPASSWD: GAMELAND_PANEL_HELPER
+EOF
+    chmod 0440 "${SUDOERS_FILE}"
+    echo "✅ Configured: /etc/sudoers.d/gameland-panel"
 fi
 
 # 4. Give execution permission to the global SVGL command if it exists

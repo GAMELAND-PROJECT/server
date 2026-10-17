@@ -1351,16 +1351,23 @@ class ServerCmd {
             @mkdir($pluginsDir, 0775, true);
         }
 
-        $compiler = $scriptingDir . '/amxxpc';
-        if (file_exists($compiler . '.exe')) {
-            $compiler .= '.exe';
-        } elseif (!file_exists($compiler) && file_exists($scriptingDir . '/amxxpc32')) {
-            $compiler = $scriptingDir . '/amxxpc32';
+        $isWin = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN');
+
+        if ($isWin) {
+            $compiler = $scriptingDir . '/amxxpc.exe';
+            if (!file_exists($compiler) && file_exists($scriptingDir . '/amxxpc')) {
+                $compiler = $scriptingDir . '/amxxpc';
+            }
+        } else {
+            $compiler = $scriptingDir . '/amxxpc';
+            if (!file_exists($compiler) && file_exists($scriptingDir . '/amxxpc32')) {
+                $compiler = $scriptingDir . '/amxxpc32';
+            }
         }
 
         // Ensure compiler is executable on Linux/Unix
         if (file_exists($compiler)) {
-            if (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
+            if (!$isWin) {
                 @chmod($compiler, 0755);
             }
         } else {
