@@ -39,7 +39,8 @@ echo "   Directory: ${PROJECT_DIR}"
 echo "================================================="
 
 # ─── 1. Ensure Compiler Execution Permission ────────────
-echo "[1/5] Checking AMXX compiler..."
+echo "[1/5] Checking AMXX compiler & server binaries..."
+chmod +x "${PROJECT_DIR}/hlds_linux" "${PROJECT_DIR}/hlds_run" "${PROJECT_DIR}/hltv" "${PROJECT_DIR}"/*.sh 2>/dev/null || true
 chmod +x "${SCRIPTING_DIR}/amxxpc" || true
 chmod +x "${SCRIPTING_DIR}/amxxpc32.so" || true
 export LD_LIBRARY_PATH=".:${SCRIPTING_DIR}:${LD_LIBRARY_PATH:-}"

@@ -57,9 +57,13 @@ if [ -f "$LOG_FILE" ] && [ "$(stat -c%s "$LOG_FILE")" -gt 10485760 ]; then
     echo "[*] Log rotated to server.log.1"
 fi
 
+# اطمینان قطعی از دسترسی اجرایی باینری‌ها
+chmod +x "${SCRIPT_DIR}/hlds_linux" "${SCRIPT_DIR}/hlds_run" "${SCRIPT_DIR}/hltv" "${SCRIPT_DIR}"/*.sh 2>/dev/null || true
+
 # راه‌اندازی سرور داخل tmux با حلقه auto-restart
 tmux new-session -d -s gameland_server \
     "cd '${SCRIPT_DIR}' && while true; do \
+        chmod +x ./hlds_linux ./hlds_run ./hltv 2>/dev/null || true; \
         echo '[START] Launching hlds_linux...'; \
         ./hlds_linux -game cstrike -console \
             -ip ${SERVER_IP} \
