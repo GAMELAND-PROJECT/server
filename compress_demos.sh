@@ -15,6 +15,11 @@ chmod 777 "$PANEL_DIR" 2>/dev/null || true
 touch "$LOG_FILE"
 chmod 666 "$LOG_FILE" 2>/dev/null || true
 
+# Rotate log if larger than 5MB
+if [ -f "$LOG_FILE" ] && [ "$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)" -gt 5242880 ]; then
+    tail -n 1000 "$LOG_FILE" > "${LOG_FILE}.tmp" 2>/dev/null && mv "${LOG_FILE}.tmp" "$LOG_FILE" 2>/dev/null || true
+fi
+
 log_msg() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
 }

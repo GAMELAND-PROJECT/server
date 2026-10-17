@@ -7,6 +7,15 @@ echo "🔧 Fixing permissions for server binaries, demo folders and scripts..."
 
 PROJECT_ROOT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
+# Clean disk space if low (apt cache, journald logs, bloated controller logs)
+echo "[*] Cleaning temporary cache and rotating logs..."
+apt-get clean 2>/dev/null || true
+journalctl --vacuum-size=50M 2>/dev/null || true
+rm -rf /var/lib/systemd/coredump/* "$PROJECT_ROOT"/core* 2>/dev/null || true
+if [ -f "$PROJECT_ROOT/hltv_controller.log" ] && [ "$(stat -c%s "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || echo 0)" -gt 5242880 ]; then
+    tail -n 1000 "$PROJECT_ROOT/hltv_controller.log" > "$PROJECT_ROOT/hltv_controller.log.tmp" 2>/dev/null && mv "$PROJECT_ROOT/hltv_controller.log.tmp" "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
+fi
+
 # 0. Ensure zip and unzip tools are installed for demo compression
 if ! command -v zip >/dev/null 2>&1; then
     echo "[*] Installing zip/unzip..."
