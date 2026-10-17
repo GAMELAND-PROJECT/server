@@ -191,8 +191,10 @@ foreach ($plugins as $p) {
                 <?php
                 $record = $lastBuildMeta ?: $lastSyncMeta;
                 $localSha  = $record['commit']['sha'] ?? 'unknown';
+                $syncSha   = $lastSyncMeta['commit']['sha'] ?? null;
+                $serverSha = $record['commit']['server_sha'] ?? null;
                 $remoteSha = $gitStatus ? $gitStatus['sha'] : null;
-                $upToDate  = $remoteSha && $localSha === $remoteSha;
+                $upToDate  = $remoteSha && ($localSha === $remoteSha || $syncSha === $remoteSha || $serverSha === $remoteSha);
                 ?>
                 <div style="font-family:var(--font-mono); font-size:0.9rem; font-weight:700; color:<?php echo $upToDate?'var(--success)':'var(--warning)'; ?>;">
                     <?php echo $upToDate ? '✅' : '⚠️'; ?> SHA: [<?php echo htmlspecialchars($localSha); ?>]
@@ -224,11 +226,11 @@ foreach ($plugins as $p) {
             </div>
             <div style="font-size:0.77rem; color:var(--text-muted); margin-top:0.25rem;">
                 <?php foreach ($buildStatus as $src => $bs): ?>
-                    <span title="<?php echo htmlspecialchars($src); ?> → amxx: <?php echo $bs['binary_mtime'] ?? 'missing'; ?>"
-                          style="display:inline-block; margin-right:0.3rem;
+                    <span title="<?php echo htmlspecialchars($src); ?> → <?php echo $bs['registered'] ? 'registered in plugins.ini' : 'not registered in plugins.ini'; ?> (amxx: <?php echo $bs['binary_mtime'] ?? 'missing'; ?>)"
+                          style="display:inline-block; margin-right:0.35rem; margin-bottom:0.2rem;
                                  color:<?php echo $bs['needs_rebuild'] || !$bs['registered']?'var(--warning)':($bs['binary_exists']?'var(--success)':'var(--danger)'); ?>;">
                         <?php echo $bs['needs_rebuild'] || !$bs['registered']?'⚠️':($bs['binary_exists']?'✅':'❌'); ?>
-                        <?php echo htmlspecialchars(str_replace(['mix_','.sma'],['',''],$src)); ?>
+                        <?php echo htmlspecialchars(str_replace('.sma', '', $src)); ?>
                     </span>
                 <?php endforeach; ?>
             </div>

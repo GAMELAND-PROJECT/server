@@ -90,55 +90,70 @@ if ! grep -qE '^[[:space:]]*nextclientapi([[:space:]]|$)' "${MODULES_INI}"; then
     echo "  -> Ensured nextclientapi in modules.ini"
 fi
 
-if ! grep -qE '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
-    echo "" >> "${PLUGINS_INI}"
-    echo "; ─── GameLand 5v5 AutoMix System ─────────" >> "${PLUGINS_INI}"
-    echo "mix_system.amxx" >> "${PLUGINS_INI}"
-    echo "  -> Added mix plugins to plugins.ini"
-else
-    echo "  -> mix_system.amxx already present in plugins.ini"
-fi
+# Ensure all 9 GameLand & Mix plugins are registered in plugins.ini
+for plugin_entry in \
+    "mix_system.amxx:GAMELAND mix and server-side HLTV manager" \
+    "mix_system_voice_chat.amxx:automatic sv_alltalk state for mix rounds" \
+    "gameland_admin_tools.amxx:/map menu and sv_alltalk shortcuts" \
+    "player_drop.amxx:AutoMix player drop / substitute" \
+    "backweapons.amxx:weapons displayed on players backs" \
+    "gameland_lan_optimizer.amxx:network latency and fps optimizer" \
+    "gameland_sound_optimizer.amxx:spatial sound enhancer" \
+    "gameland_fastduck_fix.amxx:fast duck and silent run enforcer" \
+    "gameland_only_enforcer.amxx:AllClient security enforcer"; do
+    
+    pl_file="${plugin_entry%%:*}"
+    pl_desc="${plugin_entry#*:}"
 
-if ! grep -qE '^[[:space:]]*mix_system_voice_chat\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
-    printf '%s\n' "mix_system_voice_chat.amxx" >> "${PLUGINS_INI}"
-    echo "  -> Added mix_system_voice_chat.amxx to plugins.ini"
-else
-    echo "  -> mix_system_voice_chat.amxx already present in plugins.ini"
-fi
-
-if [ -f "${PLUGINS_DIR}/gameland_admin_tools.amxx" ] && ! grep -qE '^[[:space:]]*gameland_admin_tools\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
-    printf '%s\n' "gameland_admin_tools.amxx" >> "${PLUGINS_INI}"
-    echo "  -> Added gameland_admin_tools.amxx to plugins.ini"
-else
-    echo "  -> gameland_admin_tools.amxx already present in plugins.ini or source is unavailable"
-fi
-
-if [ -f "${PLUGINS_DIR}/gameland_only_enforcer.amxx" ] && ! grep -qE '^[[:space:]]*gameland_only_enforcer\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
-    printf '%s\n' "gameland_only_enforcer.amxx" >> "${PLUGINS_INI}"
-    echo "  -> Added gameland_only_enforcer.amxx to plugins.ini"
-fi
+    if [ -f "${PLUGINS_DIR}/${pl_file}" ]; then
+        if grep -qE "^[[:space:]]*;+[[:space:]]*${pl_file}([[:space:]]|$)" "${PLUGINS_INI}"; then
+            sed -i -E "s/^[[:space:]]*;+[[:space:]]*(${pl_file}.*)$/\1/" "${PLUGINS_INI}"
+            echo "  -> Uncommented ${pl_file} in plugins.ini"
+        elif ! grep -qE "^[[:space:]]*${pl_file}([[:space:]]|$)" "${PLUGINS_INI}"; then
+            printf '%s\t; %s\n' "${pl_file}" "${pl_desc}" >> "${PLUGINS_INI}"
+            echo "  -> Added ${pl_file} to plugins.ini"
+        fi
+    fi
+done
 
 # ─── 5. Adjust start.sh for 5v5 Match (12 Slots) ───────
+COMPILED_COUNT=0
+for p in mix_system mix_system_voice_chat gameland_admin_tools gameland_only_enforcer gameland_lan_optimizer gameland_sound_optimizer gameland_fastduck_fix player_drop backweapons; do
+    if [ -f "${PLUGINS_DIR}/${p}.amxx" ]; then
+        COMPILED_COUNT=$((COMPILED_COUNT + 1))
+    fi
+done
+
+MIX_SHA="$(grep -o '"sha":[[:space:]]*"[^"]*"' "${CONFIGS_DIR}/.mix_last_sync.json" 2>/dev/null | head -1 | cut -d'"' -f4 || true)"
 BUILD_SHA="$(git -C "${PROJECT_DIR}" rev-parse --short=7 HEAD 2>/dev/null || echo unknown)"
 BUILD_FULL_SHA="$(git -C "${PROJECT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+DEPLOY_SHA="${MIX_SHA:-${BUILD_SHA}}"
+
 cat > "${CONFIGS_DIR}/.mix_last_build.json" <<EOF
 {
   "build_time": "$(date -Iseconds)",
   "commit": {
-    "sha": "${BUILD_SHA}",
+    "sha": "${DEPLOY_SHA}",
+    "server_sha": "${BUILD_SHA}",
     "full_sha": "${BUILD_FULL_SHA}",
     "message": "install_mix.sh local build"
   },
   "success": true,
-  "compiled_count": 3,
+  "compiled_count": ${COMPILED_COUNT},
   "targets": {
     "mix_system.sma": "mix_system.amxx",
     "mix_system_voice_chat.sma": "mix_system_voice_chat.amxx",
-    "gameland_admin_tools.sma": "gameland_admin_tools.amxx"
+    "gameland_admin_tools.sma": "gameland_admin_tools.amxx",
+    "gameland_only_enforcer.sma": "gameland_only_enforcer.amxx",
+    "gameland_lan_optimizer.sma": "gameland_lan_optimizer.amxx",
+    "gameland_sound_optimizer.sma": "gameland_sound_optimizer.amxx",
+    "gameland_fastduck_fix.sma": "gameland_fastduck_fix.amxx",
+    "player_drop.sma": "player_drop.amxx",
+    "backweapons.sma": "backweapons.amxx"
   }
 }
 EOF
-echo "  -> Wrote deploy record: ${CONFIGS_DIR}/.mix_last_build.json"
+echo "  -> Wrote deploy record: ${CONFIGS_DIR}/.mix_last_build.json (${COMPILED_COUNT} managed plugins)"
 
 echo "[5/5] Optimizing server config for 5v5..."
 sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="12"/' "${PROJECT_DIR}/start.sh"

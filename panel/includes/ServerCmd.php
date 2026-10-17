@@ -457,7 +457,9 @@ class ServerCmd {
         $scriptingDir = $serverInfo['cstrike_dir'] . '/addons/amxmodx/scripting';
         $pluginsDir   = $serverInfo['cstrike_dir'] . '/addons/amxmodx/plugins';
         $pluginsIni   = $serverInfo['cstrike_dir'] . '/addons/amxmodx/configs/plugins.ini';
-        $registeredText = file_exists($pluginsIni) ? (string)file_get_contents($pluginsIni) : '';
+        $rawIni = file_exists($pluginsIni) ? (string)file_get_contents($pluginsIni) : '';
+        // Normalize CRLF to LF so regex matches reliably across Windows and Linux line endings
+        $registeredText = str_replace("\r", "", $rawIni);
         $status = [];
 
         foreach (self::getManagedPluginTargets() as $src => $bin) {
@@ -468,7 +470,7 @@ class ServerCmd {
             $srcMtime = $srcExists ? filemtime($srcPath) : 0;
             $binMtime = $binExists ? filemtime($binPath) : 0;
             $registered = (bool)preg_match(
-                '/^[ \t]*(?!;)[ \t]*' . preg_quote($bin, '/') . '(?:[ \t]|$)/mi',
+                '/^[ \t]*(?!;)[ \t]*' . preg_quote($bin, '/') . '(?=[ \t\r\n;]|$)/mi',
                 $registeredText
             );
             $status[$src] = [
@@ -1108,25 +1110,47 @@ class ServerCmd {
     /**
      * Get the latest commit information from the GitHub repository
      */
-    public static function getGitRepoStatus($repo = null, $branch = null) {
+    public static function getGitRepoStatus($repo = null, $branch = null, $forceRefresh = false) {
         $repo   = $repo   ?? (defined('GITHUB_REPO')   ? GITHUB_REPO   : 'GAMELAND-PROJECT/MixSystem_SV_PL');
         $branch = $branch ?? (defined('GITHUB_BRANCH') ? GITHUB_BRANCH : 'main');
 
+        $cacheFile = sys_get_temp_dir() . '/gl_gh_' . md5($repo . '@' . $branch) . '.json';
+        if (!$forceRefresh && file_exists($cacheFile) && (time() - filemtime($cacheFile) < 180)) {
+            $cached = @json_decode(@file_get_contents($cacheFile), true);
+            if ($cached && !empty($cached['sha'])) {
+                return $cached;
+            }
+        }
+
         $url  = "https://api.github.com/repos/{$repo}/commits/{$branch}";
-        $ctx  = self::githubHttpContext(6);
+        $ctx  = self::githubHttpContext(5);
         $res  = @file_get_contents($url, false, $ctx);
-        if ($res === false) return null;
+        if ($res === false) {
+            if (file_exists($cacheFile)) {
+                $cached = @json_decode(@file_get_contents($cacheFile), true);
+                if ($cached && !empty($cached['sha'])) return $cached;
+            }
+            return null;
+        }
 
         $data = json_decode($res, true);
-        if (!$data || !isset($data['sha'])) return null;
+        if (!$data || !isset($data['sha'])) {
+            if (file_exists($cacheFile)) {
+                $cached = @json_decode(@file_get_contents($cacheFile), true);
+                if ($cached && !empty($cached['sha'])) return $cached;
+            }
+            return null;
+        }
 
-        return [
+        $status = [
             'sha'      => substr($data['sha'], 0, 7),
             'full_sha' => $data['sha'],
             'message'  => $data['commit']['message'] ?? '',
             'author'   => $data['commit']['author']['name'] ?? '',
             'date'     => $data['commit']['author']['date'] ?? '',
         ];
+        @file_put_contents($cacheFile, json_encode($status));
+        return $status;
     }
 
     /**
@@ -1371,6 +1395,35 @@ class ServerCmd {
                     $bPath = $pluginsDir . '/' . $bin;
                     if (is_file($bPath)) @touch($bPath, time() + 5);
                 }
+
+                // Propagate compiled .amxx to all other server instances automatically
+                $allServers = self::getManagedServers();
+                foreach ($allServers as $sId => $sConf) {
+                    if (($sConf['cstrike_dir'] ?? '') !== $serverInfo['cstrike_dir']) {
+                        $otherPluginsDir = ($sConf['cstrike_dir'] ?? '') . '/addons/amxmodx/plugins';
+                        if (is_dir($otherPluginsDir)) {
+                            foreach ($targets as $binFile) {
+                                $srcBin = $pluginsDir . '/' . $binFile;
+                                if (file_exists($srcBin)) {
+                                    @copy($srcBin, $otherPluginsDir . '/' . $binFile);
+                                }
+                            }
+                            self::ensureMixRegistered($sConf);
+                        }
+                    }
+                }
+
+                // Save authoritative build record
+                $metaPath = $serverInfo['cstrike_dir'] . '/addons/amxmodx/configs/.mix_last_build.json';
+                $buildMeta = [
+                    'build_time' => date('c'),
+                    'commit' => self::getGitRepoStatus(),
+                    'success' => true,
+                    'compiled_count' => count($targets),
+                    'targets' => self::getPluginBuildStatus($serverInfo),
+                ];
+                @file_put_contents($metaPath, json_encode($buildMeta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
                 return [
                     'success' => true,
                     'compiled_count' => count($targets),
@@ -1526,7 +1579,7 @@ class ServerCmd {
 
         if (empty($mixFiles)) return;
 
-        $content  = file_get_contents($pluginsIni);
+        $content  = str_replace("\r", "", (string)file_get_contents($pluginsIni));
         $modified = false;
 
         foreach ($mixFiles as $mf => $desc) {
