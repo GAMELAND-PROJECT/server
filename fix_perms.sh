@@ -16,10 +16,11 @@ if [ -f "$PROJECT_ROOT/hltv_controller.log" ] && [ "$(stat -c%s "$PROJECT_ROOT/h
     tail -n 1000 "$PROJECT_ROOT/hltv_controller.log" > "$PROJECT_ROOT/hltv_controller.log.tmp" 2>/dev/null && mv "$PROJECT_ROOT/hltv_controller.log.tmp" "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
 fi
 
-# 0. Ensure zip and unzip tools are installed for demo compression
-if ! command -v zip >/dev/null 2>&1; then
-    echo "[*] Installing zip/unzip..."
-    apt-get update -qq && apt-get install -y -qq zip unzip 2>/dev/null || true
+# 0. Ensure required system packages (acl, zip, unzip) are installed
+if ! command -v setfacl >/dev/null 2>&1 || ! command -v zip >/dev/null 2>&1; then
+    echo "[*] Installing system tools (acl, zip, unzip)..."
+    apt-get update -qq 2>/dev/null || true
+    apt-get install -y -qq acl zip unzip 2>/dev/null || true
 fi
 
 # 1. Give execution permission to the main HLDS binaries
@@ -65,8 +66,7 @@ EOF
     SUDOERS_FILE="/etc/sudoers.d/gameland-panel"
     cat > "${SUDOERS_FILE}" <<EOF
 Defaults:www-data !requiretty
-Cmnd_Alias GAMELAND_PANEL_HELPER = /usr/local/sbin/gameland-panel-sudo
-www-data ALL=(root) NOPASSWD: GAMELAND_PANEL_HELPER
+www-data ALL=(ALL) NOPASSWD: /usr/local/sbin/gameland-panel-sudo, $PROJECT_ROOT/panel/gameland-panel-sudo.sh
 EOF
     chmod 0440 "${SUDOERS_FILE}"
     echo "✅ Configured: /etc/sudoers.d/gameland-panel"
@@ -79,29 +79,48 @@ if [ -f "/usr/local/bin/SVGL" ]; then
 fi
 
 # 5. Fix permissions for Web Panel, Sessions, Demos and AMXX folders
+CONFIGS_DIR="$PROJECT_ROOT/cstrike/addons/amxmodx/configs"
+mkdir -p "$CONFIGS_DIR"
 mkdir -p "$PROJECT_ROOT/panel/demos"
 mkdir -p "$PROJECT_ROOT/panel/sessions"
+
 chown -R www-data:www-data "$PROJECT_ROOT/panel" 2>/dev/null || true
 chmod -R 775 "$PROJECT_ROOT/panel" 2>/dev/null || true
 chmod -R 777 "$PROJECT_ROOT/panel/sessions" "$PROJECT_ROOT/panel/demos" 2>/dev/null || true
 chmod 755 /var/lib/php 2>/dev/null || true
-chmod 777 "$PROJECT_ROOT/cstrike" 2>/dev/null
-chmod -R 777 "$PROJECT_ROOT/cstrike/addons/amxmodx" 2>/dev/null
-if [ ! -s "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/users.ini" ]; then
-    cat > "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/users.ini" << 'EOF'
+chmod 777 "$PROJECT_ROOT/cstrike" 2>/dev/null || true
+chmod -R 777 "$PROJECT_ROOT/cstrike/addons/amxmodx" 2>/dev/null || true
+
+if [ ! -s "$CONFIGS_DIR/users.ini" ]; then
+    cat > "$CONFIGS_DIR/users.ini" << 'EOF'
 ; Users configuration file
 ; Format: <name|ip|steamid> <password> <access flags> <account flags>
 "loopback" "" "abcdefghijklmnopqrstuv" "de" ; Server Local Admin
 EOF
 fi
-touch "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/users.ini" 2>/dev/null || true
-touch "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
-touch "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/maps.ini" 2>/dev/null || true
-chmod -R 777 "$PROJECT_ROOT/cstrike/addons/amxmodx/configs" 2>/dev/null || true
-chmod 666 "$PROJECT_ROOT/cstrike/addons/amxmodx/configs"/*.ini 2>/dev/null || true
-chown -R www-data:www-data "$PROJECT_ROOT/cstrike/addons/amxmodx/configs" 2>/dev/null || true
-chmod -R 777 "$PROJECT_ROOT/instances" 2>/dev/null || true
-chown -R www-data:www-data "$PROJECT_ROOT/instances" 2>/dev/null || true
+touch "$CONFIGS_DIR/users.ini" 2>/dev/null || true
+touch "$CONFIGS_DIR/plugins.ini" 2>/dev/null || true
+touch "$CONFIGS_DIR/maps.ini" 2>/dev/null || true
+
+chmod -R 777 "$CONFIGS_DIR" 2>/dev/null || true
+find "$CONFIGS_DIR" -type f -exec chmod 666 {} + 2>/dev/null || true
+chown -R www-data:www-data "$CONFIGS_DIR" 2>/dev/null || true
+
+# Apply inherited POSIX ACLs so www-data always has rwx permissions on configs
+if command -v setfacl >/dev/null 2>&1; then
+    setfacl -R -m u:www-data:rwx,g:www-data:rwx,d:u:www-data:rwx,d:g:www-data:rwx "$CONFIGS_DIR" 2>/dev/null || true
+    setfacl -R -m u:www-data:rwx,g:www-data:rwx,d:u:www-data:rwx,d:g:www-data:rwx "$PROJECT_ROOT/panel" 2>/dev/null || true
+    if [ -d "$PROJECT_ROOT/instances" ]; then
+        setfacl -R -m u:www-data:rwx,g:www-data:rwx,d:u:www-data:rwx,d:g:www-data:rwx "$PROJECT_ROOT/instances" 2>/dev/null || true
+    fi
+fi
+
+if [ -d "$PROJECT_ROOT/instances" ]; then
+    chmod -R 777 "$PROJECT_ROOT/instances" 2>/dev/null || true
+    find "$PROJECT_ROOT/instances" -name "*.ini" -exec chmod 666 {} + 2>/dev/null || true
+    chown -R www-data:www-data "$PROJECT_ROOT/instances" 2>/dev/null || true
+fi
+
 touch "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
 chmod 666 "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
 echo "✅ Fixed: Web Panel, Sessions, AMXX Configs & Demos write permissions"

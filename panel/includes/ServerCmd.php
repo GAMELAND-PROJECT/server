@@ -779,17 +779,38 @@ class ServerCmd {
      */
     public static function getAdmins($usersIniPath) {
         $admins = [];
-        if (!file_exists($usersIniPath)) {
+        if (!file_exists($usersIniPath) || filesize($usersIniPath) === 0) {
             $fallback = dirname(__DIR__, 2) . '/cstrike/addons/amxmodx/configs/users.ini';
-            if (file_exists($fallback)) {
+            if (file_exists($fallback) && filesize($fallback) > 0) {
                 $usersIniPath = $fallback;
             } else {
-                return $admins;
+                // Auto-healing: If users.ini is missing or empty, ensure the default local loopback admin exists
+                $defaultContent = "; Users configuration file\n; Format: <name|ip|steamid> <password> <access flags> <account flags>\n\"loopback\" \"\" \"abcdefghijklmnopqrstuv\" \"de\" ; Server Local Admin\n";
+                self::writeUsersIniFile($usersIniPath, $defaultContent);
+                if (!file_exists($usersIniPath) || filesize($usersIniPath) === 0) {
+                    $admins[] = [
+                        'line_num' => 0,
+                        'auth'     => 'loopback',
+                        'password' => '',
+                        'access'   => 'abcdefghijklmnopqrstuv',
+                        'flags'    => 'de',
+                        'comment'  => 'Server Local Admin'
+                    ];
+                    return $admins;
+                }
             }
         }
 
         $lines = @file($usersIniPath, FILE_IGNORE_NEW_LINES);
-        if ($lines === false) {
+        if ($lines === false || empty($lines)) {
+            $admins[] = [
+                'line_num' => 0,
+                'auth'     => 'loopback',
+                'password' => '',
+                'access'   => 'abcdefghijklmnopqrstuv',
+                'flags'    => 'de',
+                'comment'  => 'Server Local Admin'
+            ];
             return $admins;
         }
 
@@ -848,7 +869,7 @@ class ServerCmd {
     }
 
     /**
-     * Safely write content to users.ini with 5 levels of fallback resilience
+     * Safely write content to users.ini with maximum resilience and zero data loss
      */
     public static function writeUsersIniFile($usersIniPath, $content) {
         $dir = dirname($usersIniPath);
@@ -862,33 +883,50 @@ class ServerCmd {
             return true;
         }
 
-        // 2. Chmod and retry
+        // 2. Chmod and retry direct write
         @chmod($usersIniPath, 0666);
         if (@file_put_contents($usersIniPath, $content) !== false) {
             return true;
         }
 
-        // 3. Unlink (delete) and recreate. In POSIX, unlinking succeeds if directory is writable
-        @unlink($usersIniPath);
-        if (@file_put_contents($usersIniPath, $content) !== false) {
-            @chmod($usersIniPath, 0666);
-            return true;
+        // 3. Atomic write via temp file in the SAME directory (avoids /tmp cross-filesystem and PrivateTmp)
+        $tmpFile = $usersIniPath . '.tmp.' . uniqid('', true);
+        if (@file_put_contents($tmpFile, $content) !== false) {
+            @chmod($tmpFile, 0666);
+            if (@rename($tmpFile, $usersIniPath)) {
+                @chmod($usersIniPath, 0666);
+                return true;
+            }
+            @unlink($tmpFile);
         }
 
-        // 4. Safe privileged helper via /tmp (copies file, sets 666 & chowns www-data, takes 2ms, zero restarts)
-        $helper = self::getPrivilegedHelperPath();
-        $tempDir = is_dir('/tmp') ? '/tmp' : sys_get_temp_dir();
-        $tempFile = $tempDir . '/users_ini_' . uniqid() . '.tmp';
-        if (@file_put_contents($tempFile, $content) !== false) {
-            @exec("sudo -n " . escapeshellarg($helper) . " write_users_ini " . escapeshellarg($tempFile) . " " . escapeshellarg($usersIniPath) . " 2>&1");
-            @unlink($tempFile);
-            if (file_exists($usersIniPath) && @file_get_contents($usersIniPath) === $content) {
+        // 4. Safe base64 streaming pipe to privileged helper (100% bypasses /tmp namespace)
+        $helpers = [
+            '/usr/local/sbin/gameland-panel-sudo',
+            self::getManagerRoot() . '/panel/gameland-panel-sudo.sh'
+        ];
+        $b64 = base64_encode($content);
+
+        foreach ($helpers as $hlp) {
+            if (!is_file($hlp)) {
+                continue;
+            }
+            $cmd = "echo " . escapeshellarg($b64) . " | sudo -n " . escapeshellarg($hlp) . " write_users_ini_b64 " . escapeshellarg($usersIniPath) . " 2>&1";
+            $out = [];
+            $ret = -1;
+            @exec($cmd, $out, $ret);
+            if ($ret === 0 && file_exists($usersIniPath) && @file_get_contents($usersIniPath) === $content) {
                 return true;
             }
         }
 
-        // 5. Privileged fixperms (fixes configs permissions to 777/666 for www-data in 2ms) and retry
-        @exec("sudo -n " . escapeshellarg($helper) . " fixperms 2>&1");
+        // 5. Privileged fixperms repair and retry direct write
+        foreach ($helpers as $hlp) {
+            if (!is_file($hlp)) {
+                continue;
+            }
+            @exec("sudo -n " . escapeshellarg($hlp) . " fixperms 2>&1");
+        }
         @chmod($usersIniPath, 0666);
         if (@file_put_contents($usersIniPath, $content) !== false) {
             return true;
@@ -938,8 +976,12 @@ class ServerCmd {
         }
 
         $lines = file_exists($usersIniPath) ? @file($usersIniPath, FILE_IGNORE_NEW_LINES) : [];
-        if ($lines === false) {
-            $lines = [];
+        if ($lines === false || empty($lines)) {
+            $lines = [
+                '; Users configuration file',
+                '; Format: <name|ip|steamid> <password> <access flags> <account flags>',
+                '"loopback" "" "abcdefghijklmnopqrstuv" "de" ; Server Local Admin'
+            ];
         }
 
         $found = false;

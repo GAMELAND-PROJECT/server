@@ -28,12 +28,38 @@ case "$action" in
         exec /bin/bash "${PROJECT_DIR}/install_mix.sh" "${2:-}"
         ;;
     fixperms)
-        chmod -R 777 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
-        chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs"/*.ini 2>/dev/null || true
-        chown -R www-data:www-data "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
+        configs="${PROJECT_DIR}/cstrike/addons/amxmodx/configs"
+        mkdir -p "$configs" 2>/dev/null || true
+        chmod -R 777 "$configs" 2>/dev/null || true
+        find "$configs" -type f -exec chmod 666 {} + 2>/dev/null || true
+        chown -R www-data:www-data "$configs" 2>/dev/null || true
+        if command -v setfacl >/dev/null 2>&1; then
+            setfacl -R -m u:www-data:rwx,g:www-data:rwx,d:u:www-data:rwx,d:g:www-data:rwx "$configs" 2>/dev/null || true
+            setfacl -R -m u:www-data:rwx,g:www-data:rwx,d:u:www-data:rwx,d:g:www-data:rwx "${PROJECT_DIR}/panel" 2>/dev/null || true
+            if [ -d "${PROJECT_DIR}/instances" ]; then
+                setfacl -R -m u:www-data:rwx,g:www-data:rwx,d:u:www-data:rwx,d:g:www-data:rwx "${PROJECT_DIR}/instances" 2>/dev/null || true
+            fi
+        fi
         chmod -R 775 "${PROJECT_DIR}/panel" 2>/dev/null || true
         chmod -R 777 "${PROJECT_DIR}/panel/sessions" "${PROJECT_DIR}/panel/demos" 2>/dev/null || true
         chown -R www-data:www-data "${PROJECT_DIR}/panel" 2>/dev/null || true
+        if [ -d "${PROJECT_DIR}/instances" ]; then
+            chmod -R 777 "${PROJECT_DIR}/instances" 2>/dev/null || true
+            chown -R www-data:www-data "${PROJECT_DIR}/instances" 2>/dev/null || true
+        fi
+        exit 0
+        ;;
+    write_users_ini_b64)
+        dest="${2:-${PROJECT_DIR}/cstrike/addons/amxmodx/configs/users.ini}"
+        mkdir -p "$(dirname "$dest")" 2>/dev/null || true
+        base64 -d > "$dest"
+        chmod 666 "$dest" 2>/dev/null || true
+        chown www-data:www-data "$dest" 2>/dev/null || true
+        chown -R www-data:www-data "$(dirname "$dest")" 2>/dev/null || true
+        chmod -R 777 "$(dirname "$dest")" 2>/dev/null || true
+        if command -v setfacl >/dev/null 2>&1; then
+            setfacl -m u:www-data:rw "$dest" 2>/dev/null || true
+        fi
         exit 0
         ;;
     write_users_ini)
@@ -44,6 +70,11 @@ case "$action" in
             cp -f "$src" "$dest"
             chmod 666 "$dest"
             chown www-data:www-data "$dest" 2>/dev/null || true
+            chown -R www-data:www-data "$(dirname "$dest")" 2>/dev/null || true
+            chmod -R 777 "$(dirname "$dest")" 2>/dev/null || true
+            if command -v setfacl >/dev/null 2>&1; then
+                setfacl -m u:www-data:rw "$dest" 2>/dev/null || true
+            fi
             exit 0
         fi
         exit 1
