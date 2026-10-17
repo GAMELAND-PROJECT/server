@@ -55,8 +55,13 @@ EOF
 
 ensure_registry() {
     mkdir -p "$INSTANCES_DIR"
+    mkdir -p /opt/gameland/persistent 2>/dev/null || true
     if [[ ! -f "$REGISTRY_FILE" ]]; then
-        printf '{\n  "servers": []\n}\n' > "$REGISTRY_FILE"
+        if [[ -f "/opt/gameland/persistent/servers.json" ]]; then
+            cp -f "/opt/gameland/persistent/servers.json" "$REGISTRY_FILE"
+        else
+            printf '{\n  "servers": []\n}\n' > "$REGISTRY_FILE"
+        fi
     fi
     if [[ -d "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" ]]; then
         chmod -R 777 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
@@ -163,7 +168,10 @@ registry_append() {
             "service_name" => "gameland@" . $id . ".service",
             "server_dir" => $argv[6],
         ];
-        file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+        file_put_contents($file, $json);
+        @mkdir("/opt/gameland/persistent", 0777, true);
+        @file_put_contents("/opt/gameland/persistent/servers.json", $json);
     ' "$REGISTRY_FILE" "$id" "$name" "$port" "$rcon" "$dir"
 }
 
@@ -176,7 +184,10 @@ registry_remove() {
         $data = json_decode(@file_get_contents($file), true);
         if (!is_array($data)) $data = ["servers" => []];
         $data["servers"] = array_values(array_filter($data["servers"] ?? [], fn($s) => ($s["id"] ?? "") !== $id));
-        file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+        file_put_contents($file, $json);
+        @mkdir("/opt/gameland/persistent", 0777, true);
+        @file_put_contents("/opt/gameland/persistent/servers.json", $json);
     ' "$REGISTRY_FILE" "$id"
 }
 

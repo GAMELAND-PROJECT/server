@@ -8,7 +8,10 @@ echo "🔧 Fixing permissions for server binaries, demo folders and scripts..."
 PROJECT_ROOT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
 # Clean disk space if low (apt cache, journald logs, bloated controller logs)
-echo "[*] Cleaning temporary cache and rotating logs..."
+echo "[*] Cleaning temporary cache, rotating logs, killing any leftover HLTV..."
+pkill -9 -f hltv 2>/dev/null || true
+screen -X -S gameland_hltv quit 2>/dev/null || true
+screen -X -S demo_compressor quit 2>/dev/null || true
 apt-get clean 2>/dev/null || true
 journalctl --vacuum-size=50M 2>/dev/null || true
 rm -rf /var/lib/systemd/coredump/* "$PROJECT_ROOT"/core* 2>/dev/null || true
@@ -90,6 +93,29 @@ chmod -R 777 "$PROJECT_ROOT/panel/sessions" "$PROJECT_ROOT/panel/demos" 2>/dev/n
 chmod 755 /var/lib/php 2>/dev/null || true
 chmod 777 "$PROJECT_ROOT/cstrike" 2>/dev/null || true
 chmod -R 777 "$PROJECT_ROOT/cstrike/addons/amxmodx" 2>/dev/null || true
+
+# Persistent data protection (admins & servers)
+mkdir -p /opt/gameland/persistent
+if [ -f "/opt/gameland/persistent/users.ini" ] && [ -s "/opt/gameland/persistent/users.ini" ]; then
+    PERSIST_COUNT=$(grep -cE '^[[:space:]]*"[^"]+"' /opt/gameland/persistent/users.ini 2>/dev/null || echo 0)
+    LOCAL_COUNT=$(grep -cE '^[[:space:]]*"[^"]+"' "$CONFIGS_DIR/users.ini" 2>/dev/null || echo 0)
+    if [ "$PERSIST_COUNT" -gt "$LOCAL_COUNT" ] || [ ! -s "$CONFIGS_DIR/users.ini" ]; then
+        cp -f /opt/gameland/persistent/users.ini "$CONFIGS_DIR/users.ini" 2>/dev/null || true
+        echo "✅ Restored $PERSIST_COUNT admins from /opt/gameland/persistent/users.ini"
+    fi
+elif [ -s "$CONFIGS_DIR/users.ini" ]; then
+    cp -f "$CONFIGS_DIR/users.ini" /opt/gameland/persistent/users.ini 2>/dev/null || true
+fi
+
+if [ -f "/opt/gameland/persistent/servers.json" ] && [ -s "/opt/gameland/persistent/servers.json" ]; then
+    if [ ! -s "$PROJECT_ROOT/instances/servers.json" ]; then
+        mkdir -p "$PROJECT_ROOT/instances"
+        cp -f /opt/gameland/persistent/servers.json "$PROJECT_ROOT/instances/servers.json" 2>/dev/null || true
+        echo "✅ Restored servers.json from persistent storage"
+    fi
+elif [ -s "$PROJECT_ROOT/instances/servers.json" ]; then
+    cp -f "$PROJECT_ROOT/instances/servers.json" /opt/gameland/persistent/servers.json 2>/dev/null || true
+fi
 
 if [ ! -s "$CONFIGS_DIR/users.ini" ]; then
     cat > "$CONFIGS_DIR/users.ini" << 'EOF'

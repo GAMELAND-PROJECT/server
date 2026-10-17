@@ -174,7 +174,7 @@ EOF
 echo "  -> Wrote deploy record: ${CONFIGS_DIR}/.mix_last_build.json (${COMPILED_COUNT} managed plugins)"
 
 echo "[5/5] Optimizing server config for 5v5..."
-sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="12"/' "${PROJECT_DIR}/start.sh"
+sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="18"/' "${PROJECT_DIR}/start.sh"
 
 # Sync updated plugins and MixSettings to all server instances in /opt/gameland/instances
 if [ -d "${PROJECT_DIR}/instances" ] || [ -d "/opt/gameland/instances" ]; then
@@ -207,6 +207,14 @@ echo "   say /pause     -> Pause / Unpause match"
 echo "   say /st        -> Swap teams"
 echo "   say /kspec     -> Kick spectators"
 echo "================================================="
+# Restore persistent admins & servers if needed
+if [ -f "/opt/gameland/persistent/users.ini" ]; then
+    cp -f /opt/gameland/persistent/users.ini "${CONFIGS_DIR}/users.ini" 2>/dev/null || true
+fi
+if [ -f "/opt/gameland/persistent/servers.json" ]; then
+    cp -f /opt/gameland/persistent/servers.json "${PROJECT_DIR}/instances/servers.json" 2>/dev/null || true
+fi
+
 echo " Restarting gameland.service to load plugins..."
 systemctl restart gameland.service
 sleep 2

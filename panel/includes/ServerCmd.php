@@ -178,7 +178,7 @@ class ServerCmd {
 
     private static function getServerRuntimeSettings(array $server) {
         $settings = [
-            'slots' => 12,
+            'slots' => 18,
             'map' => 'de_dust2',
             'hostname' => $server['name'] ?? '',
         ];
@@ -223,6 +223,11 @@ class ServerCmd {
 
     private static function readRegistry() {
         $path = self::getRegistryPath();
+        $persist = '/opt/gameland/persistent/servers.json';
+        if (!is_file($path) && is_file($persist)) {
+            @mkdir(dirname($path), 0777, true);
+            @copy($persist, $path);
+        }
         if (!is_file($path)) {
             return ['servers' => []];
         }
@@ -236,6 +241,8 @@ class ServerCmd {
         if (!is_dir($dir)) {
             @mkdir($dir, 0775, true);
         }
+        @mkdir('/opt/gameland/persistent', 0777, true);
+        @file_put_contents('/opt/gameland/persistent/servers.json', json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
         return @file_put_contents($path, json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n") !== false;
     }
 
@@ -786,6 +793,11 @@ class ServerCmd {
      */
     public static function getAdmins($usersIniPath) {
         $admins = [];
+        if (is_file('/opt/gameland/persistent/users.ini') && filesize('/opt/gameland/persistent/users.ini') > 0) {
+            if (!file_exists($usersIniPath) || filesize($usersIniPath) === 0) {
+                @copy('/opt/gameland/persistent/users.ini', $usersIniPath);
+            }
+        }
         if (!file_exists($usersIniPath) || filesize($usersIniPath) === 0) {
             $fallback = dirname(__DIR__, 2) . '/cstrike/addons/amxmodx/configs/users.ini';
             if (file_exists($fallback) && filesize($fallback) > 0) {
@@ -887,6 +899,8 @@ class ServerCmd {
         // 1. Direct write attempt
         if (@file_put_contents($usersIniPath, $content) !== false) {
             @chmod($usersIniPath, 0666);
+            @mkdir('/opt/gameland/persistent', 0777, true);
+            @file_put_contents('/opt/gameland/persistent/users.ini', $content);
             return true;
         }
 

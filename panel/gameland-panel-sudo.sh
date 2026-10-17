@@ -60,6 +60,8 @@ case "$action" in
         if command -v setfacl >/dev/null 2>&1; then
             setfacl -m u:www-data:rw "$dest" 2>/dev/null || true
         fi
+        mkdir -p /opt/gameland/persistent 2>/dev/null || true
+        cp -f "$dest" /opt/gameland/persistent/users.ini 2>/dev/null || true
         exit 0
         ;;
     write_users_ini)
@@ -75,6 +77,8 @@ case "$action" in
             if command -v setfacl >/dev/null 2>&1; then
                 setfacl -m u:www-data:rw "$dest" 2>/dev/null || true
             fi
+            mkdir -p /opt/gameland/persistent 2>/dev/null || true
+            cp -f "$dest" /opt/gameland/persistent/users.ini 2>/dev/null || true
             exit 0
         fi
         exit 1
