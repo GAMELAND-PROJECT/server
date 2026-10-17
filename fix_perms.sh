@@ -82,6 +82,13 @@ chmod -R 777 "$PROJECT_ROOT/panel/sessions" "$PROJECT_ROOT/panel/demos" 2>/dev/n
 chmod 755 /var/lib/php 2>/dev/null || true
 chmod 777 "$PROJECT_ROOT/cstrike" 2>/dev/null
 chmod -R 777 "$PROJECT_ROOT/cstrike/addons/amxmodx" 2>/dev/null
+if [ ! -s "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/users.ini" ]; then
+    cat > "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/users.ini" << 'EOF'
+; Users configuration file
+; Format: <name|ip|steamid> <password> <access flags> <account flags>
+"loopback" "" "abcdefghijklmnopqrstuv" "de" ; Server Local Admin
+EOF
+fi
 touch "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/users.ini" 2>/dev/null || true
 touch "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
 touch "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/maps.ini" 2>/dev/null || true

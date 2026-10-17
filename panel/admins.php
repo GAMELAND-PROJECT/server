@@ -7,7 +7,7 @@ $msg = '';
 $msgType = '';
 
 // Handle Add / Edit Admin Form
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_admin'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['save_admin']) || !empty($_POST['admin_auth']))) {
     if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
         $msg = 'Invalid security token!';
         $msgType = 'danger';
@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_admin'])) {
 }
 
 // Handle Delete Admin
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_admin'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['delete_admin']) || isset($_POST['delete_admin_btn']))) {
     if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
         $msg = 'Invalid security token!';
         $msgType = 'danger';
@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_admin'])) {
 }
 
 // Handle Manual Live Reload Admins Action
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reload_admins'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['reload_admins']) || isset($_POST['reload_admins_btn']))) {
     if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
         $msg = 'Invalid security token!';
         $msgType = 'danger';
@@ -78,7 +78,8 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
     <div style="display: flex; gap: 0.5rem;">
         <form method="POST" style="display:inline;">
             <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
-            <button type="submit" name="reload_admins" class="btn btn-warning" title="اعمال آنی تغییرات روی سرور روشن بدون ریستارت">
+            <input type="hidden" name="reload_admins" value="1">
+            <button type="submit" name="reload_admins_btn" class="btn btn-warning" title="اعمال آنی تغییرات روی سرور روشن بدون ریستارت">
                 ⚡ ریلود آنی سرور (amx_reloadadmins)
             </button>
         </form>
@@ -119,8 +120,10 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
                         </tr>
                     <?php else: ?>
                         <?php foreach ($admins as $adm): 
-                            $isSteam = (str_starts_with($adm['auth'], 'STEAM_') || str_starts_with($adm['auth'], 'VALVE_') || str_contains($adm['flags'], 'c'));
-                            $isIp = (filter_var($adm['auth'], FILTER_VALIDATE_IP) !== false || str_contains($adm['flags'], 'd'));
+                            $authStr = (string)($adm['auth'] ?? '');
+                            $flagsStr = (string)($adm['flags'] ?? '');
+                            $isSteam = (str_starts_with($authStr, 'STEAM_') || str_starts_with($authStr, 'VALVE_') || str_contains($flagsStr, 'c'));
+                            $isIp = (filter_var($authStr, FILTER_VALIDATE_IP) !== false || str_contains($flagsStr, 'd'));
                             $typeBadge = $isSteam ? '<span class="badge" style="background: rgba(6,182,212,0.15); color: #38bdf8; border: 1px solid rgba(6,182,212,0.3);">STEAM</span>' : 
                                          ($isIp ? '<span class="badge" style="background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3);">IP</span>' : 
                                                   '<span class="badge" style="background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3);">NICK</span>');
@@ -170,8 +173,9 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
                                     <!-- Delete single server -->
                                     <form method="POST" style="display:inline;" onsubmit="return confirm('آیا از حذف ادمین <?php echo htmlspecialchars(addslashes($adm['auth'])); ?> از این سرور اطمینان دارید؟')">
                                         <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
+                                        <input type="hidden" name="delete_admin" value="1">
                                         <input type="hidden" name="delete_auth" value="<?php echo htmlspecialchars($adm['auth']); ?>">
-                                        <button type="submit" name="delete_admin" class="btn btn-danger btn-sm" title="حذف از سرور فعال">
+                                        <button type="submit" name="delete_admin_btn" class="btn btn-danger btn-sm" title="حذف از سرور فعال">
                                             🗑️
                                         </button>
                                     </form>
@@ -179,9 +183,10 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
                                     <!-- Delete all servers -->
                                     <form method="POST" style="display:inline;" onsubmit="return confirm('آیا از حذف ادمین <?php echo htmlspecialchars(addslashes($adm['auth'])); ?> از تمام سرورهای فعال اطمینان دارید؟')">
                                         <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
+                                        <input type="hidden" name="delete_admin" value="1">
                                         <input type="hidden" name="delete_auth" value="<?php echo htmlspecialchars($adm['auth']); ?>">
                                         <input type="hidden" name="apply_all_servers" value="1">
-                                        <button type="submit" name="delete_admin" class="btn btn-danger btn-sm" title="حذف از تمام سرورها" style="background: #991b1b;">
+                                        <button type="submit" name="delete_admin_btn" class="btn btn-danger btn-sm" title="حذف از تمام سرورها" style="background: #991b1b;">
                                             🌐 همه
                                         </button>
                                     </form>
@@ -221,6 +226,7 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
 
         <form method="POST" action="admins.php" id="adminForm">
             <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
+            <input type="hidden" name="save_admin" value="1">
             <input type="hidden" name="old_auth" id="old_auth" value="">
 
             <div class="form-group">
@@ -353,7 +359,7 @@ $admins = ServerCmd::getAdmins($activeServer['users_ini']);
                 </label>
             </div>
 
-            <button type="submit" name="save_admin" id="submitBtn" class="btn btn-primary" style="width: 100%; padding: 0.75rem; font-size: 1rem; font-weight: 600;">
+            <button type="submit" name="save_admin" value="1" id="submitBtn" class="btn btn-primary" style="width: 100%; padding: 0.75rem; font-size: 1rem; font-weight: 600;">
                 💾 ذخیره ادمین و اعمال آنی روی سرور
             </button>
         </form>
@@ -599,6 +605,18 @@ function filterAdminsTable() {
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     syncCheckboxesFromInput();
+    const adminForm = document.getElementById('adminForm');
+    if (adminForm) {
+        adminForm.addEventListener('submit', () => {
+            setTimeout(() => {
+                const btn = document.getElementById('submitBtn');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '⏳ در حال ذخیره و اعمال روی سرور...';
+                }
+            }, 10);
+        });
+    }
 });
 </script>
 

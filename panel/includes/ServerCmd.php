@@ -63,13 +63,22 @@ class ServerCmd {
                 $failed[$id] = $result['message'] ?? 'Operation failed';
             }
         }
+
+        $msg = '';
+        if (count($results) === 1) {
+            $single = reset($results);
+            $msg = $single['message'] ?? (empty($failed) ? 'Operation completed successfully.' : 'Operation failed.');
+        } elseif (empty($failed) && !empty($results)) {
+            $msg = 'Operation completed on all selected servers (' . count($results) . ').';
+        } else {
+            $msg = 'Operation failed on ' . implode(', ', array_keys($failed)) . ': ' . implode('; ', array_values($failed));
+        }
+
         return [
-            'success' => empty($failed),
+            'success' => empty($failed) && !empty($results),
             'results' => $results,
-            'failed' => $failed,
-            'message' => empty($failed)
-                ? 'Operation completed on all selected servers.'
-                : 'Operation completed with failures on: ' . implode(', ', array_keys($failed)),
+            'failed'  => $failed,
+            'message' => $msg,
         ];
     }
 
@@ -763,17 +772,26 @@ class ServerCmd {
     public static function getAdmins($usersIniPath) {
         $admins = [];
         if (!file_exists($usersIniPath)) {
+            $fallback = dirname(__DIR__, 2) . '/cstrike/addons/amxmodx/configs/users.ini';
+            if (file_exists($fallback)) {
+                $usersIniPath = $fallback;
+            } else {
+                return $admins;
+            }
+        }
+
+        $lines = @file($usersIniPath, FILE_IGNORE_NEW_LINES);
+        if ($lines === false) {
             return $admins;
         }
 
-        $lines = file($usersIniPath, FILE_IGNORE_NEW_LINES);
         foreach ($lines as $index => $line) {
             $trimmed = trim($line);
             if ($trimmed === '' || $trimmed[0] === ';' || substr($trimmed, 0, 2) === '//') {
                 continue;
             }
 
-            // Match: "auth" "password" "access" "flags"
+            // Match: "auth" "password" "access" "flags" ; comment
             if (preg_match('/^"([^"]+)"\s+"([^"]*)"\s+"([^"]+)"\s+"([^"]+)"(?:\s*;?\s*(.*))?$/', $trimmed, $m)) {
                 $admins[] = [
                     'line_num' => $index,
@@ -782,6 +800,20 @@ class ServerCmd {
                     'access'   => $m[3],
                     'flags'    => $m[4],
                     'comment'  => isset($m[5]) ? trim($m[5]) : ''
+                ];
+            } elseif (preg_match('/^"([^"]+)"\s+"([^"]*)"\s+"([^"]+)"\s+"([^"]+)"/', $trimmed, $m)) {
+                $comment = '';
+                $commentPos = strpos($trimmed, ';');
+                if ($commentPos !== false) {
+                    $comment = trim(substr($trimmed, $commentPos + 1));
+                }
+                $admins[] = [
+                    'line_num' => $index,
+                    'auth'     => $m[1],
+                    'password' => $m[2],
+                    'access'   => $m[3],
+                    'flags'    => $m[4],
+                    'comment'  => $comment
                 ];
             }
         }
@@ -803,6 +835,13 @@ class ServerCmd {
             return ['success' => false, 'message' => 'Identity (Auth), Access Flags, and Account Flags are required.'];
         }
 
+        if (!file_exists($usersIniPath)) {
+            $fallback = dirname(__DIR__, 2) . '/cstrike/addons/amxmodx/configs/users.ini';
+            if (file_exists($fallback) || is_dir(dirname($fallback))) {
+                $usersIniPath = $fallback;
+            }
+        }
+
         $lineStr = sprintf('"%s" "%s" "%s" "%s"', $auth, $password, $access, $flags);
         if ($comment !== '') {
             $lineStr .= ' ; ' . $comment;
@@ -816,7 +855,11 @@ class ServerCmd {
             @chmod($usersIniPath, 0666);
         }
 
-        $lines = file_exists($usersIniPath) ? file($usersIniPath, FILE_IGNORE_NEW_LINES) : [];
+        $lines = file_exists($usersIniPath) ? @file($usersIniPath, FILE_IGNORE_NEW_LINES) : [];
+        if ($lines === false) {
+            $lines = [];
+        }
+
         $found = false;
         $targetAuth = ($oldAuth !== '') ? $oldAuth : $auth;
 
@@ -840,7 +883,15 @@ class ServerCmd {
 
         $res = @file_put_contents($usersIniPath, implode("\n", $lines) . "\n");
         if ($res === false) {
-            return ['success' => false, 'message' => 'Unable to write to users.ini. Check file permissions.'];
+            // Self-healing: trigger sudo fixperms helper and retry
+            $helper = self::getPrivilegedHelperPath();
+            @exec("sudo -n " . escapeshellarg($helper) . " fixperms 2>&1");
+            @chmod($usersIniPath, 0666);
+            $res = @file_put_contents($usersIniPath, implode("\n", $lines) . "\n");
+        }
+
+        if ($res === false) {
+            return ['success' => false, 'message' => 'Unable to write to users.ini (' . $usersIniPath . '). Check file permissions.'];
         }
 
         @chmod($usersIniPath, 0666);
@@ -853,11 +904,20 @@ class ServerCmd {
     public static function deleteAdmin($usersIniPath, $auth) {
         $auth = trim((string)$auth);
         if (!file_exists($usersIniPath)) {
-            return ['success' => false, 'message' => 'users.ini not found.'];
+            $fallback = dirname(__DIR__, 2) . '/cstrike/addons/amxmodx/configs/users.ini';
+            if (file_exists($fallback)) {
+                $usersIniPath = $fallback;
+            } else {
+                return ['success' => false, 'message' => 'users.ini not found.'];
+            }
         }
 
         @chmod($usersIniPath, 0666);
-        $lines = file($usersIniPath, FILE_IGNORE_NEW_LINES);
+        $lines = @file($usersIniPath, FILE_IGNORE_NEW_LINES);
+        if ($lines === false) {
+            return ['success' => false, 'message' => 'Unable to read users.ini.'];
+        }
+
         $newLines = [];
         $deleted = false;
 
@@ -877,6 +937,14 @@ class ServerCmd {
         }
 
         $res = @file_put_contents($usersIniPath, implode("\n", $newLines) . "\n");
+        if ($res === false) {
+            // Self-healing: trigger sudo fixperms helper and retry
+            $helper = self::getPrivilegedHelperPath();
+            @exec("sudo -n " . escapeshellarg($helper) . " fixperms 2>&1");
+            @chmod($usersIniPath, 0666);
+            $res = @file_put_contents($usersIniPath, implode("\n", $newLines) . "\n");
+        }
+
         if ($res === false) {
             return ['success' => false, 'message' => 'Unable to write to users.ini while deleting.'];
         }

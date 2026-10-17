@@ -27,5 +27,12 @@ case "$action" in
     compile)
         exec /bin/bash "${PROJECT_DIR}/install_mix.sh"
         ;;
+    fixperms)
+        chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/users.ini" 2>/dev/null || true
+        chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
+        chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/maps.ini" 2>/dev/null || true
+        chown -R www-data:www-data "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
+        exit 0
+        ;;
     *) exit 2 ;;
 esac

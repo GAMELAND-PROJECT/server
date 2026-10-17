@@ -4,6 +4,23 @@
  * Supports Multi-Server instances
  */
 
+// PHP 7.x compatibility polyfills
+if (!function_exists('str_starts_with')) {
+    function str_starts_with(?string $haystack, ?string $needle): bool {
+        return (string)$needle !== '' && strncmp((string)$haystack, (string)$needle, strlen((string)$needle)) === 0;
+    }
+}
+if (!function_exists('str_ends_with')) {
+    function str_ends_with(?string $haystack, ?string $needle): bool {
+        return (string)$needle === '' || $needle === substr((string)$haystack, -strlen((string)$needle));
+    }
+}
+if (!function_exists('str_contains')) {
+    function str_contains(?string $haystack, ?string $needle): bool {
+        return (string)$needle === '' || strpos((string)$haystack, (string)$needle) !== false;
+    }
+}
+
 // Use dedicated panel session folder to prevent Linux /var/lib/php permission drops
 $panelSessionPath = __DIR__ . '/sessions';
 if (!is_dir($panelSessionPath)) {
