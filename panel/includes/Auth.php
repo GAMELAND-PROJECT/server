@@ -10,6 +10,14 @@ class Auth {
 
     public static function isLoggedIn() {
         if (isset($_SESSION['gameland_logged_in']) && $_SESSION['gameland_logged_in'] === true) {
+            if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > SESSION_TIMEOUT)) {
+                if (!empty($_COOKIE['gl_auth']) && hash_equals(self::getAuthSignature(), (string)$_COOKIE['gl_auth'])) {
+                    $_SESSION['last_activity'] = time();
+                    return true;
+                }
+                return false;
+            }
+            $_SESSION['last_activity'] = time();
             return true;
         }
         if (!empty($_COOKIE['gl_auth']) && hash_equals(self::getAuthSignature(), (string)$_COOKIE['gl_auth'])) {

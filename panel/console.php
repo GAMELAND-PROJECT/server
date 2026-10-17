@@ -19,7 +19,7 @@ require_once __DIR__ . '/includes/header.php';
         <button onclick="runQuickCmd('amx_plugins')" class="btn btn-secondary btn-sm">amx_plugins</button>
         <button onclick="runQuickCmd('amx_modules')" class="btn btn-secondary btn-sm">amx_modules</button>
         <button onclick="runQuickCmd('stats')" class="btn btn-secondary btn-sm">stats</button>
-        <button onclick="runQuickCmd('amx_reloadadmin')" class="btn btn-secondary btn-sm">amx_reloadadmin</button>
+        <button onclick="runQuickCmd('amx_reloadadmins')" class="btn btn-secondary btn-sm">amx_reloadadmins</button>
         <button onclick="runQuickCmd('mp_timelimit')" class="btn btn-secondary btn-sm">mp_timelimit</button>
         <button onclick="runQuickCmd('sv_restart 1')" class="btn btn-warning btn-sm">sv_restart 1</button>
     </div>

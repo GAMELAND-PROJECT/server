@@ -29,8 +29,8 @@ if (session_status() === PHP_SESSION_NONE) {
 define('PANEL_USER', 'admin');
 define('PANEL_PASS', 'changeme123'); // Change this to your preferred password!
 
-// Session security timeout (30 minutes)
-define('SESSION_TIMEOUT', 1800);
+// Session security timeout (7 days keep-alive)
+define('SESSION_TIMEOUT', 604800);
 
 // -------------------------------------------------------------
 // GitHub Integration (for AutoMix plugin auto-deploy)

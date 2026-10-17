@@ -73,6 +73,13 @@ chmod -R 777 "$PROJECT_ROOT/panel/sessions" "$PROJECT_ROOT/panel/demos" 2>/dev/n
 chmod 755 /var/lib/php 2>/dev/null || true
 chmod 777 "$PROJECT_ROOT/cstrike" 2>/dev/null
 chmod -R 777 "$PROJECT_ROOT/cstrike/addons/amxmodx" 2>/dev/null
+touch "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/users.ini" 2>/dev/null || true
+touch "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
+touch "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/maps.ini" 2>/dev/null || true
+chmod 666 "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/users.ini" 2>/dev/null || true
+chmod 666 "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
+chmod 666 "$PROJECT_ROOT/cstrike/addons/amxmodx/configs/maps.ini" 2>/dev/null || true
+chown -R www-data:www-data "$PROJECT_ROOT/cstrike/addons/amxmodx/configs" 2>/dev/null || true
 touch "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
 chmod 666 "$PROJECT_ROOT/hltv_controller.log" 2>/dev/null || true
 echo "✅ Fixed: Web Panel, Sessions & Demos write permissions"

@@ -73,7 +73,7 @@ class ServerCmd {
         ];
     }
 
-    public static function saveAdminEverywhere($auth, $password, $access, $flags, $comment, $all = false, $selectedId = null) {
+    public static function saveAdminEverywhere($auth, $password, $access, $flags, $comment, $all = false, $selectedId = null, $oldAuth = '') {
         $servers = self::getManagedServers();
         if (!$all) {
             $selectedId = $selectedId ?: (get_active_server()['id'] ?? 'main');
@@ -81,13 +81,14 @@ class ServerCmd {
         }
         $results = [];
         foreach ($servers as $id => $server) {
-            $res = self::saveAdmin($server['users_ini'], $auth, $password, $access, $flags, $comment);
+            $res = self::saveAdmin($server['users_ini'], $auth, $password, $access, $flags, $comment, $oldAuth);
             if ($res['success'] && self::getServiceStatus($server['service_name']) === 'running') {
                 $reload = self::reloadAdminsLive($server);
                 $res['reload'] = $reload;
-                if (!$reload['success']) {
-                    $res['success'] = false;
-                    $res['message'] .= ' File saved, but live reload failed.';
+                if ($reload['success']) {
+                    $res['message'] .= ' (Live server synchronized!)';
+                } else {
+                    $res['message'] .= ' (Notice: ' . $reload['message'] . ')';
                 }
             }
             $results[$id] = $res;
@@ -107,9 +108,10 @@ class ServerCmd {
             if ($res['success'] && self::getServiceStatus($server['service_name']) === 'running') {
                 $reload = self::reloadAdminsLive($server);
                 $res['reload'] = $reload;
-                if (!$reload['success']) {
-                    $res['success'] = false;
-                    $res['message'] .= ' File deleted, but live reload failed.';
+                if ($reload['success']) {
+                    $res['message'] .= ' (Live server synchronized!)';
+                } else {
+                    $res['message'] .= ' (Notice: ' . $reload['message'] . ')';
                 }
             }
             $results[$id] = $res;
@@ -789,15 +791,16 @@ class ServerCmd {
     /**
      * Add or edit an admin in users.ini
      */
-    public static function saveAdmin($usersIniPath, $auth, $password, $access, $flags, $comment = '') {
-        $auth = trim($auth);
-        $password = trim($password);
-        $access = trim($access);
-        $flags = trim($flags);
-        $comment = trim($comment);
+    public static function saveAdmin($usersIniPath, $auth, $password, $access, $flags, $comment = '', $oldAuth = '') {
+        $auth = trim((string)$auth);
+        $password = trim((string)$password);
+        $access = trim((string)$access);
+        $flags = trim((string)$flags);
+        $comment = trim((string)$comment);
+        $oldAuth = trim((string)$oldAuth);
 
         if (empty($auth) || empty($access) || empty($flags)) {
-            return ['success' => false, 'message' => 'Auth, Access, and Flags are required.'];
+            return ['success' => false, 'message' => 'Identity (Auth), Access Flags, and Account Flags are required.'];
         }
 
         $lineStr = sprintf('"%s" "%s" "%s" "%s"', $auth, $password, $access, $flags);
@@ -805,9 +808,17 @@ class ServerCmd {
             $lineStr .= ' ; ' . $comment;
         }
 
-        // Check if admin already exists to replace, or append
+        $dir = dirname($usersIniPath);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+        if (file_exists($usersIniPath)) {
+            @chmod($usersIniPath, 0666);
+        }
+
         $lines = file_exists($usersIniPath) ? file($usersIniPath, FILE_IGNORE_NEW_LINES) : [];
         $found = false;
+        $targetAuth = ($oldAuth !== '') ? $oldAuth : $auth;
 
         foreach ($lines as $idx => $line) {
             $t = trim($line);
@@ -815,7 +826,7 @@ class ServerCmd {
                 continue;
             }
             if (preg_match('/^"([^"]+)"/', $t, $m)) {
-                if ($m[1] === $auth) {
+                if (strcasecmp($m[1], $targetAuth) === 0 || ($oldAuth === '' && strcasecmp($m[1], $auth) === 0)) {
                     $lines[$idx] = $lineStr;
                     $found = true;
                     break;
@@ -832,17 +843,20 @@ class ServerCmd {
             return ['success' => false, 'message' => 'Unable to write to users.ini. Check file permissions.'];
         }
 
-        return ['success' => true, 'message' => $found ? 'Admin updated successfully.' : 'Admin added successfully.'];
+        @chmod($usersIniPath, 0666);
+        return ['success' => true, 'message' => $found ? "Admin '$auth' updated successfully." : "Admin '$auth' added successfully."];
     }
 
     /**
      * Delete an admin from users.ini
      */
     public static function deleteAdmin($usersIniPath, $auth) {
+        $auth = trim((string)$auth);
         if (!file_exists($usersIniPath)) {
             return ['success' => false, 'message' => 'users.ini not found.'];
         }
 
+        @chmod($usersIniPath, 0666);
         $lines = file($usersIniPath, FILE_IGNORE_NEW_LINES);
         $newLines = [];
         $deleted = false;
@@ -850,7 +864,7 @@ class ServerCmd {
         foreach ($lines as $line) {
             $t = trim($line);
             if (preg_match('/^"([^"]+)"/', $t, $m)) {
-                if ($m[1] === $auth) {
+                if (strcasecmp($m[1], $auth) === 0) {
                     $deleted = true;
                     continue; // skip this line
                 }
@@ -859,11 +873,16 @@ class ServerCmd {
         }
 
         if (!$deleted) {
-            return ['success' => false, 'message' => 'Admin not found.'];
+            return ['success' => false, 'message' => "Admin '$auth' not found."];
         }
 
-        @file_put_contents($usersIniPath, implode("\n", $newLines) . "\n");
-        return ['success' => true, 'message' => 'Admin removed successfully.'];
+        $res = @file_put_contents($usersIniPath, implode("\n", $newLines) . "\n");
+        if ($res === false) {
+            return ['success' => false, 'message' => 'Unable to write to users.ini while deleting.'];
+        }
+
+        @chmod($usersIniPath, 0666);
+        return ['success' => true, 'message' => "Admin '$auth' removed successfully."];
     }
 
     /**

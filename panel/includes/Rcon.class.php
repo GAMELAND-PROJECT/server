@@ -2,48 +2,43 @@
 /**
  * GameLand GoldSource RCON & Info Client (Counter-Strike 1.6 / HLDS / ReHLDS)
  * Clean, lightweight, zero-dependency UDP Socket Implementation
+ * Features resilient loopback fallback for local server management
  */
 
 class GoldSourceRcon {
     private $host;
     private $port;
     private $password;
-    private $socket;
     private $timeout = 2.0;
 
     public function __construct($host, $port, $password, $timeout = 2.0) {
-        $this->host = $host;
+        $this->host = $this->normalizeHost($host);
         $this->port = (int)$port;
-        $this->password = $password;
-        $this->timeout = $timeout;
+        $this->password = (string)$password;
+        $this->timeout = (float)$timeout;
     }
 
-    private function connect() {
-        $this->socket = @fsockopen("udp://" . $this->host, $this->port, $errno, $errstr, $this->timeout);
-        if (!$this->socket) {
-            throw new Exception("Unable to connect to server UDP port: $errstr ($errno)");
+    private function normalizeHost($host) {
+        $h = trim((string)$host);
+        if ($h === '' || $h === '0.0.0.0' || $h === 'localhost') {
+            return '127.0.0.1';
         }
-        stream_set_timeout($this->socket, (int)$this->timeout, (int)(($this->timeout - (int)$this->timeout) * 1000000));
+        return $h;
     }
 
-    private function disconnect() {
-        if ($this->socket) {
-            @fclose($this->socket);
-            $this->socket = null;
+    private function connectTo($targetHost) {
+        $sock = @fsockopen("udp://" . $targetHost, $this->port, $errno, $errstr, $this->timeout);
+        if (!$sock) {
+            throw new Exception("Unable to connect to UDP ($targetHost:{$this->port}): $errstr ($errno)");
         }
+        stream_set_timeout($sock, (int)$this->timeout, (int)(($this->timeout - (int)$this->timeout) * 1000000));
+        return $sock;
     }
 
-    private function sendPacket($data) {
-        if (!$this->socket) {
-            $this->connect();
-        }
-        @fwrite($this->socket, "\xFF\xFF\xFF\xFF" . $data);
-    }
-
-    private function readPackets() {
+    private function readPacketsFrom($sock) {
         $response = '';
-        while ($this->socket && !feof($this->socket)) {
-            $packet = @fread($this->socket, 4096);
+        while ($sock && !feof($sock)) {
+            $packet = @fread($sock, 4096);
             if ($packet === false || strlen($packet) === 0) {
                 break;
             }
@@ -55,12 +50,11 @@ class GoldSourceRcon {
                 $response .= $packet;
             }
             
-            // Peek or short wait for remaining packets
-            $info = stream_get_meta_data($this->socket);
+            // Short wait for multi-packet GoldSource responses
+            $info = stream_get_meta_data($sock);
             if ($info['unread_bytes'] == 0) {
-                // Short wait to see if next UDP packet arrives
-                usleep(30000); // 30ms
-                $info = stream_get_meta_data($this->socket);
+                usleep(25000); // 25ms
+                $info = stream_get_meta_data($sock);
                 if ($info['unread_bytes'] == 0) {
                     break;
                 }
@@ -69,14 +63,32 @@ class GoldSourceRcon {
         return $response;
     }
 
-    public function getChallenge() {
-        $this->connect();
-        $this->sendPacket("challenge rcon\n");
-        $res = $this->readPackets();
-        $this->disconnect();
+    private function sendAndReceive($targetHost, $payload) {
+        try {
+            $sock = $this->connectTo($targetHost);
+            @fwrite($sock, "\xFF\xFF\xFF\xFF" . $payload);
+            $res = $this->readPacketsFrom($sock);
+            @fclose($sock);
+            return $res;
+        } catch (Exception $e) {
+            return '';
+        }
+    }
 
+    public function getChallenge() {
+        // Query current host
+        $res = $this->sendAndReceive($this->host, "challenge rcon\n");
         if (preg_match('/challenge rcon (\d+)/i', $res, $matches)) {
             return $matches[1];
+        }
+
+        // If target host is not loopback and didn't respond, try loopback fallback
+        if ($this->host !== '127.0.0.1') {
+            $resLoop = $this->sendAndReceive('127.0.0.1', "challenge rcon\n");
+            if (preg_match('/challenge rcon (\d+)/i', $resLoop, $matches)) {
+                $this->host = '127.0.0.1'; // switch host permanently
+                return $matches[1];
+            }
         }
         return null;
     }
@@ -84,15 +96,19 @@ class GoldSourceRcon {
     public function execute($command) {
         $challenge = $this->getChallenge();
         if (!$challenge) {
-            // Some ReHLDS configurations do not enforce challenge number
             $challenge = "0";
         }
 
-        $this->connect();
         $payload = sprintf('rcon %s "%s" %s' . "\n", $challenge, $this->password, $command);
-        $this->sendPacket($payload);
-        $res = $this->readPackets();
-        $this->disconnect();
+        $res = $this->sendAndReceive($this->host, $payload);
+
+        // Fallback to 127.0.0.1 if host timed out or gave empty response
+        if (empty($res) && $this->host !== '127.0.0.1') {
+            $res = $this->sendAndReceive('127.0.0.1', $payload);
+            if (!empty($res)) {
+                $this->host = '127.0.0.1';
+            }
+        }
 
         // Strip leading command echo or 'l' letter GoldSource response marker
         if (substr($res, 0, 1) === 'l') {
@@ -107,12 +123,16 @@ class GoldSourceRcon {
      */
     public function getInfo() {
         $startTime = microtime(true);
-        $this->connect();
-        // A2S_INFO query: 0x54 followed by "Source Engine Query\0"
-        $this->sendPacket("TSource Engine Query\x00");
-        $res = $this->readPackets();
+        $payload = "TSource Engine Query\x00";
+        $res = $this->sendAndReceive($this->host, $payload);
+        if (empty($res) && $this->host !== '127.0.0.1') {
+            $res = $this->sendAndReceive('127.0.0.1', $payload);
+            if (!empty($res)) {
+                $this->host = '127.0.0.1';
+            }
+        }
+
         $ping = round((microtime(true) - $startTime) * 1000);
-        $this->disconnect();
 
         if (empty($res)) {
             return false;

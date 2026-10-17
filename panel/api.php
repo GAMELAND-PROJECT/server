@@ -5,14 +5,15 @@ require_once __DIR__ . '/includes/Auth.php';
 require_once __DIR__ . '/includes/Rcon.class.php';
 require_once __DIR__ . '/includes/ServerCmd.php';
 
-// Verify session
-if (!isset($_SESSION['gameland_logged_in']) || $_SESSION['gameland_logged_in'] !== true) {
+// Verify session & authentication
+if (!Auth::isLoggedIn()) {
     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
     exit;
 }
 
 // Verify CSRF
-if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
+$submittedCsrf = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_GET['csrf_token'] ?? '';
+if (!Auth::verify_csrf($submittedCsrf)) {
     echo json_encode(['success' => false, 'message' => 'Invalid CSRF token']);
     exit;
 }
@@ -81,21 +82,40 @@ switch ($action) {
         echo json_encode($res);
         break;
 
+    case 'save_admin':
     case 'save_admin_all':
+        $applyAll = ($action === 'save_admin_all') || (($_POST['apply_all_servers'] ?? $_POST['apply_all'] ?? '0') === '1');
         $res = ServerCmd::saveAdminEverywhere(
-            trim($_POST['auth'] ?? ''),
-            trim($_POST['password'] ?? ''),
-            trim($_POST['access'] ?? ''),
-            trim($_POST['flags'] ?? ''),
-            trim($_POST['comment'] ?? ''),
-            true
+            trim($_POST['auth'] ?? $_POST['admin_auth'] ?? ''),
+            trim($_POST['password'] ?? $_POST['admin_pass'] ?? ''),
+            trim($_POST['access'] ?? $_POST['admin_access'] ?? ''),
+            trim($_POST['flags'] ?? $_POST['admin_flags'] ?? ''),
+            trim($_POST['comment'] ?? $_POST['admin_comment'] ?? ''),
+            $applyAll,
+            $activeServer['id'],
+            trim($_POST['old_auth'] ?? '')
         );
         echo json_encode($res);
         break;
 
+    case 'delete_admin':
     case 'delete_admin_all':
-        $res = ServerCmd::deleteAdminEverywhere(trim($_POST['auth'] ?? ''), true);
+        $applyAll = ($action === 'delete_admin_all') || (($_POST['apply_all_servers'] ?? $_POST['apply_all'] ?? '0') === '1');
+        $res = ServerCmd::deleteAdminEverywhere(
+            trim($_POST['auth'] ?? $_POST['delete_auth'] ?? ''),
+            $applyAll,
+            $activeServer['id']
+        );
         echo json_encode($res);
+        break;
+
+    case 'get_admins':
+        $admins = ServerCmd::getAdmins($activeServer['users_ini']);
+        echo json_encode([
+            'success' => true,
+            'admins' => $admins,
+            'server_name' => $activeServer['name']
+        ]);
         break;
 
     case 'save_plugins_all':
