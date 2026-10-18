@@ -1550,11 +1550,15 @@ class ServerCmd {
         ];
     }
 
+    public static function getMainServerCstrikeDir() {
+        return self::getManagerRoot() . '/cstrike';
+    }
+
     /**
      * Compile plugins using the server's amxxpc compiler
      * Compiles all managed GameLand, security, and mix plugins
      */
-    public static function compilePlugins($serverInfo) {
+    public static function compilePlugins($serverInfo, $propagateToAll = false) {
         $scriptingDir = $serverInfo['cstrike_dir'] . '/addons/amxmodx/scripting';
         $pluginsDir   = $serverInfo['cstrike_dir'] . '/addons/amxmodx/plugins';
 
@@ -1618,19 +1622,33 @@ class ServerCmd {
                     if (is_file($bPath)) @touch($bPath, time() + 5);
                 }
 
-                // Propagate compiled .amxx to all other server instances automatically
-                $allServers = self::getManagedServers();
-                foreach ($allServers as $sId => $sConf) {
-                    if (($sConf['cstrike_dir'] ?? '') !== $serverInfo['cstrike_dir']) {
-                        $otherPluginsDir = ($sConf['cstrike_dir'] ?? '') . '/addons/amxmodx/plugins';
-                        if (is_dir($otherPluginsDir)) {
-                            foreach ($targets as $binFile) {
-                                $srcBin = $pluginsDir . '/' . $binFile;
-                                if (file_exists($srcBin)) {
-                                    @copy($srcBin, $otherPluginsDir . '/' . $binFile);
+                // If this is an isolated server instance (not main), make sure its own plugins dir has the compiled binaries
+                $mainPlugins = self::getMainServerCstrikeDir() . '/addons/amxmodx/plugins';
+                if (($serverInfo['cstrike_dir'] ?? '') !== self::getMainServerCstrikeDir()) {
+                    foreach ($targets as $binFile) {
+                        $srcBin = $mainPlugins . '/' . $binFile;
+                        if (file_exists($srcBin)) {
+                            @copy($srcBin, $pluginsDir . '/' . $binFile);
+                        }
+                    }
+                    self::ensureMixRegistered($serverInfo);
+                }
+
+                // Propagate compiled .amxx to all other server instances ONLY if explicitly requested
+                if ($propagateToAll) {
+                    $allServers = self::getManagedServers();
+                    foreach ($allServers as $sId => $sConf) {
+                        if (($sConf['cstrike_dir'] ?? '') !== $serverInfo['cstrike_dir']) {
+                            $otherPluginsDir = ($sConf['cstrike_dir'] ?? '') . '/addons/amxmodx/plugins';
+                            if (is_dir($otherPluginsDir)) {
+                                foreach ($targets as $binFile) {
+                                    $srcBin = $pluginsDir . '/' . $binFile;
+                                    if (file_exists($srcBin)) {
+                                        @copy($srcBin, $otherPluginsDir . '/' . $binFile);
+                                    }
                                 }
+                                self::ensureMixRegistered($sConf);
                             }
-                            self::ensureMixRegistered($sConf);
                         }
                     }
                 }
@@ -1823,5 +1841,95 @@ class ServerCmd {
         if ($modified) {
             @file_put_contents($pluginsIni, $content);
         }
+    }
+
+    /**
+     * Create a VPS checkpoint snapshot
+     */
+    public static function createCheckpoint($label = 'Manual VPS Checkpoint') {
+        $helper = self::getPrivilegedHelperPath();
+        $labelArg = escapeshellarg($label);
+        $output = [];
+        $ret = 1;
+        if (is_file($helper)) {
+            @exec("sudo -n " . escapeshellarg($helper) . " checkpoint_create {$labelArg} 2>&1", $output, $ret);
+        } else {
+            $script = dirname(__DIR__, 2) . '/checkpoint.sh';
+            @exec("bash " . escapeshellarg($script) . " create {$labelArg} 2>&1", $output, $ret);
+        }
+        $raw = implode("\n", $output);
+        $json = json_decode($raw, true);
+        if (is_array($json) && !empty($json['success'])) {
+            return $json;
+        }
+        return ['success' => false, 'message' => 'Failed to create checkpoint: ' . $raw];
+    }
+
+    /**
+     * List all VPS checkpoints
+     */
+    public static function listCheckpoints() {
+        $cpDir = '/opt/gameland/checkpoints';
+        $list = [];
+        if (is_dir($cpDir)) {
+            $files = glob($cpDir . '/cp_*.json');
+            foreach ($files as $f) {
+                $d = json_decode(@file_get_contents($f), true);
+                if (is_array($d)) {
+                    $tar = $cpDir . '/' . ($d['archive'] ?? '');
+                    if (is_file($tar)) {
+                        $list[] = $d;
+                    }
+                }
+            }
+        }
+        usort($list, function($a, $b) {
+            return strcmp($b['timestamp'] ?? '', $a['timestamp'] ?? '');
+        });
+        return $list;
+    }
+
+    /**
+     * Restore a VPS checkpoint
+     */
+    public static function restoreCheckpoint($checkpointId) {
+        $helper = self::getPrivilegedHelperPath();
+        $idArg = escapeshellarg($checkpointId);
+        $output = [];
+        $ret = 1;
+        if (is_file($helper)) {
+            @exec("sudo -n " . escapeshellarg($helper) . " checkpoint_restore {$idArg} 2>&1", $output, $ret);
+        } else {
+            $script = dirname(__DIR__, 2) . '/checkpoint.sh';
+            @exec("bash " . escapeshellarg($script) . " restore {$idArg} 2>&1", $output, $ret);
+        }
+        $raw = implode("\n", $output);
+        $json = json_decode($raw, true);
+        if (is_array($json) && !empty($json['success'])) {
+            return $json;
+        }
+        return ['success' => false, 'message' => 'Failed to restore checkpoint: ' . $raw];
+    }
+
+    /**
+     * Delete a VPS checkpoint
+     */
+    public static function deleteCheckpoint($checkpointId) {
+        $helper = self::getPrivilegedHelperPath();
+        $idArg = escapeshellarg($checkpointId);
+        $output = [];
+        $ret = 1;
+        if (is_file($helper)) {
+            @exec("sudo -n " . escapeshellarg($helper) . " checkpoint_delete {$idArg} 2>&1", $output, $ret);
+        } else {
+            $script = dirname(__DIR__, 2) . '/checkpoint.sh';
+            @exec("bash " . escapeshellarg($script) . " delete {$idArg} 2>&1", $output, $ret);
+        }
+        $raw = implode("\n", $output);
+        $json = json_decode($raw, true);
+        if (is_array($json)) {
+            return $json;
+        }
+        return ['success' => true, 'message' => 'Checkpoint deleted.'];
     }
 }

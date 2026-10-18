@@ -42,9 +42,13 @@ Usage:
   svgl logs [id|main]          Follow systemd logs
   svgl tail [id|main]          Follow server log file
   svgl update                  Safely update server from GitHub (Zero data loss)
+  svgl build [id|main]         Compile and deploy plugins specifically for one server
+  svgl sync-plugins <id>       Copy updated plugins to specific instance (independent)
+  svgl backup [note]           Create full atomic VPS checkpoint snapshot
+  svgl restore [id|latest]     Restore full VPS state from checkpoint
+  svgl checkpoint              Manage VPS checkpoints (create, list, restore, delete)
   svgl recover                 Recover lost admin accounts with chronological filter
   svgl sync                    Recover & auto-sync all created server instances
-  svgl sync-plugins <id>       Copy updated plugins to specific instance (independent)
   svgl capacity                Analyze CPU & RAM to show how many servers can run
   svgl install-template        Install gameland@.service template
 
@@ -609,6 +613,57 @@ sync_plugins_to_instance() {
     echo -e "${GREEN}[OK] Synced updated .amxx plugins to instance '${id}' without touching configs or users.ini!${NC}"
 }
 
+build_server_plugins() {
+    local id="${1:-main}"
+    local target_dir="$PROJECT_DIR"
+    local svc="gameland.service"
+    if [[ "$id" != "main" ]]; then
+        local env_file="${INSTANCES_DIR}/${id}.env"
+        target_dir="${INSTANCE_ROOT_DEFAULT}/${id}"
+        if [[ -f "$env_file" ]]; then
+            # shellcheck disable=SC1090
+            source "$env_file"
+            target_dir="${SERVER_DIR:-$target_dir}"
+        fi
+        svc="gameland@${id}.service"
+    fi
+
+    if [[ ! -d "$target_dir/cstrike/addons/amxmodx/plugins" ]]; then
+        echo -e "${RED}[ERROR] Server directory not found: $target_dir${NC}"
+        return 1
+    fi
+
+    echo -e "${CYAN}==========================================${NC}"
+    echo -e "${BOLD}${GREEN}  Compiling Plugins Exclusively for: ${id}  ${NC}"
+    echo -e "  Target: $target_dir/cstrike/addons/amxmodx/plugins/"
+    echo -e "${CYAN}==========================================${NC}"
+
+    local compiler="${PROJECT_DIR}/cstrike/addons/amxmodx/scripting/amxxpc"
+    local scripting_dir="${PROJECT_DIR}/cstrike/addons/amxmodx/scripting"
+    if [[ ! -x "$compiler" ]]; then
+        chmod +x "$compiler" "${scripting_dir}"/amxxpc* 2>/dev/null || true
+    fi
+
+    local compiled_count=0
+    for sma in "${scripting_dir}"/*.sma; do
+        if [[ -f "$sma" ]]; then
+            local base
+            base="$(basename "$sma" .sma)"
+            local out_bin="${target_dir}/cstrike/addons/amxmodx/plugins/${base}.amxx"
+            if "$compiler" "$sma" -o"$out_bin" -i"${scripting_dir}/include" >/dev/null 2>&1; then
+                chmod 666 "$out_bin" 2>/dev/null || true
+                echo -e "  ${GREEN}✔${NC} Compiled: ${base}.amxx"
+                compiled_count=$((compiled_count + 1))
+            fi
+        fi
+    done
+
+    echo -e "${GREEN}[OK] Successfully compiled ${compiled_count} plugins for server '${id}'!${NC}"
+    echo -e "${YELLOW}[*] Restarting service ${svc}...${NC}"
+    systemctl restart "$svc" 2>/dev/null || true
+    echo -e "${GREEN}[DONE] Server '${id}' updated cleanly with zero impact on other servers!${NC}"
+}
+
 check_server_capacity() {
     echo -e "${CYAN}==========================================${NC}"
     echo -e "${BOLD}${GREEN}   GameLand Server Hardware & Capacity   ${NC}"
@@ -667,6 +722,7 @@ show_menu() {
     echo -e "  5) ${CYAN}Recover Admin Accounts${NC} (Smart Filter)"
     echo -e "  6) ${CYAN}Recover / Sync Server Instances${NC} (Rebuild servers.json)"
     echo -e "  7) ${PURPLE}Check Server Capacity & Hardware Specs${NC}"
+    echo -e "  8) ${YELLOW}💾 VPS Checkpoints / Backups${NC}"
     echo -e "  0) Exit"
     echo -e "${CYAN}==========================================${NC}"
 }
@@ -674,7 +730,7 @@ show_menu() {
 interactive_loop() {
     while true; do
         show_menu
-        read -r -p "  Select [0-7]: " choice
+        read -r -p "  Select [0-8]: " choice
         case "$choice" in
             1) servers_browser_menu ;;
             2)
@@ -689,6 +745,18 @@ interactive_loop() {
             5) bash "${PROJECT_DIR}/recover_admins.sh"; pause_menu ;;
             6) bash "${PROJECT_DIR}/recover_servers.sh"; pause_menu ;;
             7) check_server_capacity; pause_menu ;;
+            8)
+                echo -e "\n  1) Create New Checkpoint"
+                echo -e "  2) List Checkpoints"
+                echo -e "  3) Restore Latest Checkpoint"
+                read -r -p "  Select [1-3]: " cp_choice
+                case "$cp_choice" in
+                    1) read -r -p "  Checkpoint label/note: " cp_note; bash "${PROJECT_DIR}/checkpoint.sh" create "$cp_note" ;;
+                    2) bash "${PROJECT_DIR}/checkpoint.sh" list ;;
+                    3) bash "${PROJECT_DIR}/checkpoint.sh" restore latest ;;
+                esac
+                pause_menu
+                ;;
             0) exit 0 ;;
             *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
         esac
@@ -715,6 +783,10 @@ case "$cmd" in
     logs) journalctl -u "$(service_name_for "${2:-main}")" -f ;;
     tail) tail -f "$(log_file_for "${2:-main}")" ;;
     update) bash "${PROJECT_DIR}/update.sh" ;;
+    build|compile) shift; build_server_plugins "$@" ;;
+    checkpoint) shift; bash "${PROJECT_DIR}/checkpoint.sh" "$@" ;;
+    backup) shift; bash "${PROJECT_DIR}/checkpoint.sh" create "$@" ;;
+    restore) shift; bash "${PROJECT_DIR}/checkpoint.sh" restore "$@" ;;
     recover|recover-admins) bash "${PROJECT_DIR}/recover_admins.sh" ;;
     sync|recover-servers) bash "${PROJECT_DIR}/recover_servers.sh" ;;
     sync-plugins) shift; sync_plugins_to_instance "$@" ;;

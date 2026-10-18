@@ -23,6 +23,25 @@ $activeServer = get_active_server();
 
 switch ($action) {
 
+    case 'checkpoint_create':
+        $label = trim($_POST['label'] ?? 'Manual VPS Checkpoint');
+        echo json_encode(ServerCmd::createCheckpoint($label));
+        break;
+
+    case 'checkpoint_list':
+        echo json_encode(['success' => true, 'checkpoints' => ServerCmd::listCheckpoints()]);
+        break;
+
+    case 'checkpoint_restore':
+        $cpId = trim($_POST['checkpoint_id'] ?? 'latest');
+        echo json_encode(ServerCmd::restoreCheckpoint($cpId));
+        break;
+
+    case 'checkpoint_delete':
+        $cpId = trim($_POST['checkpoint_id'] ?? '');
+        echo json_encode(ServerCmd::deleteCheckpoint($cpId));
+        break;
+
     case 'list_servers':
         global $SERVERS;
         echo json_encode(['success' => true, 'servers' => ServerCmd::getServerList($SERVERS)]);

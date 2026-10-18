@@ -75,6 +75,13 @@ try {
            title="Go to Plugins page for GitHub Deploy">
             🔄 Update AutoMix Plugin
         </a>
+
+        <!-- Backup VPS (Checkpoint) -->
+        <button onclick="openCheckpointModal()" class="btn"
+           style="background:linear-gradient(135deg,#f59e0b,#ea580c); color:#fff; font-weight:700; border:none; box-shadow:0 2px 10px rgba(245,158,11,0.35); display:inline-flex; align-items:center; gap:0.4rem;"
+           title="Create or restore atomic full VPS configuration & admins checkpoint">
+            💾 Backup VPS (Checkpoint)
+        </button>
     </div>
 </div>
 
@@ -280,6 +287,187 @@ function switchServer(serverId) {
         .then(r => r.json())
         .then(() => location.reload());
 }
+
+// ── VPS Checkpoint System ────────────────────────────────────────────────────
+function openCheckpointModal() {
+    const m = document.getElementById('checkpointModal');
+    m.style.display = 'flex';
+    loadCheckpoints();
+}
+
+function closeCheckpointModal() {
+    document.getElementById('checkpointModal').style.display = 'none';
+}
+
+function loadCheckpoints() {
+    const loading = document.getElementById('cpListLoading');
+    const container = document.getElementById('cpListContainer');
+    const tbody = document.getElementById('cpTableBody');
+    loading.style.display = 'block';
+    container.style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('csrf_token', window.CSRF_TOKEN);
+    fd.append('action', 'checkpoint_list');
+
+    fetch('api.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => {
+            loading.style.display = 'none';
+            container.style.display = 'block';
+            tbody.innerHTML = '';
+            if (!d.checkpoints || d.checkpoints.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:1.2rem;">No checkpoints found. Create your first checkpoint above!</td></tr>';
+                return;
+            }
+            d.checkpoints.forEach(cp => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-family:var(--font-mono); font-size:0.82rem;"><strong>${escHtml(cp.timestamp)}</strong></td>
+                    <td><span style="color:var(--accent); font-weight:600;">${escHtml(cp.label || 'Checkpoint')}</span></td>
+                    <td><span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; padding:2px 8px; border-radius:4px; font-size:0.75rem;">${cp.server_count} Servers</span> <span class="badge" style="background:rgba(59,130,246,0.15); color:#3b82f6; padding:2px 8px; border-radius:4px; font-size:0.75rem;">${cp.admin_count} Admins</span></td>
+                    <td><code>${escHtml(cp.size_human || '')}</code></td>
+                    <td style="text-align:right; white-space:nowrap;">
+                        <button onclick="restoreCheckpoint('${escHtml(cp.id)}', '${escHtml(cp.label)}')" class="btn btn-success btn-sm" style="margin-right:4px;" title="Restore this checkpoint">↺ Restore</button>
+                        <button onclick="deleteCheckpoint('${escHtml(cp.id)}')" class="btn btn-danger btn-sm" title="Delete">🗑️</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        })
+        .catch(e => {
+            loading.innerHTML = '❌ Failed to load checkpoints: ' + escHtml(e.message);
+        });
+}
+
+function createCheckpoint() {
+    const input = document.getElementById('cpLabelInput');
+    const label = input.value.trim() || 'Manual VPS Checkpoint';
+    const btn = document.getElementById('btnCreateCp');
+    btn.disabled = true;
+    btn.innerText = '⏳ Creating...';
+
+    const fd = new FormData();
+    fd.append('csrf_token', window.CSRF_TOKEN);
+    fd.append('action', 'checkpoint_create');
+    fd.append('label', label);
+
+    fetch('api.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false;
+            btn.innerText = '💾 Create Checkpoint';
+            if (d.success) {
+                input.value = '';
+                showAlert('✅ Checkpoint created successfully! (' + escHtml(label) + ')', 'success');
+                loadCheckpoints();
+            } else {
+                showAlert('❌ Failed to create checkpoint: ' + escHtml(d.message || 'Error'), 'danger');
+            }
+        })
+        .catch(e => {
+            btn.disabled = false;
+            btn.innerText = '💾 Create Checkpoint';
+            showAlert('❌ Network error: ' + escHtml(e.message), 'danger');
+        });
+}
+
+function restoreCheckpoint(cpId, label) {
+    if (!confirm('⚠️ RESTORE CHECKPOINT?\n\nThis will restore all server configs, admins, and servers from: ' + (label || cpId) + '\n\nAre you sure you want to proceed?')) return;
+
+    showAlert('⏳ Restoring checkpoint: <strong>' + escHtml(cpId) + '</strong>...', 'info');
+    closeCheckpointModal();
+
+    const fd = new FormData();
+    fd.append('csrf_token', window.CSRF_TOKEN);
+    fd.append('action', 'checkpoint_restore');
+    fd.append('checkpoint_id', cpId);
+
+    fetch('api.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                showAlert('✅ ' + escHtml(d.message || 'Checkpoint restored successfully!'), 'success');
+                setTimeout(() => location.reload(), 2000);
+            } else {
+                showAlert('❌ ' + escHtml(d.message || 'Failed to restore checkpoint'), 'danger');
+            }
+        })
+        .catch(e => showAlert('❌ Network error: ' + escHtml(e.message), 'danger'));
+}
+
+function deleteCheckpoint(cpId) {
+    if (!confirm('Delete checkpoint ' + cpId + '?')) return;
+
+    const fd = new FormData();
+    fd.append('csrf_token', window.CSRF_TOKEN);
+    fd.append('action', 'checkpoint_delete');
+    fd.append('checkpoint_id', cpId);
+
+    fetch('api.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                loadCheckpoints();
+            } else {
+                alert('Error: ' + (d.message || 'Failed to delete'));
+            }
+        });
+}
 </script>
+
+<!-- ══ Checkpoint Modal ══════════════════════════════════════════════════════ -->
+<div id="checkpointModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:9999; backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:1rem;">
+    <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; max-width:750px; width:100%; max-height:90vh; overflow-y:auto; box-shadow:0 20px 40px rgba(0,0,0,0.6); padding:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; border-bottom:1px solid var(--border-color); padding-bottom:0.75rem;">
+            <div style="display:flex; align-items:center; gap:0.6rem;">
+                <span style="font-size:1.6rem;">💾</span>
+                <div>
+                    <h2 style="font-size:1.25rem; font-weight:700; margin:0;">VPS Checkpoints &amp; Backups</h2>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin:0;">Atomic state snapshots of all admins, server instances, and configs</p>
+                </div>
+            </div>
+            <button onclick="closeCheckpointModal()" class="btn btn-secondary btn-sm" style="font-size:1.1rem; line-height:1; padding:0.3rem 0.6rem;">&times;</button>
+        </div>
+
+        <!-- Create New Checkpoint Box -->
+        <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:8px; padding:1rem; margin-bottom:1.25rem;">
+            <div style="font-weight:600; font-size:0.92rem; margin-bottom:0.5rem; color:var(--warning);">➕ Create New Checkpoint Snapshot</div>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                <input type="text" id="cpLabelInput" placeholder="Note / Label (e.g. Before plugin updates)" class="form-control" style="flex:1; min-width:220px;">
+                <button onclick="createCheckpoint()" id="btnCreateCp" class="btn btn-warning" style="font-weight:700; white-space:nowrap;">
+                    💾 Create Checkpoint
+                </button>
+            </div>
+        </div>
+
+        <!-- Checkpoints List -->
+        <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                <h3 style="font-size:0.95rem; font-weight:700; margin:0;">Existing Checkpoints</h3>
+                <button onclick="loadCheckpoints()" class="btn btn-secondary btn-sm" style="font-size:0.78rem;">⟳ Refresh</button>
+            </div>
+
+            <div id="cpListLoading" style="text-align:center; padding:1.5rem; color:var(--text-muted);">
+                ⏳ Loading checkpoints...
+            </div>
+
+            <div id="cpListContainer" style="display:none;">
+                <table class="table" style="width:100%; font-size:0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Date &amp; Time</th>
+                            <th>Label / Note</th>
+                            <th>State Stats</th>
+                            <th>Size</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cpTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

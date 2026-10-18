@@ -263,25 +263,26 @@ foreach ($plugins as $p) {
     <!-- Action Buttons -->
     <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
 
-        <!-- Fast Local Compile + Restart (Fastest & Safest) -->
+        <!-- Fast Local Compile + Restart for Active Server ONLY -->
         <form method="POST" action="plugins.php"
-              onsubmit="return confirm('Compile all local plugins (AllClient Enforcer, Mix, Optimizers) and restart server?')">
+              onsubmit="return confirm('Compile plugins specifically for server: <?php echo htmlspecialchars($activeServer['name']); ?> and restart only this server? (Other servers will remain untouched)')">
             <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
             <input type="hidden" name="compile_plugins" value="1">
             <input type="hidden" name="restart_after_compile" value="1">
             <button type="submit" class="btn btn-warning"
-                    style="padding:0.8rem 1.4rem; font-weight:700; background:linear-gradient(135deg,#f59e0b,#d97706); box-shadow:0 4px 15px rgba(245,158,11,0.35); border:none; color:#fff;">
-                🚀 Fast Compile All &amp; Restart (Recommended)
+                    style="padding:0.8rem 1.4rem; font-weight:700; background:linear-gradient(135deg,#f59e0b,#d97706); box-shadow:0 4px 15px rgba(245,158,11,0.35); border:none; color:#fff;"
+                    title="Compile and update plugins for <?php echo htmlspecialchars($activeServer['name']); ?> only">
+                🚀 Fast Compile for [<?php echo htmlspecialchars($activeServer['id']); ?>] &amp; Restart
             </button>
         </form>
 
-        <!-- Compile only, no restart -->
+        <!-- Compile only for Active Server -->
         <form method="POST" action="plugins.php"
-              onsubmit="return confirm('Compile local .sma files? (No restart — useful while server is running)')">
+              onsubmit="return confirm('Compile plugins for server: <?php echo htmlspecialchars($activeServer['name']); ?> only? (No restart)')">
             <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
             <input type="hidden" name="compile_plugins" value="1">
             <button type="submit" class="btn btn-secondary" style="padding:0.8rem 1.2rem;">
-                🔨 Compile Only (No Restart)
+                🔨 Compile Only for [<?php echo htmlspecialchars($activeServer['id']); ?>]
             </button>
         </form>
 

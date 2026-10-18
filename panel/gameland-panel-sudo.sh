@@ -27,6 +27,29 @@ case "$action" in
     compile)
         exec /bin/bash "${PROJECT_DIR}/install_mix.sh" "${2:-}"
         ;;
+    compile_server)
+        id="${2:-main}"
+        exec /bin/bash "$SVGL" build "$id"
+        ;;
+    sync_plugins)
+        id="${2:-main}"
+        exec /bin/bash "$SVGL" sync-plugins "$id"
+        ;;
+    checkpoint_create)
+        label="${2:-Manual VPS Checkpoint}"
+        exec /bin/bash "${PROJECT_DIR}/checkpoint.sh" create "$label"
+        ;;
+    checkpoint_restore)
+        cp_id="${2:-latest}"
+        exec /bin/bash "${PROJECT_DIR}/checkpoint.sh" restore "$cp_id"
+        ;;
+    checkpoint_delete)
+        cp_id="${2:-}"
+        exec /bin/bash "${PROJECT_DIR}/checkpoint.sh" delete "$cp_id"
+        ;;
+    checkpoint_list)
+        exec /bin/bash "${PROJECT_DIR}/checkpoint.sh" list
+        ;;
     fixperms)
         configs="${PROJECT_DIR}/cstrike/addons/amxmodx/configs"
         mkdir -p "$configs" 2>/dev/null || true
