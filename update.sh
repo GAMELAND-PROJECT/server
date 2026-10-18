@@ -66,6 +66,9 @@ if [ -f "$PERSIST_SERVERS" ] && [ -s "$PERSIST_SERVERS" ]; then
     echo "[*] Restored server instances to instances/servers.json."
 fi
 
+# Auto-discover and sync any server instances on disk or in systemd
+bash "${SCRIPT_DIR}/recover_servers.sh" 2>/dev/null || true
+
 # 5. Tell Git to NEVER touch users.ini and servers.json during future git reset --hard
 git update-index --skip-worktree "$USERS_INI" 2>/dev/null || true
 git update-index --skip-worktree "$SERVERS_JSON" 2>/dev/null || true

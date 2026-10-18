@@ -42,7 +42,10 @@ Usage:
   svgl logs [id|main]          Follow systemd logs
   svgl tail [id|main]          Follow server log file
   svgl update                  Safely update server from GitHub (Zero data loss)
-  svgl recover                 Recover lost admin accounts from instances & logs
+  svgl recover                 Recover lost admin accounts with chronological filter
+  svgl sync                    Recover & auto-sync all created server instances
+  svgl sync-plugins <id>       Copy updated plugins to specific instance (independent)
+  svgl capacity                Analyze CPU & RAM to show how many servers can run
   svgl install-template        Install gameland@.service template
 
 The web panel uses the same registry and SVGL commands. No server needs to be
@@ -591,6 +594,60 @@ servers_browser_menu() {
     done
 }
 
+sync_plugins_to_instance() {
+    local id="${1:-}"
+    if [[ -z "$id" ]]; then
+        echo -e "${RED}[ERROR] Usage: svgl sync-plugins <id>${NC}"
+        return 1
+    fi
+    local target="${INSTANCE_ROOT_DEFAULT}/${id}"
+    if [[ ! -d "$target/cstrike/addons/amxmodx/plugins" ]]; then
+        echo -e "${RED}[ERROR] Instance '${id}' plugins directory not found: $target${NC}"
+        return 1
+    fi
+    cp -f "${PROJECT_DIR}/cstrike/addons/amxmodx/plugins/"*.amxx "$target/cstrike/addons/amxmodx/plugins/"
+    echo -e "${GREEN}[OK] Synced updated .amxx plugins to instance '${id}' without touching configs or users.ini!${NC}"
+}
+
+check_server_capacity() {
+    echo -e "${CYAN}==========================================${NC}"
+    echo -e "${BOLD}${GREEN}   GameLand Server Hardware & Capacity   ${NC}"
+    echo -e "${CYAN}==========================================${NC}"
+    local cores
+    cores=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 1)
+    local model
+    model=$(grep -m1 "model name" /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^[ \t]*//' || echo "Unknown CPU")
+    local mem_total
+    mem_total=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}' || echo 1024)
+    local mem_avail
+    mem_avail=$(free -m 2>/dev/null | awk '/^Mem:/{print $7}' || echo 512)
+    local load
+    load=$(uptime 2>/dev/null | awk -F'load average:' '{print $2}' | sed 's/^[ \t]*//' || echo "N/A")
+
+    echo -e "  ${BOLD}CPU Model:${NC}     $model"
+    echo -e "  ${BOLD}CPU Cores:${NC}     $cores Cores / Threads"
+    echo -e "  ${BOLD}Total RAM:${NC}     $((mem_total / 1024)) GB ($mem_total MB)"
+    echo -e "  ${BOLD}Available RAM:${NC} $((mem_avail / 1024)) GB ($mem_avail MB)"
+    echo -e "  ${BOLD}Current Load:${NC}  $load"
+    echo -e "${CYAN}------------------------------------------${NC}"
+    
+    local max_by_cpu=$((cores * 2))
+    local max_by_ram=$((mem_total / 250))
+    local recommended=$max_by_cpu
+    if [ "$max_by_ram" -lt "$recommended" ]; then
+        recommended=$max_by_ram
+    fi
+    if [ "$recommended" -lt 1 ]; then
+        recommended=1
+    fi
+
+    echo -e "  ${YELLOW}💡 Capacity Analysis for CS 1.6 (1000 FPS / 18 Slots):${NC}"
+    echo -e "  - Each instance uses ~150-250 MB RAM and ~20-35% of a CPU core."
+    echo -e "  - ${GREEN}${BOLD}Recommended Active Servers:${NC} ${GREEN}${recommended} servers${NC} simultaneously"
+    echo -e "  - Maximum servers under light/mix load: ${YELLOW}$((recommended + 2)) servers${NC}"
+    echo -e "${CYAN}==========================================${NC}"
+}
+
 show_menu() {
     clear 2>/dev/null || true
     echo -e "${CYAN}==========================================${NC}"
@@ -607,7 +664,9 @@ show_menu() {
     echo -e "  2) ${GREEN}Add New Server Instance${NC}"
     echo -e "  3) ${YELLOW}Update from GitHub (Safe Update)${NC}"
     echo -e "  4) List Servers"
-    echo -e "  5) ${CYAN}Recover Admin Accounts${NC}"
+    echo -e "  5) ${CYAN}Recover Admin Accounts${NC} (Smart Filter)"
+    echo -e "  6) ${CYAN}Recover / Sync Server Instances${NC} (Rebuild servers.json)"
+    echo -e "  7) ${PURPLE}Check Server Capacity & Hardware Specs${NC}"
     echo -e "  0) Exit"
     echo -e "${CYAN}==========================================${NC}"
 }
@@ -615,7 +674,7 @@ show_menu() {
 interactive_loop() {
     while true; do
         show_menu
-        read -r -p "  Select [0-5]: " choice
+        read -r -p "  Select [0-7]: " choice
         case "$choice" in
             1) servers_browser_menu ;;
             2)
@@ -628,6 +687,8 @@ interactive_loop() {
             3) bash "${PROJECT_DIR}/update.sh"; pause_menu ;;
             4) list_servers; pause_menu ;;
             5) bash "${PROJECT_DIR}/recover_admins.sh"; pause_menu ;;
+            6) bash "${PROJECT_DIR}/recover_servers.sh"; pause_menu ;;
+            7) check_server_capacity; pause_menu ;;
             0) exit 0 ;;
             *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
         esac
@@ -654,7 +715,10 @@ case "$cmd" in
     logs) journalctl -u "$(service_name_for "${2:-main}")" -f ;;
     tail) tail -f "$(log_file_for "${2:-main}")" ;;
     update) bash "${PROJECT_DIR}/update.sh" ;;
-    recover) bash "${PROJECT_DIR}/recover_admins.sh" ;;
+    recover|recover-admins) bash "${PROJECT_DIR}/recover_admins.sh" ;;
+    sync|recover-servers) bash "${PROJECT_DIR}/recover_servers.sh" ;;
+    sync-plugins) shift; sync_plugins_to_instance "$@" ;;
+    capacity|specs) check_server_capacity ;;
     install-template) install_template ;;
     *) usage; exit 1 ;;
 esac

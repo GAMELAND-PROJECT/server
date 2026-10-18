@@ -176,17 +176,18 @@ echo "  -> Wrote deploy record: ${CONFIGS_DIR}/.mix_last_build.json (${COMPILED_
 echo "[5/5] Optimizing server config for 5v5..."
 sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="18"/' "${PROJECT_DIR}/start.sh"
 
-# Sync updated plugins and MixSettings to all server instances in /opt/gameland/instances
-if [ -d "${PROJECT_DIR}/instances" ] || [ -d "/opt/gameland/instances" ]; then
-    INST_DIR="${PROJECT_DIR}/instances"
-    [ -d "$INST_DIR" ] || INST_DIR="/opt/gameland/instances"
-    for inst in "${INST_DIR}"/*; do
+# Instances are completely isolated and independent!
+# To sync plugins to an instance explicitly, use: svgl sync-plugins <id>
+if [ "${1:-}" == "--sync-all" ]; then
+    echo "[*] Synchronizing plugins to all instances (--sync-all specified)..."
+    for inst in /opt/gameland/instances/* "${PROJECT_DIR}/instances"/*; do
         if [ -d "${inst}/cstrike/addons/amxmodx/plugins" ]; then
             cp -f "${PLUGINS_DIR}"/*.amxx "${inst}/cstrike/addons/amxmodx/plugins/" 2>/dev/null || true
-            cp -f "${CONFIGS_DIR}/MixSettings.ini" "${inst}/cstrike/addons/amxmodx/configs/" 2>/dev/null || true
-            echo "  -> Synced plugins & configs to instance: $(basename "$inst")"
+            echo "  -> Synced plugins to instance: $(basename "$inst")"
         fi
     done
+else
+    echo "[*] Server instances remain isolated and untouched (full independence)."
 fi
 
 echo ""

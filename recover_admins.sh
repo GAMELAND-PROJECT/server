@@ -1,8 +1,7 @@
 #!/bin/bash
 # =========================================================
-# GameLand CS 1.6 - Admin Accounts Auto-Recovery Tool
-# Searches instances, AMXX logs, server logs, and tmp files
-# to find and restore previously configured admins!
+# GameLand CS 1.6 - Smart Admin Accounts Auto-Recovery Tool
+# Filters by latest active sessions and excludes removed admins!
 # =========================================================
 set -e
 
@@ -12,127 +11,277 @@ cd "$SCRIPT_DIR"
 CONFIGS_DIR="${SCRIPT_DIR}/cstrike/addons/amxmodx/configs"
 USERS_INI="${CONFIGS_DIR}/users.ini"
 PERSIST_INI="/opt/gameland/persistent/users.ini"
-TEMP_RECOVER="/tmp/recovered_admins.txt"
+TEMP_JSON="/tmp/gameland_admins_detected.json"
 
 echo "================================================="
-echo "   GameLand - Admin Accounts Auto-Recovery Tool  "
+echo "   GameLand - Smart Admin Recovery Tool (v2.0)  "
 echo "================================================="
-echo "[*] Searching for lost admin accounts across system..."
+echo "[*] Scanning logs and instances with chronological filtering..."
 
-rm -f "$TEMP_RECOVER"
-touch "$TEMP_RECOVER"
+mkdir -p "$CONFIGS_DIR"
+mkdir -p /opt/gameland/persistent
 
-# 1. Search existing server instances (svgl instances in /opt/gameland/instances)
-if [ -d "/opt/gameland/instances" ]; then
-    echo "[*] Scanning server instances in /opt/gameland/instances/..."
-    find /opt/gameland/instances -name "users.ini" 2>/dev/null | while read -r inst_file; do
-        if [ -s "$inst_file" ]; then
-            echo "  -> Found instance config: $inst_file"
-            grep -E '^[[:space:]]*"[^"]+"' "$inst_file" | grep -v '^[[:space:]]*"loopback"' >> "$TEMP_RECOVER" || true
-        fi
-    done
+python3 - << 'EOF'
+import os
+import sys
+import re
+import glob
+import json
+from datetime import datetime
+
+script_dir = os.path.abspath(os.getcwd())
+configs_dir = os.path.join(script_dir, "cstrike", "addons", "amxmodx", "configs")
+log_dir = os.path.join(script_dir, "cstrike", "addons", "amxmodx", "logs")
+persist_ini = "/opt/gameland/persistent/users.ini"
+temp_json = "/tmp/gameland_admins_detected.json"
+
+admins = {}  # account -> {account, name, flags, acc_flags, last_seen, last_seen_dt, count, removed}
+
+# 1. First, search for any explicit removed records (; [REMOVED by ...] "account")
+removed_accounts = set()
+for search_dir in [configs_dir, "/opt/gameland/persistent", "/tmp", "/opt/gameland/instances"]:
+    if not os.path.isdir(search_dir):
+        continue
+    for root, _, files in os.walk(search_dir):
+        for f in files:
+            if "users" in f.lower() or f.endswith(".ini") or f.endswith(".bak"):
+                path = os.path.join(root, f)
+                try:
+                    with open(path, 'r', encoding='utf-8', errors='ignore') as fp:
+                        for line in fp:
+                            line = line.strip()
+                            if "REMOVED" in line:
+                                m = re.search(r'"([^"]+)"', line)
+                                if m:
+                                    removed_accounts.add(m.group(1).strip().lower())
+                except Exception:
+                    pass
+
+# 2. Check existing uncorrupted instances (e.g. in /opt/gameland/instances/*/cstrike/addons/amxmodx/configs/users.ini)
+for inst_users in glob.glob("/opt/gameland/instances/*/cstrike/addons/amxmodx/configs/users.ini"):
+    if os.path.isfile(inst_users) and os.path.getsize(inst_users) > 50:
+        try:
+            mtime = os.path.getmtime(inst_users)
+            m_dt = datetime.fromtimestamp(mtime)
+            with open(inst_users, 'r', encoding='utf-8', errors='ignore') as fp:
+                for line in fp:
+                    line = line.strip()
+                    if not line or line.startswith(';') or line.startswith('#'):
+                        continue
+                    m = re.findall(r'"([^"]*)"', line)
+                    if len(m) >= 3:
+                        acc = m[0].strip()
+                        if acc.lower() == "loopback":
+                            continue
+                        flags = m[2].strip() if len(m) > 2 else "abcdefghijklmnopqrstuv"
+                        acc_flags = m[3].strip() if len(m) > 3 else ("ce" if acc.startswith("STEAM_") else "a")
+                        admins[acc.lower()] = {
+                            "account": acc,
+                            "name": "Instance Admin",
+                            "flags": flags,
+                            "acc_flags": acc_flags,
+                            "last_seen": m_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                            "last_seen_dt": m_dt.timestamp(),
+                            "count": 999,
+                            "removed": (acc.lower() in removed_accounts)
+                        }
+        except Exception:
+            pass
+
+# 3. Parse AMX Mod X log files chronologically
+log_files = glob.glob(os.path.join(log_dir, "L*.log"))
+log_files.sort()  # Alphabetical sorts dates like L20261017.log, L20261018.log
+
+# Pattern: L MM/DD/YYYY - HH:MM:SS: [admin.amxx] Login: "Name<...><...><>" became an admin (account "XYZ") (access "FLAGS")
+pattern = re.compile(r'L\s+(\d{2}/\d{2}/\d{4})\s+-\s+(\d{2}:\d{2}:\d{2}):.*Login:\s+"([^<]+)<.*became an admin\s+\(account\s+"([^"]+)"\)\s+\(access\s+"([^"]+)"\)')
+
+for log_path in log_files:
+    try:
+        with open(log_path, 'r', encoding='utf-8', errors='ignore') as fp:
+            for line in fp:
+                m = pattern.search(line)
+                if m:
+                    date_str, time_str, name, acc, access = m.groups()
+                    acc = acc.strip()
+                    if acc.lower() == "loopback":
+                        continue
+                    
+                    try:
+                        dt = datetime.strptime(f"{date_str} {time_str}", "%m/%d/%Y %H:%M:%S")
+                    except Exception:
+                        dt = datetime.now()
+                    
+                    acc_lower = acc.lower()
+                    acc_flags = "ce" if acc.startswith("STEAM_") else "a"
+                    
+                    if acc_lower not in admins:
+                        admins[acc_lower] = {
+                            "account": acc,
+                            "name": name.strip(),
+                            "flags": access.strip(),
+                            "acc_flags": acc_flags,
+                            "last_seen": dt.strftime("%Y-%m-%d %H:%M:%S"),
+                            "last_seen_dt": dt.timestamp(),
+                            "count": 1,
+                            "removed": (acc_lower in removed_accounts)
+                        }
+                    else:
+                        admins[acc_lower]["count"] += 1
+                        if dt.timestamp() > admins[acc_lower]["last_seen_dt"]:
+                            admins[acc_lower]["last_seen"] = dt.strftime("%Y-%m-%d %H:%M:%S")
+                            admins[acc_lower]["last_seen_dt"] = dt.timestamp()
+                            admins[acc_lower]["name"] = name.strip()
+                            admins[acc_lower]["flags"] = access.strip()
+    except Exception:
+        pass
+
+admin_list = list(admins.values())
+# Sort by most recent login first
+admin_list.sort(key=lambda x: x["last_seen_dt"], reverse=True)
+
+with open(temp_json, 'w', encoding='utf-8') as f:
+    json.dump(admin_list, f, indent=2, ensure_ascii=False)
+
+EOF
+
+if [ ! -f "$TEMP_JSON" ] || [ "$(stat -c%s "$TEMP_JSON" 2>/dev/null || echo 0)" -lt 5 ]; then
+    echo "[!] No admin accounts found in logs or instances."
+    exit 0
 fi
 
-if [ -d "${SCRIPT_DIR}/instances" ]; then
-    find "${SCRIPT_DIR}/instances" -name "users.ini" 2>/dev/null | while read -r inst_file; do
-        if [ -s "$inst_file" ]; then
-            echo "  -> Found instance config: $inst_file"
-            grep -E '^[[:space:]]*"[^"]+"' "$inst_file" | grep -v '^[[:space:]]*"loopback"' >> "$TEMP_RECOVER" || true
-        fi
-    done
-fi
+# Run interactive or auto selector in python
+python3 - << 'EOF'
+import os
+import sys
+import json
+import time
+from datetime import datetime
 
-# 2. Search /tmp for users_temp.ini or backup files
-echo "[*] Scanning /tmp for temporary users.ini files..."
-find /tmp -name "*users*.ini*" 2>/dev/null | while read -r tmp_file; do
-    if [ -s "$tmp_file" ]; then
-        echo "  -> Found temp file: $tmp_file"
-        grep -E '^[[:space:]]*"[^"]+"' "$tmp_file" | grep -v '^[[:space:]]*"loopback"' >> "$TEMP_RECOVER" || true
-    fi
-done
+temp_json = "/tmp/gameland_admins_detected.json"
+configs_dir = os.path.join(os.getcwd(), "cstrike", "addons", "amxmodx", "configs")
+users_ini = os.path.join(configs_dir, "users.ini")
+persist_ini = "/opt/gameland/persistent/users.ini"
 
-# 3. Search AMX Mod X log files for admin logins:
-# Pattern: [admin.amxx] Login: "Name<...><...><>" became an admin (account "XYZ") (access "FLAGS")
-echo "[*] Scanning AMX Mod X log files for past admin logins..."
-LOG_DIR="${SCRIPT_DIR}/cstrike/addons/amxmodx/logs"
-if [ -d "$LOG_DIR" ]; then
-    find "$LOG_DIR" -name "L*.log" 2>/dev/null | while read -r log_file; do
-        grep -i "became an admin" "$log_file" 2>/dev/null | while read -r log_line; do
-            # Extract account and access flags
-            acc=$(echo "$log_line" | grep -o 'account "[^"]*"' | cut -d'"' -f2)
-            access=$(echo "$log_line" | grep -o 'access "[^"]*"' | cut -d'"' -f2)
-            name=$(echo "$log_line" | sed -E 's/.*Login: "([^<]+)<.*/\1/')
-            if [ -n "$acc" ] && [ -n "$access" ]; then
-                if [[ "$acc" =~ ^STEAM_ ]]; then
-                    echo "\"${acc}\" \"\" \"${access}\" \"ce\" ; Recovered Steam Admin (${name})" >> "$TEMP_RECOVER"
-                else
-                    echo "\"${acc}\" \"123456\" \"${access}\" \"a\" ; Recovered Nick Admin (${name})" >> "$TEMP_RECOVER"
-                fi
-            fi
-        done
-    done
-fi
+with open(temp_json, 'r', encoding='utf-8') as f:
+    admins = json.load(f)
 
-# 4. Search server.log and server.log.1 for admin additions or logins
-echo "[*] Scanning server logs..."
-find "${SCRIPT_DIR}/logs" -name "server.log*" 2>/dev/null | while read -r slog; do
-    grep -i "became an admin" "$slog" 2>/dev/null | while read -r log_line; do
-        acc=$(echo "$log_line" | grep -o 'account "[^"]*"' | cut -d'"' -f2)
-        access=$(echo "$log_line" | grep -o 'access "[^"]*"' | cut -d'"' -f2)
-        name=$(echo "$log_line" | sed -E 's/.*Login: "([^<]+)<.*/\1/')
-        if [ -n "$acc" ] && [ -n "$access" ]; then
-            if [[ "$acc" =~ ^STEAM_ ]]; then
-                echo "\"${acc}\" \"\" \"${access}\" \"ce\" ; Recovered Steam Admin (${name})" >> "$TEMP_RECOVER"
-            else
-                echo "\"${acc}\" \"123456\" \"${access}\" \"a\" ; Recovered Nick Admin (${name})" >> "$TEMP_RECOVER"
-            fi
-        fi
-    done
-done
+if not admins:
+    print("[!] No admin accounts detected.")
+    sys.exit(0)
 
-# Filter duplicates
-RECOVERED_COUNT=0
-if [ -s "$TEMP_RECOVER" ]; then
-    sort -u "$TEMP_RECOVER" > "${TEMP_RECOVER}.sorted"
-    RECOVERED_COUNT=$(wc -l < "${TEMP_RECOVER}.sorted")
-fi
+now = time.time()
+recent_cutoff = now - (48 * 3600)  # Last 48 hours
+
+# If highest last_seen_dt is older than 48 hours, use the highest timestamp's day as cutoff
+max_seen = max(a["last_seen_dt"] for a in admins)
+if max_seen < recent_cutoff:
+    # Use last 24h relative to the most recent log entry
+    recent_cutoff = max_seen - (24 * 3600)
+
+print("\n" + "="*70)
+print(f" {'#':<3} {'ACCOUNT / STEAMID':<24} {'NAME':<15} {'LAST ACTIVE':<19} {'STATUS'}")
+print("="*70)
+
+for idx, a in enumerate(admins, 1):
+    is_recent = a["last_seen_dt"] >= recent_cutoff and not a["removed"]
+    status = "Active (Recent)" if is_recent else ("REMOVED" if a["removed"] else "Old / Inactive")
+    print(f" {idx:<3} {a['account']:<24} {a['name'][:14]:<15} {a['last_seen']:<19} [{status}]")
+
+print("="*70)
+
+auto_mode = "--recent" in sys.argv or not sys.stdin.isatty()
+selected = []
+
+if auto_mode:
+    print("[*] Running in auto mode: Restoring only the RECENT active admins...")
+    selected = [a for a in admins if a["last_seen_dt"] >= recent_cutoff and not a["removed"]]
+    if not selected:
+        # Fallback to the top most recent admin
+        selected = [admins[0]]
+else:
+    print("\nOptions:")
+    print("  1) Restore ONLY recent active admins (Recommended - excludes old/deleted) [Press Enter]")
+    print("  2) Choose specific admins by number (e.g. 1, 3)")
+    print("  3) Restore ALL detected admins")
+    print("  0) Cancel")
+    try:
+        choice = input("\nSelect option [1/2/3/0] (default: 1): ").strip()
+    except Exception:
+        choice = "1"
+    
+    if choice == "0":
+        print("Cancelled.")
+        sys.exit(0)
+    elif choice == "2":
+        try:
+            nums = input("Enter admin numbers separated by comma (e.g. 1, 2): ").strip()
+            chosen_indices = [int(x.strip()) for x in nums.split(",") if x.strip().isdigit()]
+            selected = [admins[i-1] for i in chosen_indices if 1 <= i <= len(admins)]
+        except Exception:
+            selected = [a for a in admins if a["last_seen_dt"] >= recent_cutoff and not a["removed"]]
+    elif choice == "3":
+        selected = admins
+    else:
+        selected = [a for a in admins if a["last_seen_dt"] >= recent_cutoff and not a["removed"]]
+        if not selected:
+            selected = [admins[0]]
+
+print(f"\n[*] Applying {len(selected)} admin account(s) to users.ini...")
+
+lines = [
+    "; Users configuration file",
+    "; Format: <name|ip|steamid> <password> <access flags> <account flags>",
+    '"loopback" "" "abcdefghijklmnopqrstuv" "de" ; Server Local Admin'
+]
+
+for a in selected:
+    acc = a["account"]
+    flags = a["flags"] or "abcdefghijklmnopqrstuv"
+    acc_flags = a["acc_flags"] or ("ce" if acc.startswith("STEAM_") else "a")
+    name = a["name"]
+    pwd = "" if acc.startswith("STEAM_") else "123456"
+    lines.append(f'"{acc}" "{pwd}" "{flags}" "{acc_flags}" ; {name} (Last active: {a["last_seen"]})')
+
+content = "\n".join(lines) + "\n"
+
+# Backup existing users.ini
+if os.path.isfile(users_ini):
+    try:
+        backup_path = f"{users_ini}.backup.{int(time.time())}"
+        with open(backup_path, 'w', encoding='utf-8') as f:
+            with open(users_ini, 'r', encoding='utf-8', errors='ignore') as orig:
+                f.write(orig.read())
+    except Exception:
+        pass
+
+with open(users_ini, 'w', encoding='utf-8') as f:
+    f.write(content)
+
+with open(persist_ini, 'w', encoding='utf-8') as f:
+    f.write(content)
+
+try:
+    os.chmod(users_ini, 0o666)
+    os.chmod(persist_ini, 0o666)
+except Exception:
+    pass
+
+print("✅ Successfully updated users.ini and persistent backup!")
+for a in selected:
+    print(f"   + Admin restored: {a['account']} ({a['name']})")
+
+EOF
+
+# Tell git to never overwrite users.ini
+git update-index --skip-worktree "$USERS_INI" 2>/dev/null || true
+
+# Reload in running tmux session
+tmux send-keys -t gameland_server "amx_reloadadmins" C-m 2>/dev/null || true
+
+rm -f "$TEMP_JSON" 2>/dev/null || true
 
 echo ""
 echo "================================================="
-if [ "$RECOVERED_COUNT" -gt 0 ]; then
-    echo " [SUCCESS] Found ${RECOVERED_COUNT} admin accounts to restore:"
-    echo "================================================="
-    cat "${TEMP_RECOVER}.sorted"
-    echo "================================================="
-    
-    # Backup existing users.ini just in case
-    cp -f "$USERS_INI" "${USERS_INI}.backup.$(date +%s)" 2>/dev/null || true
-
-    # Merge into users.ini and persistent storage
-    mkdir -p /opt/gameland/persistent
-    cat > "$USERS_INI" << 'EOF'
-; Users configuration file
-; Format: <name|ip|steamid> <password> <access flags> <account flags>
-"loopback" "" "abcdefghijklmnopqrstuv" "de" ; Server Local Admin
-EOF
-    cat "${TEMP_RECOVER}.sorted" >> "$USERS_INI"
-    cp -f "$USERS_INI" "$PERSIST_INI"
-    chmod 666 "$USERS_INI" "$PERSIST_INI" 2>/dev/null || true
-
-    # Reload in server
-    tmux send-keys -t gameland_server "amx_reloadadmins" C-m 2>/dev/null || true
-
-    echo ""
-    echo "✅ Restored ${RECOVERED_COUNT} admins into:"
-    echo "   1) ${USERS_INI}"
-    echo "   2) ${PERSIST_INI}"
-    echo "✅ Sent 'amx_reloadadmins' to running server!"
-else
-    echo " [INFO] No historical admin accounts found in logs or instances."
-    echo " If you remember the SteamID or Nickname, you can quickly re-add them via:"
-    echo "   - Web Panel: http://<server-ip>/panel/admins.php"
-    echo "   - In-game: say /a (Admin Manager -> Add Admin)"
-    echo "================================================="
-fi
-
-rm -f "$TEMP_RECOVER" "${TEMP_RECOVER}.sorted" 2>/dev/null || true
+echo "✅ Admins reloaded in running server!"
+echo "   File: ${USERS_INI}"
+echo "================================================="
