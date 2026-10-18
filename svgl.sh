@@ -601,16 +601,44 @@ servers_browser_menu() {
 sync_plugins_to_instance() {
     local id="${1:-}"
     if [[ -z "$id" ]]; then
-        echo -e "${RED}[ERROR] Usage: svgl sync-plugins <id>${NC}"
+        echo -e "${RED}[ERROR] Usage: svgl sync-plugins <id|all>${NC}"
         return 1
     fi
+    if [[ "$id" == "all" ]]; then
+        local count=0
+        for target in "${INSTANCE_ROOT_DEFAULT}"/* "${PROJECT_DIR}/instances"/*; do
+            if [[ -d "$target/cstrike/addons/amxmodx/plugins" ]]; then
+                cp -f "${PROJECT_DIR}/cstrike/addons/amxmodx/plugins/"*.amxx "$target/cstrike/addons/amxmodx/plugins/"
+                local inst_id
+                inst_id="$(basename "$target")"
+                if systemctl is-active --quiet "gameland@${inst_id}.service" 2>/dev/null; then
+                    systemctl restart "gameland@${inst_id}.service" 2>/dev/null || true
+                    echo -e "  ${GREEN}✔${NC} Synced & restarted instance: ${BOLD}${inst_id}${NC}"
+                else
+                    echo -e "  ${GREEN}✔${NC} Synced to instance: ${inst_id}"
+                fi
+                count=$((count + 1))
+            fi
+        done
+        echo -e "${GREEN}[OK] Synced updated .amxx plugins to ${count} instances!${NC}"
+        return 0
+    fi
+
     local target="${INSTANCE_ROOT_DEFAULT}/${id}"
     if [[ ! -d "$target/cstrike/addons/amxmodx/plugins" ]]; then
-        echo -e "${RED}[ERROR] Instance '${id}' plugins directory not found: $target${NC}"
+        target="${PROJECT_DIR}/instances/${id}"
+    fi
+    if [[ ! -d "$target/cstrike/addons/amxmodx/plugins" ]]; then
+        echo -e "${RED}[ERROR] Instance '${id}' plugins directory not found.${NC}"
         return 1
     fi
     cp -f "${PROJECT_DIR}/cstrike/addons/amxmodx/plugins/"*.amxx "$target/cstrike/addons/amxmodx/plugins/"
-    echo -e "${GREEN}[OK] Synced updated .amxx plugins to instance '${id}' without touching configs or users.ini!${NC}"
+    if systemctl is-active --quiet "gameland@${id}.service" 2>/dev/null; then
+        systemctl restart "gameland@${id}.service" 2>/dev/null || true
+        echo -e "${GREEN}[OK] Synced updated .amxx plugins to '${id}' & restarted service!${NC}"
+    else
+        echo -e "${GREEN}[OK] Synced updated .amxx plugins to instance '${id}' without touching configs or users.ini!${NC}"
+    fi
 }
 
 build_server_plugins() {

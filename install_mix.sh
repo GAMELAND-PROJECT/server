@@ -183,7 +183,13 @@ if [ "${1:-}" == "--sync-all" ]; then
     for inst in /opt/gameland/instances/* "${PROJECT_DIR}/instances"/*; do
         if [ -d "${inst}/cstrike/addons/amxmodx/plugins" ]; then
             cp -f "${PLUGINS_DIR}"/*.amxx "${inst}/cstrike/addons/amxmodx/plugins/" 2>/dev/null || true
-            echo "  -> Synced plugins to instance: $(basename "$inst")"
+            inst_id="$(basename "$inst")"
+            if systemctl is-active --quiet "gameland@${inst_id}.service" 2>/dev/null; then
+                systemctl restart "gameland@${inst_id}.service" 2>/dev/null || true
+                echo "  -> Synced plugins & restarted instance: ${inst_id}"
+            else
+                echo "  -> Synced plugins to instance: ${inst_id}"
+            fi
         fi
     done
 else

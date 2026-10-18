@@ -95,7 +95,7 @@ chmod +x "${SCRIPT_DIR}/hlds_linux" "${SCRIPT_DIR}/hlds_run" "${SCRIPT_DIR}"/*.s
 
 # 8. Recompile and restart cleanly
 echo "[*] Compiling mix system plugins..."
-bash "${SCRIPT_DIR}/install_mix.sh"
+bash "${SCRIPT_DIR}/install_mix.sh" --sync-all
 
 echo "================================================="
 echo " [SUCCESS] Safe Update Completed!                "
