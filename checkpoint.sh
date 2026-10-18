@@ -1,8 +1,8 @@
 #!/bin/bash
 # =========================================================
-# GameLand CS 1.6 - VPS Checkpoint & Full State Backup Tool
-# Creates and restores atomic snapshots of all configs, admins,
-# servers registry, and persistent data with zero data loss!
+# GameLand CS 1.6 - Dedicated Admins & Servers Checkpoint Tool
+# Strictly archives ONLY admins (users.ini) and registered server instances
+# (servers.json, .env, ports). Completely excludes all plugins!
 # =========================================================
 set -e
 
@@ -20,7 +20,7 @@ cmd="${1:-list}"
 
 case "$cmd" in
     create)
-        label="${2:-Manual VPS Checkpoint}"
+        label="${2:-Global VPS Checkpoint (Admins & Servers)}"
         python3 - << EOF
 import os
 import sys
@@ -38,76 +38,83 @@ cp_id = "cp_" + now.strftime("%Y%m%d_%H%M%S")
 cp_tar = os.path.join(checkpoint_dir, f"{cp_id}.tar.gz")
 cp_meta = os.path.join(checkpoint_dir, f"{cp_id}.json")
 
-# Gather list of items to archive
 archive_files = []
 
-# 1. Persistent storage
-persist_dir = "/opt/gameland/persistent"
-if os.path.isdir(persist_dir):
-    for root, _, files in os.walk(persist_dir):
-        for f in files:
-            archive_files.append((os.path.join(root, f), os.path.relpath(os.path.join(root, f), "/opt/gameland")))
+# ── 1. ALL ADMIN FILES (users.ini) ──────────────────────────────────────────
+# Main persistent users.ini
+p_users = "/opt/gameland/persistent/users.ini"
+if os.path.isfile(p_users):
+    archive_files.append((p_users, "persistent/users.ini"))
 
-# 2. Instances registry and env files
-instances_dir = os.path.join(script_dir, "instances")
-if os.path.isdir(instances_dir):
-    for root, _, files in os.walk(instances_dir):
-        for f in files:
-            archive_files.append((os.path.join(root, f), os.path.relpath(os.path.join(root, f), script_dir)))
+# Main server users.ini
+m_users = os.path.join(script_dir, "cstrike", "addons", "amxmodx", "configs", "users.ini")
+if os.path.isfile(m_users):
+    archive_files.append((m_users, "server/cstrike/addons/amxmodx/configs/users.ini"))
 
-# 3. Main server configs
-main_configs = os.path.join(script_dir, "cstrike", "addons", "amxmodx", "configs")
-if os.path.isdir(main_configs):
-    for root, _, files in os.walk(main_configs):
-        for f in files:
-            if f.endswith(".ini") or f.endswith(".cfg") or f.endswith(".json") or f.endswith(".txt"):
-                archive_files.append((os.path.join(root, f), os.path.relpath(os.path.join(root, f), script_dir)))
-
-# 4. Main server.cfg
-server_cfg = os.path.join(script_dir, "cstrike", "server.cfg")
-if os.path.isfile(server_cfg):
-    archive_files.append((server_cfg, os.path.relpath(server_cfg, script_dir)))
-
-# 5. All instances configs in /opt/gameland/instances/*/cstrike/
+# All instances users.ini
 inst_root = "/opt/gameland/instances"
 if os.path.isdir(inst_root):
-    for inst_name in os.listdir(inst_root):
-        inst_dir = os.path.join(inst_root, inst_name)
-        if os.path.isdir(inst_dir) and inst_name != "server":
-            cfg_dir = os.path.join(inst_dir, "cstrike", "addons", "amxmodx", "configs")
-            if os.path.isdir(cfg_dir):
-                for root, _, files in os.walk(cfg_dir):
-                    for f in files:
-                        if f.endswith(".ini") or f.endswith(".cfg") or f.endswith(".json"):
-                            archive_files.append((os.path.join(root, f), os.path.relpath(os.path.join(root, f), "/opt/gameland")))
-            scfg = os.path.join(inst_dir, "cstrike", "server.cfg")
-            if os.path.isfile(scfg):
-                archive_files.append((scfg, os.path.relpath(scfg, "/opt/gameland")))
+    for entry in os.listdir(inst_root):
+        inst_users = os.path.join(inst_root, entry, "cstrike", "addons", "amxmodx", "configs", "users.ini")
+        if os.path.isfile(inst_users):
+            archive_files.append((inst_users, f"instances/{entry}/cstrike/addons/amxmodx/configs/users.ini"))
 
-# Count admins and servers
-admin_count = 0
-users_ini = os.path.join(script_dir, "cstrike", "addons", "amxmodx", "configs", "users.ini")
-if os.path.isfile(users_ini):
-    try:
-        with open(users_ini, 'r', encoding='utf-8', errors='ignore') as f:
-            for l in f:
-                l = l.strip()
-                if l.startswith('"') and not l.startswith('"loopback"'):
-                    admin_count += 1
-    except Exception:
-        pass
+# ── 2. ALL SERVER DEFINITIONS (servers.json, .env, ports, hostnames) ────────
+# Persistent servers.json
+p_servers = "/opt/gameland/persistent/servers.json"
+if os.path.isfile(p_servers):
+    archive_files.append((p_servers, "persistent/servers.json"))
 
+# instances/servers.json
+m_servers = os.path.join(script_dir, "instances", "servers.json")
+if os.path.isfile(m_servers):
+    archive_files.append((m_servers, "server/instances/servers.json"))
+
+# All instance environment configs (instances/*.env)
+instances_dir = os.path.join(script_dir, "instances")
+if os.path.isdir(instances_dir):
+    for f in os.listdir(instances_dir):
+        if f.endswith(".env"):
+            archive_files.append((os.path.join(instances_dir, f), f"server/instances/{f}"))
+
+# Main server.cfg (hostname & rcon password)
+m_cfg = os.path.join(script_dir, "cstrike", "server.cfg")
+if os.path.isfile(m_cfg):
+    archive_files.append((m_cfg, "server/cstrike/server.cfg"))
+
+# Instance server.cfg files
+if os.path.isdir(inst_root):
+    for entry in os.listdir(inst_root):
+        inst_cfg = os.path.join(inst_root, entry, "cstrike", "server.cfg")
+        if os.path.isfile(inst_cfg):
+            archive_files.append((inst_cfg, f"instances/{entry}/cstrike/server.cfg"))
+
+# Count unique admins across all users.ini files
+admin_set = set()
+for src_path, _ in archive_files:
+    if src_path.endswith("users.ini"):
+        try:
+            with open(src_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('"') and not line.startswith('"loopback"'):
+                        parts = line.split('"')
+                        if len(parts) >= 2:
+                            admin_set.add(parts[1].strip().lower())
+        except Exception:
+            pass
+
+# Count total servers
 server_count = 1
-servers_json = os.path.join(instances_dir, "servers.json")
-if os.path.isfile(servers_json):
+if os.path.isfile(m_servers):
     try:
-        with open(servers_json, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(m_servers, 'r', encoding='utf-8', errors='ignore') as f:
             d = json.load(f)
-            server_count += len(d.get("servers", []))
+            server_count = 1 + len(d.get("servers", []))
     except Exception:
         pass
 
-# Create tar.gz archive
+# Create compressed archive of admins & servers only
 with tarfile.open(cp_tar, "w:gz") as tar:
     for src_path, arc_name in archive_files:
         if os.path.isfile(src_path):
@@ -120,7 +127,7 @@ meta = {
     "id": cp_id,
     "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
     "label": label,
-    "admin_count": admin_count,
+    "admin_count": len(admin_set),
     "server_count": server_count,
     "size_bytes": size_bytes,
     "size_human": f"{size_kb} KB",
@@ -162,7 +169,6 @@ for meta_file in glob.glob(os.path.join(checkpoint_dir, "cp_*.json")):
 
 checkpoints.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
-# If --json is passed or output is piped, print json
 is_json = "--json" in sys.argv or not sys.stdout.isatty()
 
 if is_json:
@@ -197,7 +203,6 @@ checkpoint_dir = "$CHECKPOINT_DIR"
 target = "$target_cp"
 script_dir = os.path.abspath(os.getcwd())
 
-# Find target checkpoint
 if target == "latest":
     metas = glob.glob(os.path.join(checkpoint_dir, "cp_*.json"))
     if not metas:
@@ -208,7 +213,6 @@ if target == "latest":
 else:
     target_meta_file = os.path.join(checkpoint_dir, f"{target}.json")
     if not os.path.isfile(target_meta_file):
-        # Try matching by substring
         candidates = [m for m in glob.glob(os.path.join(checkpoint_dir, "cp_*.json")) if target in m]
         if candidates:
             target_meta_file = candidates[0]
@@ -224,18 +228,18 @@ if not os.path.isfile(tar_path):
     print(json.dumps({"success": False, "message": f"Archive file missing: {tar_path}"}))
     sys.exit(1)
 
-# Extract archive safely
+# Extract only admins and server registry files safely
 with tarfile.open(tar_path, "r:gz") as tar:
     for member in tar.getmembers():
-        # Prevent directory traversal attacks
         if member.name.startswith("/") or ".." in member.name:
             continue
         
-        # Decide destination based on relative path prefix
-        if member.name.startswith("instances/") and not member.name.startswith("instances/servers.json"):
-            # Could be /opt/gameland/instances/... or server/instances/...
-            dest_path = os.path.join(script_dir, member.name)
-        elif member.name.startswith("persistent/") or member.name.startswith("instances/"):
+        if member.name.startswith("server/"):
+            rel = member.name[7:]
+            dest_path = os.path.join(script_dir, rel)
+        elif member.name.startswith("persistent/"):
+            dest_path = os.path.join("/opt/gameland", member.name)
+        elif member.name.startswith("instances/"):
             dest_path = os.path.join("/opt/gameland", member.name)
         else:
             dest_path = os.path.join(script_dir, member.name)
@@ -249,21 +253,35 @@ with tarfile.open(tar_path, "r:gz") as tar:
             except Exception:
                 pass
 
-# Auto-sync recovered servers
+# Rebuild and sync server instances from disk
 try:
     subprocess.run(["bash", os.path.join(script_dir, "recover_servers.sh")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 except Exception:
     pass
 
-# Reload admins in tmux server session
+# Ensure git skip-worktree on users.ini and servers.json
 try:
-    subprocess.run(["tmux", "send-keys", "-t", "gameland_server", "amx_reloadadmins", "C-m"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["git", "update-index", "--skip-worktree", os.path.join(script_dir, "cstrike", "addons", "amxmodx", "configs", "users.ini")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["git", "update-index", "--skip-worktree", os.path.join(script_dir, "instances", "servers.json")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except Exception:
+    pass
+
+# Reload admins in all active tmux server sessions (gameland_*)
+try:
+    p = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    if p.returncode == 0:
+        for sname in p.stdout.splitlines():
+            sname = sname.strip()
+            if sname.startswith("gameland"):
+                subprocess.run(["tmux", "send-keys", "-t", sname, "amx_reloadadmins", "C-m"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        subprocess.run(["tmux", "send-keys", "-t", "gameland_server", "amx_reloadadmins", "C-m"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 except Exception:
     pass
 
 print(json.dumps({
     "success": True,
-    "message": f"Successfully restored Checkpoint '{meta['id']}' ({meta['label']})! All configs, admins, and servers recovered.",
+    "message": f"Successfully restored Checkpoint '{meta['id']}' ({meta['label']})! Admins and servers restored.",
     "checkpoint": meta
 }))
 EOF

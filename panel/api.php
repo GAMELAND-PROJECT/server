@@ -342,10 +342,34 @@ switch ($action) {
         echo json_encode(['success' => true, 'builds' => array_values($managedStatus)]);
         break;
 
+    // ─── VPS Checkpoint Management (Admins & Servers Only) ───────────────────
+    case 'checkpoint_create':
+        $label = trim($_POST['label'] ?? 'Manual VPS Checkpoint');
+        $res = ServerCmd::createCheckpoint($label);
+        echo json_encode($res);
+        break;
 
+    case 'checkpoint_list':
+        $list = ServerCmd::listCheckpoints();
+        echo json_encode(['success' => true, 'checkpoints' => $list]);
+        break;
 
+    case 'checkpoint_restore':
+        $cpId = trim($_POST['checkpoint_id'] ?? 'latest');
+        if (empty($cpId)) $cpId = 'latest';
+        $res = ServerCmd::restoreCheckpoint($cpId);
+        echo json_encode($res);
+        break;
 
-
+    case 'checkpoint_delete':
+        $cpId = trim($_POST['checkpoint_id'] ?? '');
+        if (empty($cpId)) {
+            echo json_encode(['success' => false, 'message' => 'Checkpoint ID is required.']);
+            exit;
+        }
+        $res = ServerCmd::deleteCheckpoint($cpId);
+        echo json_encode($res);
+        break;
 
     // ─── Full Build Pipeline Diagnostic ──────────────────────────────────────
     case 'diagnose_build':

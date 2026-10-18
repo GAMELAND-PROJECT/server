@@ -210,7 +210,17 @@ require_once __DIR__ . '/includes/header.php';
         </p>
     </div>
 
-    <div style="display: flex; gap: 0.5rem;">
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <button type="button" onclick="createGlobalCheckpoint()" class="btn btn-warning"
+                style="background:linear-gradient(135deg,#f59e0b,#ea580c); color:#fff; font-weight:700; border:none; box-shadow:0 2px 8px rgba(245,158,11,0.3);"
+                title="ثبت چک‌پوینت سرتاسری از تمام ادمین‌ها و سرورها">
+            💾 ثبت چک‌پوینت
+        </button>
+        <button type="button" onclick="restoreLatestGlobalCheckpoint()" class="btn btn-secondary"
+                style="border: 1px solid #f59e0b; color: #fbbf24; font-weight: 600;"
+                title="بازگردانی تمام ادمین‌ها به آخرین چک‌پوینت">
+            ↺ بازیابی از آخرین چک‌پوینت
+        </button>
         <button type="button" onclick="reloadAdminsAjax(this)" class="btn btn-warning" title="ارسال دستور amx_reloadadmins به سرور برای اعمال حقوق ادمین‌ها">
             ⚡ ریلود آنی سرور (amx_reloadadmins)
         </button>

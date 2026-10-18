@@ -7,9 +7,24 @@ $servers = ServerCmd::getServerList($SERVERS);
 ?>
 
 <div class="card">
-    <div class="card-title">
-        <span>Server Instances</span>
-        <button onclick="refreshServers()" class="btn btn-secondary btn-sm">Refresh</button>
+    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+            <span>Server Instances</span>
+            <span class="badge" style="background:rgba(59,130,246,0.15); color:#60a5fa;"><?php echo count($servers); ?> Active</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+            <button onclick="createGlobalCheckpoint()" class="btn btn-sm"
+                    style="background:linear-gradient(135deg,#f59e0b,#ea580c); color:#fff; font-weight:700; border:none; box-shadow:0 2px 8px rgba(245,158,11,0.3);"
+                    title="ثبت چک‌پوینت سرتاسری از تمام ادمین‌ها و سرورها">
+                💾 Take Checkpoint
+            </button>
+            <button onclick="restoreLatestGlobalCheckpoint()" class="btn btn-sm btn-secondary"
+                    style="border:1px solid #f59e0b; color:#fbbf24; font-weight:600;"
+                    title="بازگردانی تمام ادمین‌ها و سرورها به آخرین چک‌پوینت">
+                ↺ Restore Latest
+            </button>
+            <button onclick="refreshServers()" class="btn btn-secondary btn-sm">⟳ Refresh</button>
+        </div>
     </div>
 
     <div style="overflow-x:auto;">
@@ -44,11 +59,16 @@ $servers = ServerCmd::getServerList($SERVERS);
                             <?php endif; ?>
                         </td>
                         <td>
-                            <div class="action-bar" style="margin:0; gap:0.35rem;">
+                            <div class="action-bar" style="margin:0; gap:0.35rem; flex-wrap:wrap;">
                                 <button class="btn btn-success btn-sm" onclick="serverService('<?php echo htmlspecialchars($server['id']); ?>','start')">Start</button>
                                 <button class="btn btn-warning btn-sm" onclick="serverService('<?php echo htmlspecialchars($server['id']); ?>','restart')">Restart</button>
                                 <button class="btn btn-danger btn-sm" onclick="serverService('<?php echo htmlspecialchars($server['id']); ?>','stop')">Stop</button>
                                 <button class="btn btn-secondary btn-sm" onclick='editServer(<?php echo json_encode($server, JSON_HEX_APOS | JSON_HEX_QUOT); ?>)'>Edit</button>
+                                <button class="btn btn-sm" style="border:1px solid #f59e0b; color:#fbbf24; background:rgba(245,158,11,0.1); font-weight:600;"
+                                        onclick="restoreServerToLatestCheckpoint('<?php echo htmlspecialchars($server['id']); ?>', '<?php echo htmlspecialchars(addslashes($server['name'])); ?>')"
+                                        title="بازگردانی ادمین‌ها و تنظیمات این سرور به آخرین چک‌پوینت">
+                                    ↺ Restore
+                                </button>
                                 <?php if (!$server['protected']): ?>
                                     <button class="btn btn-danger btn-sm" onclick="removeServer('<?php echo htmlspecialchars($server['id']); ?>', false)">Remove</button>
                                     <button class="btn btn-danger btn-sm" onclick="removeServer('<?php echo htmlspecialchars($server['id']); ?>', true)">Purge</button>
@@ -173,6 +193,21 @@ function removeServer(id, purge) {
         alert(d.message || (d.success ? 'Removed.' : 'Failed.'));
         if (d.success) location.reload();
     });
+}
+
+function restoreServerToLatestCheckpoint(serverId, serverName) {
+    if (!confirm('⚠️ بازگردانی سرور به آخرین چک‌پوینت؟\n\nآیا مایلید ادمین‌ها و تنظیمات سرور «' + serverName + '» (' + serverId + ') به آخرین چک‌پوینت ثبت‌شده بازگردانده شوند؟\n\n(پلاگین‌ها بدون تغییر باقی خواهند ماند)')) return;
+
+    postServerApi('checkpoint_restore', { checkpoint_id: 'latest', server_id: serverId })
+        .then(d => {
+            if (d.success) {
+                alert('✅ ' + (d.message || 'سرور با موفقیت به آخرین چک‌پوینت بازگردانده شد!'));
+                location.reload();
+            } else {
+                alert('❌ خطا در بازگردانی: ' + (d.message || 'چک‌پوینتی یافت نشد'));
+            }
+        })
+        .catch(e => alert('❌ خطای ارتباط: ' + e.message));
 }
 </script>
 

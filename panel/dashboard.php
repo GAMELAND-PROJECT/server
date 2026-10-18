@@ -76,11 +76,17 @@ try {
             🔄 Update AutoMix Plugin
         </a>
 
-        <!-- Backup VPS (Checkpoint) -->
+        <!-- Checkpoint Buttons -->
         <button onclick="openCheckpointModal()" class="btn"
            style="background:linear-gradient(135deg,#f59e0b,#ea580c); color:#fff; font-weight:700; border:none; box-shadow:0 2px 10px rgba(245,158,11,0.35); display:inline-flex; align-items:center; gap:0.4rem;"
-           title="Create or restore atomic full VPS configuration & admins checkpoint">
-            💾 Backup VPS (Checkpoint)
+           title="مدیریت و ثبت چک‌پوینت‌های ادمین‌ها و سرورها">
+            💾 Checkpoints
+        </button>
+
+        <button onclick="restoreLatestGlobalCheckpoint()" class="btn btn-secondary"
+           style="border:1px solid #f59e0b; color:#fbbf24; font-weight:700; display:inline-flex; align-items:center; gap:0.4rem;"
+           title="بازگردانی ادمین‌ها و سرورها به آخرین چک‌پوینت ثبت‌شده">
+            ↺ Restore to Latest Checkpoint
         </button>
     </div>
 </div>
