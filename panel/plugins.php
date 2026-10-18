@@ -125,6 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['compile_plugins'])) {
 // ── Gather Data ─────────────────────────────────────────────────────────────
 $plugins     = ServerCmd::getPluginsList($activeServer);
 $gitStatus   = ServerCmd::getGitRepoStatus();
+$currentServerMode = ServerCmd::getCurrentServerMode($activeServer);
 
 $lastSyncFile = $activeServer['cstrike_dir'] . '/addons/amxmodx/configs/.mix_last_sync.json';
 $lastBuildFile = $activeServer['cstrike_dir'] . '/addons/amxmodx/configs/.mix_last_build.json';
@@ -420,18 +421,47 @@ function escHtml(str) {
 <!-- ══════════════════════════════════════════════════════
      QUICK SERVER MODE SWITCHER
 ═══════════════════════════════════════════════════════════ -->
-<div class="card" style="background:linear-gradient(135deg,rgba(79,70,229,0.1),rgba(6,182,212,0.05));">
+<div class="card" style="background:linear-gradient(135deg,rgba(79,70,229,0.1),rgba(6,182,212,0.05)); border:1px solid rgba(79,70,229,0.25);">
     <div class="card-title">
         <span>⚡ Quick Server Mode Switcher</span>
         <span style="font-size:0.8rem; color:var(--text-muted);">Switch plugin set + player slots + auto restart</span>
     </div>
+
+    <div style="margin-bottom:1rem; display:flex; align-items:center; gap:0.6rem; font-size:0.88rem; flex-wrap:wrap;">
+        <span style="color:var(--text-muted);">Current Active Server Mode:</span>
+        <?php if ($currentServerMode === 'clanwar'): ?>
+            <span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.5); font-weight:700; padding:0.35rem 0.85rem; border-radius:999px; box-shadow:0 0 10px rgba(245,158,11,0.3);">
+                ⚔️ Clan War Mode (Strictly 10 Slots)
+            </span>
+        <?php elseif ($currentServerMode === 'mix5v5'): ?>
+            <span class="badge" style="background:rgba(99,102,241,0.2); color:#818cf8; border:1px solid rgba(99,102,241,0.5); font-weight:700; padding:0.35rem 0.85rem; border-radius:999px; box-shadow:0 0 10px rgba(99,102,241,0.3);">
+                🎮 5v5 Match Server Mode (18 Slots)
+            </span>
+        <?php else: ?>
+            <span class="badge" style="background:rgba(107,114,128,0.2); color:#9ca3af; border:1px solid rgba(107,114,128,0.5); font-weight:700; padding:0.35rem 0.85rem; border-radius:999px;">
+                🎯 Classic Public Mode (24 Slots)
+            </span>
+        <?php endif; ?>
+    </div>
+
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+        <form method="POST" action="plugins.php"
+              onsubmit="return confirm('Switch server to Clan War mode (strictly 10 slots) and restart?')">
+            <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
+            <input type="hidden" name="target_mode" value="clanwar">
+            <button type="submit" name="switch_mode" class="btn <?php echo ($currentServerMode === 'clanwar') ? 'btn-primary' : 'btn-secondary'; ?>" 
+                    style="padding:0.85rem 1.4rem; <?php if($currentServerMode === 'clanwar') echo 'background:linear-gradient(135deg,#f59e0b,#d97706); border-color:#f59e0b; box-shadow:0 0 15px rgba(245,158,11,0.4); color:#fff; font-weight:700;'; ?>">
+                ⚔️ Clan War Mode (10 Slots) <?php if($currentServerMode === 'clanwar') echo '✓ Active'; ?>
+            </button>
+        </form>
+
         <form method="POST" action="plugins.php"
               onsubmit="return confirm('Switch server to 5v5 Match Server mode (18 slots) and restart?')">
             <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
             <input type="hidden" name="target_mode" value="mix5v5">
-            <button type="submit" name="switch_mode" class="btn btn-primary" style="padding:0.8rem 1.35rem;">
-                🎮 5v5 Match Server Mode (18 Slots)
+            <button type="submit" name="switch_mode" class="btn <?php echo ($currentServerMode === 'mix5v5') ? 'btn-primary' : 'btn-secondary'; ?>" 
+                    style="padding:0.85rem 1.4rem; <?php if($currentServerMode === 'mix5v5') echo 'box-shadow:0 0 15px rgba(99,102,241,0.4); border-color:#6366f1; font-weight:700;'; ?>">
+                🎮 5v5 Match Server Mode (18 Slots) <?php if($currentServerMode === 'mix5v5') echo '✓ Active'; ?>
             </button>
         </form>
 
@@ -439,8 +469,9 @@ function escHtml(str) {
               onsubmit="return confirm('Switch server to Classic Public mode (24 slots) and restart?')">
             <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
             <input type="hidden" name="target_mode" value="public">
-            <button type="submit" name="switch_mode" class="btn btn-secondary" style="padding:0.8rem 1.35rem;">
-                🎯 Classic Public Mode (24 Slots)
+            <button type="submit" name="switch_mode" class="btn <?php echo ($currentServerMode === 'public') ? 'btn-primary' : 'btn-secondary'; ?>" 
+                    style="padding:0.85rem 1.4rem; <?php if($currentServerMode === 'public') echo 'font-weight:700;'; ?>">
+                🎯 Classic Public Mode (24 Slots) <?php if($currentServerMode === 'public') echo '✓ Active'; ?>
             </button>
         </form>
     </div>
@@ -512,8 +543,9 @@ function escHtml(str) {
     </div>
 
     <?php foreach ($sections as $secName => $secPlugins): ?>
-    <div class="card" style="margin-bottom:1.1rem;<?php echo ($secName==='5v5 Match Server')?'border:1px solid var(--accent);':''; ?>">
-        <div class="card-title" style="color:<?php echo ($secName==='5v5 Match Server')?'var(--accent)':'var(--text-main)'; ?>;">
+    <?php $isSpecialSec = ($secName === '5v5 Match Server' || $secName === 'Clan War Mode'); ?>
+    <div class="card" style="margin-bottom:1.1rem;<?php echo $isSpecialSec ? 'border:1px solid var(--accent);' : ''; ?>">
+        <div class="card-title" style="color:<?php echo $isSpecialSec ? 'var(--accent)' : 'var(--text-main)'; ?>;">
             <span>📂 <?php echo htmlspecialchars($secName); ?> <span style="font-size:0.8rem; opacity:0.7;">(<?php echo count($secPlugins); ?> plugins)</span></span>
         </div>
 
@@ -525,7 +557,7 @@ function escHtml(str) {
                         <th>Plugin File</th>
                         <th>Description / Comment</th>
                         <th style="width:130px;">.amxx Binary</th>
-                        <?php if ($secName==='5v5 Match Server'): ?>
+                        <?php if ($isSpecialSec): ?>
                         <th style="width:130px;">Build Status</th>
                         <?php endif; ?>
                     </tr>
@@ -560,7 +592,7 @@ function escHtml(str) {
                                 <span style="color:var(--danger); font-size:0.8rem; font-weight:600;">✖ Missing</span>
                             <?php endif; ?>
                         </td>
-                        <?php if ($secName==='5v5 Match Server'): ?>
+                        <?php if ($isSpecialSec): ?>
                         <td>
                             <?php if ($bstat): ?>
                                 <?php if ($bstat['needs_rebuild']): ?>

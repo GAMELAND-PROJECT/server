@@ -479,6 +479,7 @@ class ServerCmd {
             'gameland_sound_optimizer.sma' => 'gameland_sound_optimizer.amxx',
             'gameland_fastduck_fix.sma'  => 'gameland_fastduck_fix.amxx',
             'gameland_admin_tools.sma'   => 'gameland_admin_tools.amxx',
+            'clanwar_system.sma'         => 'clanwar_system.amxx',
             'mix_system.sma'             => 'mix_system.amxx',
             'mix_system_voice_chat.sma'  => 'mix_system_voice_chat.amxx',
             'player_drop.sma'            => 'player_drop.amxx',
@@ -1143,14 +1144,22 @@ class ServerCmd {
                 if (preg_match('/^([a-zA-Z0-9_\-]+\.amxx)(?:\s*;?\s*(.*))?/', $lineClean, $m)) {
                     $pluginFile = $m[1];
                     $comment = isset($m[2]) ? trim($m[2]) : '';
+                    $isCwPlugin = str_contains($pluginFile, 'clanwar_');
                     $isMixPlugin = str_contains($pluginFile, 'mix_');
+
+                    $section = $currentSection;
+                    if ($isCwPlugin) {
+                        $section = 'Clan War Mode';
+                    } elseif ($isMixPlugin) {
+                        $section = '5v5 Match Server';
+                    }
 
                     $plugins[] = [
                         'file'       => $pluginFile,
                         'enabled'    => $isEnabled,
-                        'section'    => $isMixPlugin ? '5v5 Match Server' : $currentSection,
+                        'section'    => $section,
                         'comment'    => $comment,
-                        'is_mix'     => $isMixPlugin,
+                        'is_mix'     => ($isMixPlugin || $isCwPlugin),
                         'installed'  => file_exists($pluginsDir . '/' . $pluginFile),
                     ];
                     $registered[$pluginFile] = true;
@@ -1163,13 +1172,21 @@ class ServerCmd {
             $diskFiles = scandir($pluginsDir);
             foreach ($diskFiles as $f) {
                 if (substr($f, -5) === '.amxx' && !isset($registered[$f])) {
+                    $isCw = str_contains($f, 'clanwar_');
                     $isMix = str_contains($f, 'mix_');
+                    $section = 'Custom / Unregistered';
+                    if ($isCw) {
+                        $section = 'Clan War Mode';
+                    } elseif ($isMix) {
+                        $section = '5v5 Match Server';
+                    }
+
                     $plugins[] = [
                         'file'       => $f,
                         'enabled'    => false,
-                        'section'    => $isMix ? '5v5 Match Server' : 'Custom / Unregistered',
+                        'section'    => $section,
                         'comment'    => 'Found in plugins folder',
-                        'is_mix'     => $isMix,
+                        'is_mix'     => ($isMix || $isCw),
                         'installed'  => true,
                     ];
                 }
@@ -1232,10 +1249,30 @@ class ServerCmd {
     }
 
     /**
-     * Quick Switch Mode: 'mix5v5' or 'public'
+     * Detect current active server mode ('clanwar', 'mix5v5', or 'public')
+     */
+    public static function getCurrentServerMode($serverInfo) {
+        $pluginsIni = $serverInfo['cstrike_dir'] . '/addons/amxmodx/configs/plugins.ini';
+        if (!file_exists($pluginsIni)) {
+            return 'public';
+        }
+        $raw = (string)file_get_contents($pluginsIni);
+        $raw = str_replace("\r", "", $raw);
+        $cwActive = (bool)preg_match('/^[ \t]*(?!;)[ \t]*clanwar_system\.amxx(?=[ \t\r\n;]|$)/mi', $raw);
+        if ($cwActive) {
+            return 'clanwar';
+        }
+        $mixActive = (bool)preg_match('/^[ \t]*(?!;)[ \t]*mix_system\.amxx(?=[ \t\r\n;]|$)/mi', $raw);
+        if ($mixActive) {
+            return 'mix5v5';
+        }
+        return 'public';
+    }
+
+    /**
+     * Quick Switch Mode: 'clanwar', 'mix5v5', or 'public'
      */
     public static function switchServerMode($serverInfo, $targetMode) {
-        $mixPlugins = array_values(self::getManagedPluginTargets());
         $currentPlugins = self::getPluginsList($serverInfo);
         $enabled = [];
 
@@ -1245,32 +1282,82 @@ class ServerCmd {
             }
         }
 
-        $startSh = $serverInfo['server_dir'] . '/start.sh';
+        $serverDir = $serverInfo['server_dir'];
+        $startSh = $serverDir . '/start.sh';
+        $envFile = $serverDir . '/.env';
 
-        if ($targetMode === 'mix5v5') {
-            // Enable mix plugins
-            foreach ($mixPlugins as $mp) {
-                if (!in_array($mp, $enabled, true)) {
-                    $enabled[] = $mp;
+        $coreHelpers = [
+            'gameland_admin_tools.amxx',
+            'mix_system_voice_chat.amxx',
+            'player_drop.amxx',
+            'backweapons.amxx',
+            'gameland_lan_optimizer.amxx',
+            'gameland_sound_optimizer.amxx',
+            'gameland_fastduck_fix.amxx',
+            'gameland_only_enforcer.amxx',
+        ];
+
+        $newSlots = 24;
+        $modeLabel = '';
+
+        if ($targetMode === 'clanwar') {
+            $newSlots = 10;
+            $modeLabel = '⚔️ Clan War Mode (10 Slots)';
+
+            // Enable clanwar_system.amxx
+            if (!in_array('clanwar_system.amxx', $enabled, true)) {
+                $enabled[] = 'clanwar_system.amxx';
+            }
+            // Enable core helpers
+            foreach ($coreHelpers as $ch) {
+                if (!in_array($ch, $enabled, true)) {
+                    $enabled[] = $ch;
                 }
             }
-            // Set 12 players in start.sh
-            if (file_exists($startSh)) {
-                $content = file_get_contents($startSh);
-                $content = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="12"', $content);
-                file_put_contents($startSh, $content);
+            // Disable mix_system.amxx
+            $enabled = array_values(array_filter($enabled, fn($f) => $f !== 'mix_system.amxx'));
+
+        } elseif ($targetMode === 'mix5v5') {
+            $newSlots = 18;
+            $modeLabel = '🎮 5v5 Match Server Mode (18 Slots)';
+
+            // Enable mix_system.amxx
+            if (!in_array('mix_system.amxx', $enabled, true)) {
+                $enabled[] = 'mix_system.amxx';
             }
+            // Enable core helpers
+            foreach ($coreHelpers as $ch) {
+                if (!in_array($ch, $enabled, true)) {
+                    $enabled[] = $ch;
+                }
+            }
+            // Disable clanwar_system.amxx
+            $enabled = array_values(array_filter($enabled, fn($f) => $f !== 'clanwar_system.amxx'));
+
         } elseif ($targetMode === 'public') {
-            // Disable mix plugins
-            $enabled = array_filter($enabled, fn($p) => !in_array($p, $mixPlugins, true));
-            // Set 24 or 32 players in start.sh
-            if (file_exists($startSh)) {
-                $content = file_get_contents($startSh);
-                $content = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="24"', $content);
-                file_put_contents($startSh, $content);
-            }
+            $newSlots = 24;
+            $modeLabel = '🎯 Classic Public Mode (24 Slots)';
+
+            // Disable both mix_system and clanwar_system
+            $enabled = array_values(array_filter($enabled, fn($f) => $f !== 'mix_system.amxx' && $f !== 'clanwar_system.amxx'));
+
         } else {
             return ['success' => false, 'message' => 'Unknown mode: ' . $targetMode];
+        }
+
+        // Update MAX_PLAYERS in start.sh
+        if (file_exists($startSh)) {
+            $content = file_get_contents($startSh);
+            $content = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="' . $newSlots . '"', $content);
+            file_put_contents($startSh, $content);
+        }
+
+        // Update MAX_PLAYERS in .env if present
+        if (file_exists($envFile)) {
+            $envContent = file_get_contents($envFile);
+            $envContent = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="' . $newSlots . '"', $envContent);
+            $envContent = preg_replace('/^MAX_PLAYERS=.*$/m', 'MAX_PLAYERS="' . $newSlots . '"', $envContent);
+            file_put_contents($envFile, $envContent);
         }
 
         $res = self::savePluginsState($serverInfo, $enabled);
@@ -1280,7 +1367,7 @@ class ServerCmd {
 
         return [
             'success' => true,
-            'message' => 'Switched to ' . ($targetMode === 'mix5v5' ? '5v5 Mix Mode (12 Slots)' : 'Public Mode (24 Slots)') . '. Restart server to apply.'
+            'message' => 'Switched to ' . $modeLabel . '. Restart server to apply.'
         ];
     }
 
@@ -1403,6 +1490,12 @@ class ServerCmd {
             ['repo' => $repo, 'remote' => 'configs/stop.cfg',                    'local' => 'addons/amxmodx/configs/stop.cfg',                    'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/configs/stop.cfg'],
             ['repo' => $repo, 'remote' => 'configs/overtime.cfg',                'local' => 'addons/amxmodx/configs/overtime.cfg',                'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/configs/overtime.cfg'],
             ['repo' => $repo, 'remote' => 'data/lang/mix_system.txt',            'local' => 'addons/amxmodx/data/lang/mix_system.txt',            'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/data/lang/mix_system.txt'],
+
+            // Clan War System Sources, Configs & Binaries
+            ['repo' => $repo, 'remote' => 'scripting/clanwar_system.sma',        'local' => 'addons/amxmodx/scripting/clanwar_system.sma',        'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/scripting/clanwar_system.sma'],
+            ['repo' => $repo, 'remote' => 'configs/ClanWarSettings.ini',         'local' => 'addons/amxmodx/configs/ClanWarSettings.ini',         'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/configs/ClanWarSettings.ini'],
+            ['repo' => $repo, 'remote' => 'data/lang/clanwar_system.txt',        'local' => 'addons/amxmodx/data/lang/clanwar_system.txt',        'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/data/lang/clanwar_system.txt'],
+            ['repo' => $repo, 'remote' => 'plugins/clanwar_system.amxx',         'local' => 'addons/amxmodx/plugins/clanwar_system.amxx',         'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/plugins/clanwar_system.amxx'],
 
             // MixSystem Pre-compiled Binaries (External Build Artifacts)
             ['repo' => $repo, 'remote' => 'plugins/mix_system.amxx',            'local' => 'addons/amxmodx/plugins/mix_system.amxx',            'local_src' => dirname($serverDir) . '/MixSystem_SV_PL/plugins/mix_system.amxx'],

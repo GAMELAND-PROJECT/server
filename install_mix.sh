@@ -62,6 +62,15 @@ if [ ! -f "${PLUGINS_DIR}/mix_system.amxx" ]; then
 fi
 echo "  -> mix_system.amxx compiled successfully!"
 
+# ─── 2b. Compile clanwar_system.sma ─────────────────────
+if [ -f "clanwar_system.sma" ]; then
+    echo "[2b/5] Compiling clanwar_system.sma..."
+    ./amxxpc clanwar_system.sma -i"include" -o"${PLUGINS_DIR}/clanwar_system.amxx" || true
+    if [ -f "${PLUGINS_DIR}/clanwar_system.amxx" ]; then
+        echo "  -> clanwar_system.amxx compiled successfully!"
+    fi
+fi
+
 # ─── 3. Compile mix_system_voice_chat.sma ───────────────
 echo "[3/5] Compiling mix_system_voice_chat.sma..."
 if [ -f "mix_system_voice_chat.sma" ]; then
@@ -134,9 +143,17 @@ for plugin_entry in \
     fi
 done
 
+# Ensure clanwar_system is registered in plugins.ini (commented if mix is active)
+if [ -f "${PLUGINS_DIR}/clanwar_system.amxx" ]; then
+    if ! grep -qE "clanwar_system\.amxx" "${PLUGINS_INI}"; then
+        printf ';clanwar_system.amxx\t; GAMELAND 10-slot Clan War Mode manager\n' >> "${PLUGINS_INI}"
+        echo "  -> Added ;clanwar_system.amxx (disabled by default) to plugins.ini"
+    fi
+fi
+
 # ─── 5. Adjust start.sh for 5v5 Match (12 Slots) ───────
 COMPILED_COUNT=0
-for p in mix_system mix_system_voice_chat gameland_admin_tools gameland_only_enforcer gameland_lan_optimizer gameland_sound_optimizer gameland_fastduck_fix player_drop backweapons; do
+for p in clanwar_system mix_system mix_system_voice_chat gameland_admin_tools gameland_only_enforcer gameland_lan_optimizer gameland_sound_optimizer gameland_fastduck_fix player_drop backweapons; do
     if [ -f "${PLUGINS_DIR}/${p}.amxx" ]; then
         COMPILED_COUNT=$((COMPILED_COUNT + 1))
     fi
@@ -159,6 +176,7 @@ cat > "${CONFIGS_DIR}/.mix_last_build.json" <<EOF
   "success": true,
   "compiled_count": ${COMPILED_COUNT},
   "targets": {
+    "clanwar_system.sma": "clanwar_system.amxx",
     "mix_system.sma": "mix_system.amxx",
     "mix_system_voice_chat.sma": "mix_system_voice_chat.amxx",
     "gameland_admin_tools.sma": "gameland_admin_tools.amxx",
