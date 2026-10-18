@@ -4219,3 +4219,10 @@ public native_get_points_table(iPlugin, iParams)
     set_string(1, "", get_param(2))
     return 0
 }
+
+public Cmd_NotifyClanWarMode(id)
+{
+    client_print_color(id, print_team_default, "^4[GAMELAND] ^1You are currently in ^35v5 Match Server Mode^1!")
+    client_print_color(id, print_team_default, "^4[GAMELAND] ^1To play ^4Clan War Mode (10 Slots)^1, switch mode in the Web Panel or contact an Admin.")
+    return PLUGIN_HANDLED
+}

@@ -26,6 +26,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_plugins'])) {
     }
 }
 
+// ── Handle Clan War Dedicated Compile & Deploy Action ────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['deploy_clanwar']) || isset($_POST['compile_clanwar']))) {
+    if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
+        $msg = 'Invalid security token!'; $msgType = 'danger';
+    } else {
+        $syncGitHub = isset($_POST['deploy_clanwar']);
+        if ($syncGitHub) {
+            $downloadRes = ServerCmd::syncMixFromGitHub($activeServer);
+        }
+        $modeRes = ServerCmd::switchServerMode($activeServer, 'clanwar');
+        $compRes = ServerCmd::compilePlugins($activeServer);
+        $compileOutput = $compRes['output'];
+
+        if ($compRes['success']) {
+            ServerCmd::controlService($activeServer['service_name'], 'restart');
+            $msg = '⚔️ Clan War Mode (10 Slots) compiled and deployed successfully! Server restarted.';
+            $msgType = 'success';
+        } else {
+            $msg = '⚠️ Clan War Compile error. Check log below.';
+            $msgType = 'warning';
+        }
+    }
+}
+
 // ── Handle Quick Mode Switch ────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['switch_mode'])) {
     if (!Auth::verify_csrf($_POST['csrf_token'] ?? '')) {
@@ -478,6 +502,72 @@ function escHtml(str) {
 </div>
 
 
+
+<!-- ══════════════════════════════════════════════════════
+     CLAN WAR MODE: IN-GAME CONTROLS & COMPILER (10 SLOTS)
+═══════════════════════════════════════════════════════════ -->
+<div class="card" style="border:1px solid rgba(245,158,11,0.45); background:linear-gradient(135deg,rgba(245,158,11,0.08),rgba(217,119,6,0.03)); margin-bottom:1.5rem;">
+    <div class="card-title" style="color:#f59e0b; display:flex; justify-content:space-between; align-items:center;">
+        <span>⚔️ Clan War Mode (10 Slots) — GitHub Compiler &amp; Live Controls</span>
+        <span class="badge" style="background:<?php echo ($currentServerMode === 'clanwar') ? 'rgba(16,185,129,0.2)' : 'rgba(107,114,128,0.2)'; ?>; color:<?php echo ($currentServerMode === 'clanwar') ? '#10b981' : '#9ca3af'; ?>; border:1px solid <?php echo ($currentServerMode === 'clanwar') ? '#10b981' : '#6b7280'; ?>; font-weight:700;">
+            <?php echo ($currentServerMode === 'clanwar') ? '🟢 Mode Active (10 Slots)' : '⚪ Inactive'; ?>
+        </span>
+    </div>
+
+    <!-- Clan War Deploy / Fast Compile Buttons -->
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1.25rem;">
+        <form method="POST" action="plugins.php"
+              onsubmit="return confirm('Sync latest Clan War source files from GitHub, compile clanwar_system.sma, enforce 10 slots and restart server?')">
+            <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
+            <input type="hidden" name="deploy_clanwar" value="1">
+            <button type="submit" class="btn btn-warning" style="padding:0.75rem 1.3rem; font-weight:700; background:linear-gradient(135deg,#f59e0b,#d97706); border:none; color:#fff; box-shadow:0 4px 15px rgba(245,158,11,0.35);">
+                🚀 1-Click Sync &amp; Compile Clan War from GitHub
+            </button>
+        </form>
+
+        <form method="POST" action="plugins.php"
+              onsubmit="return confirm('Fast compile clanwar_system.sma locally, enforce 10 slots and restart server?')">
+            <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
+            <input type="hidden" name="compile_clanwar" value="1">
+            <button type="submit" class="btn btn-secondary" style="padding:0.75rem 1.2rem; border-color:#f59e0b; color:#f59e0b; font-weight:600;">
+                🔨 Fast Compile clanwar_system.sma &amp; Restart
+            </button>
+        </form>
+    </div>
+
+    <!-- Clan War Live In-Game Actions via RCON -->
+    <div style="font-size:0.82rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:0.6rem;">
+        ⚡ Live In-Game Control (Live RCON)
+    </div>
+
+    <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+        <button onclick="mixCmd('cw_start')" class="btn btn-primary mix-ctrl-btn" title="Start Countdown (/cw start)">
+            ▶️ Start 30s Countdown
+        </button>
+        <button onclick="mixCmd('cw_fast')" class="btn btn-warning mix-ctrl-btn" title="Toggle 5s Fast Test Mode (/cw fast)">
+            ⚡ Toggle Fast Mode (5s)
+        </button>
+        <button onclick="mixCmd('cw_bots')" class="btn btn-secondary mix-ctrl-btn" style="border-color:#10b981; color:#10b981;" title="Add test bots to fill server to 10 (/cw bots)">
+            🤖 Add Test Bots (10 Slots)
+        </button>
+        <button onclick="mixCmd('cw_nobot')" class="btn btn-secondary mix-ctrl-btn" style="border-color:#ef4444; color:#ef4444;" title="Kick all test bots (/cw nobot)">
+            🧹 Remove Test Bots
+        </button>
+        <button onclick="mixCmd('cw_vote')" class="btn btn-secondary mix-ctrl-btn" title="Force start Captain Election (/cw vote)">
+            👑 Captain Election Now
+        </button>
+        <button onclick="mixCmd('cw_draft')" class="btn btn-secondary mix-ctrl-btn" title="Force start Team Drafting (/cw draft)">
+            👥 Team Drafting Phase
+        </button>
+        <button onclick="mixCmd('start')" class="btn btn-secondary mix-ctrl-btn" title="Start Match Vote (/mix)">
+            🔪 Match Vote (Knife vs Live)
+        </button>
+        <button onclick="mixCmd('cw_stop')" class="btn btn-danger mix-ctrl-btn" title="Reset server to WarmUp (/cw stop)">
+            🛑 Reset to WarmUp
+        </button>
+    </div>
+</div>
+
 <!-- ══════════════════════════════════════════════════════
      MATCH SERVER IN-GAME CONTROLS  (via RCON)
 ═══════════════════════════════════════════════════════════ -->
@@ -629,6 +719,13 @@ function escHtml(str) {
 function mixCmd(action) {
     const labels = {
         restart_round: '🔄 Restarting Round...',
+        cw_start:      '▶️ Starting Clan War Countdown...',
+        cw_fast:       '⚡ Toggling Fast Test Mode...',
+        cw_bots:       '🤖 Adding Test Bots (10 slots)...',
+        cw_nobot:      '🧹 Removing Test Bots...',
+        cw_vote:       '👑 Starting Captain Election...',
+        cw_draft:      '👥 Starting Team Drafting...',
+        cw_stop:       '🛑 Resetting Clan War to WarmUp...',
         knife:         '🔪 Starting Knife Round...',
         start:         '▶️ Starting Match...',
         warm:          '🔥 Starting WarmUp...',

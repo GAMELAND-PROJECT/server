@@ -256,6 +256,13 @@ switch ($action) {
             'restart_round' => 'sv_restart 1',       // restart current round
             'stop_round'    => 'amx_mixstop',        // stop match completely
             'endround'      => 'mp_roundtime 0.01',  // force end round quickly
+            'cw_start'      => 'amx_cw start',       // start CW countdown
+            'cw_fast'       => 'amx_cw fast',        // toggle fast CW test mode
+            'cw_bots'       => 'amx_cw bots',        // add test bots
+            'cw_nobot'      => 'amx_cw nobot',       // remove test bots
+            'cw_vote'       => 'amx_cw vote',        // force captain election
+            'cw_draft'      => 'amx_cw draft',       // force team drafting
+            'cw_stop'       => 'amx_cw stop',        // reset CW to warmup
         ];
 
         if (!isset($mixCmdMap[$mixAction])) {
