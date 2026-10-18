@@ -56,23 +56,23 @@ elif [ -f "${SCRIPT_DIR}/instances/servers.json" ]; then
     cp -f "${SCRIPT_DIR}/instances/servers.json" /opt/gameland/persistent/servers.json
 fi
 
-# ─── 2. بستن کامل هرگونه پروسس سرور، HLTV و کامپرسور ───────────────
-pkill -9 -f hlds_linux 2>/dev/null || true
-pkill -9 -f hltv 2>/dev/null || true
-screen -X -S gameland_hltv quit 2>/dev/null || true
-screen -X -S demo_compressor quit 2>/dev/null || true
-
-# ─── 3. پاکسازی نشست قبلی tmux ────────────────────────────────
-if tmux has-session -t gameland_server 2>/dev/null; then
-    echo "[*] Killing old tmux session..."
-    tmux kill-session -t gameland_server
-    sleep 1
-fi
-
-# آزاد کردن پورت
+# ─── 2. بستن پروسس‌های متناظر با این سرور (ایزوله و بدون اثر روی سایر سرورها) ────
 if command -v fuser >/dev/null 2>&1; then
     fuser -k "${SERVER_PORT}/udp" 2>/dev/null || true
     fuser -k "${SERVER_PORT}/tcp" 2>/dev/null || true
+fi
+if [ -f "${SCRIPT_DIR}/gameland.pid" ]; then
+    kill -9 "$(cat "${SCRIPT_DIR}/gameland.pid")" 2>/dev/null || true
+    rm -f "${SCRIPT_DIR}/gameland.pid" 2>/dev/null || true
+fi
+screen -X -S gameland_hltv quit 2>/dev/null || true
+screen -X -S demo_compressor quit 2>/dev/null || true
+
+# ─── 3. پاکسازی نشست قبلی tmux این سرور ──────────────────────────
+if tmux has-session -t gameland_server 2>/dev/null; then
+    echo "[*] Killing old tmux session..."
+    tmux kill-session -t gameland_server 2>/dev/null || true
+    sleep 0.5
 fi
 
 # پوشه لاگ و چرخش

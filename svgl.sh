@@ -153,7 +153,7 @@ json_escape() {
 }
 
 registry_append() {
-    local id="$1" name="$2" port="$3" dir="$4" rcon="$5"
+    local id="$1" name="$2" port="$3" dir="$4" rcon="$5" mode="${6:-clanwar}" slots="${7:-10}"
     ensure_registry
 
     php -r '
@@ -162,8 +162,10 @@ registry_append() {
         $data = json_decode(@file_get_contents($file), true);
         if (!is_array($data)) $data = ["servers" => []];
         if (!isset($data["servers"]) || !is_array($data["servers"])) $data["servers"] = [];
-        foreach ($data["servers"] as $server) {
+        foreach ($data["servers"] as &$server) {
             if (($server["id"] ?? "") === $id) {
+                $server["mode"] = $argv[7] ?? "clanwar";
+                $server["slots"] = (int)($argv[8] ?? 10);
                 file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
                 exit(0);
             }
@@ -176,12 +178,14 @@ registry_append() {
             "rcon_password" => $argv[5],
             "service_name" => "gameland@" . $id . ".service",
             "server_dir" => $argv[6],
+            "mode" => $argv[7] ?? "clanwar",
+            "slots" => (int)($argv[8] ?? 10),
         ];
         $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
         file_put_contents($file, $json);
         @mkdir("/opt/gameland/persistent", 0777, true);
         @file_put_contents("/opt/gameland/persistent/servers.json", $json);
-    ' "$REGISTRY_FILE" "$id" "$name" "$port" "$rcon" "$dir"
+    ' "$REGISTRY_FILE" "$id" "$name" "$port" "$rcon" "$dir" "$mode" "$slots"
 }
 
 registry_remove() {
@@ -215,9 +219,9 @@ read_rcon_password() {
 
 create_instance() {
     need_root_for_systemd
-    local id="${1:-}" port="${2:-}" name="${3:-}"
+    local id="${1:-}" port="${2:-}" name="${3:-}" slots="${4:-}" mode="${5:-clanwar}"
     if [[ -z "$id" || -z "$port" ]]; then
-        echo -e "${RED}[ERROR] Usage: svgl add <id> <port> [name]${NC}"
+        echo -e "${RED}[ERROR] Usage: svgl add <id> <port> [name] [slots] [mode]${NC}"
         exit 1
     fi
     if [[ ! "$id" =~ ^[a-zA-Z0-9_-]+$ ]]; then
@@ -229,6 +233,18 @@ create_instance() {
         exit 1
     fi
     name="${name:-GameLand CS 1.6 ${id}}"
+
+    if [[ -z "$slots" || "$slots" -lt 1 ]]; then
+        if [[ "$mode" == "clanwar" ]]; then
+            slots="10"
+        elif [[ "$mode" == "mix5v5" ]]; then
+            slots="18"
+        elif [[ "$mode" == "public" ]]; then
+            slots="24"
+        else
+            slots="10"
+        fi
+    fi
 
     ensure_registry
     if php -r '
@@ -249,7 +265,7 @@ create_instance() {
         exit 1
     fi
 
-    echo -e "${YELLOW}Creating instance '${id}' on port ${port}...${NC}"
+    echo -e "${YELLOW}Creating instance '${id}' on port ${port} (Mode: ${mode}, Slots: ${slots})...${NC}"
     mkdir -p "$INSTANCE_ROOT_DEFAULT"
     if command -v rsync >/dev/null 2>&1; then
         rsync -a \
@@ -274,13 +290,43 @@ INSTANCE_ID="${id}"
 SERVER_DIR="${target}"
 SERVER_IP="0.0.0.0"
 SERVER_PORT="${port}"
-MAX_PLAYERS="12"
+MAX_PLAYERS="${slots}"
 MAP="de_dust2"
 TMUX_SESSION="gameland_${id}"
 STEAMCMD_LINUX32="/opt/steamcmd/linux32"
 EOF
 
-    registry_append "$id" "$name" "$port" "$target" "$rcon"
+    # Configure server.cfg
+    if [[ -f "$target/cstrike/server.cfg" ]]; then
+        sed -i -E "s/^[[:space:]]*sv_visiblemaxplayers[[:space:]]+[0-9]+/sv_visiblemaxplayers $slots/" "$target/cstrike/server.cfg" 2>/dev/null || true
+        if ! grep -q 'sv_visiblemaxplayers' "$target/cstrike/server.cfg"; then
+            echo "sv_visiblemaxplayers $slots" >> "$target/cstrike/server.cfg"
+        fi
+        sed -i -E "s/^[[:space:]]*hostname[[:space:]]+.*/hostname \"${name}\"/" "$target/cstrike/server.cfg" 2>/dev/null || true
+    fi
+
+    # Configure plugins.ini for the selected mode
+    local plugins_ini="$target/cstrike/addons/amxmodx/configs/plugins.ini"
+    if [[ -f "$plugins_ini" ]]; then
+        if [[ "$mode" == "clanwar" ]]; then
+            sed -i -E 's/^[[:space:]]*;?[[:space:]]*clanwar_system\.amxx([[:space:]].*)?$/clanwar_system.amxx/' "$plugins_ini" 2>/dev/null || true
+            if ! grep -q 'clanwar_system\.amxx' "$plugins_ini"; then
+                echo "clanwar_system.amxx" >> "$plugins_ini"
+            fi
+            sed -i -E 's/^[[:space:]]*mix_system\.amxx/;\0/' "$plugins_ini" 2>/dev/null || true
+        elif [[ "$mode" == "mix5v5" ]]; then
+            sed -i -E 's/^[[:space:]]*;?[[:space:]]*mix_system\.amxx([[:space:]].*)?$/mix_system.amxx/' "$plugins_ini" 2>/dev/null || true
+            if ! grep -q 'mix_system\.amxx' "$plugins_ini"; then
+                echo "mix_system.amxx" >> "$plugins_ini"
+            fi
+            sed -i -E 's/^[[:space:]]*clanwar_system\.amxx/;\0/' "$plugins_ini" 2>/dev/null || true
+        elif [[ "$mode" == "public" ]]; then
+            sed -i -E 's/^[[:space:]]*clanwar_system\.amxx/;\0/' "$plugins_ini" 2>/dev/null || true
+            sed -i -E 's/^[[:space:]]*mix_system\.amxx/;\0/' "$plugins_ini" 2>/dev/null || true
+        fi
+    fi
+
+    registry_append "$id" "$name" "$port" "$target" "$rcon" "$mode" "$slots"
     chmod +x "${PROJECT_DIR}/start_instance.sh" "${PROJECT_DIR}/stop_instance.sh" "${PROJECT_DIR}/svgl.sh"
     chmod 775 "$INSTANCES_DIR" "$REGISTRY_FILE" "${INSTANCES_DIR}/${id}.env" 2>/dev/null || true
     if id www-data >/dev/null 2>&1; then
@@ -290,7 +336,7 @@ EOF
     systemctl daemon-reload
     systemctl enable "gameland@${id}.service"
 
-    echo -e "${GREEN}[OK] Instance created.${NC}"
+    echo -e "${GREEN}[OK] Instance created with mode '${mode}' and ${slots} slots.${NC}"
     echo "  Service : gameland@${id}.service"
     echo "  Dir     : $target"
     echo "  Port    : $port"

@@ -74,6 +74,26 @@ def parse_env_file(env_path):
         pass
     return data
 
+# Helper to detect mode and slots
+def detect_mode_and_slots(server_dir, env_data):
+    p_ini = os.path.join(server_dir, "cstrike", "addons", "amxmodx", "configs", "plugins.ini")
+    mode = "clanwar"
+    if os.path.isfile(p_ini):
+        try:
+            with open(p_ini, "r", encoding="utf-8", errors="ignore") as pf:
+                p_text = pf.read()
+                if re.search(r'^\s*clanwar_system\.amxx', p_text, re.M):
+                    mode = "clanwar"
+                elif re.search(r'^\s*mix_system\.amxx', p_text, re.M):
+                    mode = "mix5v5"
+                else:
+                    mode = "public"
+        except Exception:
+            pass
+    def_slots = 10 if mode == "clanwar" else (18 if mode == "mix5v5" else 24)
+    slots = int(env_data.get("MAX_PLAYERS", def_slots))
+    return mode, slots
+
 # 1. Scan /opt/gameland/server/instances/*.env
 for env_file in glob.glob(os.path.join(instances_dir, "*.env")):
     inst_id = os.path.basename(env_file)[:-4]
@@ -84,6 +104,7 @@ for env_file in glob.glob(os.path.join(instances_dir, "*.env")):
         cfg_info = parse_server_cfg(os.path.join(server_dir, "cstrike", "server.cfg"))
         name = cfg_info["name"] or f"GameLand CS 1.6 {inst_id}"
         rcon = cfg_info["rcon"]
+        mode, slots = detect_mode_and_slots(server_dir, env_data)
         discovered[inst_id] = {
             "id": inst_id,
             "name": name,
@@ -91,7 +112,9 @@ for env_file in glob.glob(os.path.join(instances_dir, "*.env")):
             "port": port,
             "rcon_password": rcon,
             "service_name": f"gameland@{inst_id}.service",
-            "server_dir": server_dir
+            "server_dir": server_dir,
+            "mode": mode,
+            "slots": slots
         }
 
 # 2. Only check directories in /opt/gameland/instances/* if their .env config exists
@@ -103,6 +126,7 @@ if os.path.isdir(instance_root):
             cfg_info = parse_server_cfg(os.path.join(inst_dir, "cstrike", "server.cfg"))
             env_data = parse_env_file(env_candidate)
             port = int(env_data.get("SERVER_PORT", 27016))
+            mode, slots = detect_mode_and_slots(inst_dir, env_data)
             discovered[entry] = {
                 "id": entry,
                 "name": cfg_info["name"] or f"GameLand CS 1.6 {entry}",
@@ -110,7 +134,9 @@ if os.path.isdir(instance_root):
                 "port": port,
                 "rcon_password": cfg_info["rcon"],
                 "service_name": f"gameland@{entry}.service",
-                "server_dir": inst_dir
+                "server_dir": inst_dir,
+                "mode": mode,
+                "slots": slots
             }
 
 server_list = list(discovered.values())

@@ -67,13 +67,23 @@ switch ($action) {
         echo json_encode(ServerCmd::removeAvgBans($activeServer));
         break;
 
+    case 'switch_server_mode':
+        $serverId = $_POST['server_id'] ?? ($activeServer['id'] ?? 'main');
+        $targetMode = $_POST['target_mode'] ?? $_POST['mode'] ?? 'clanwar';
+        global $SERVERS;
+        $targetServer = $SERVERS[$serverId] ?? $activeServer;
+        $res = ServerCmd::switchServerMode($targetServer, $targetMode);
+        echo json_encode($res);
+        break;
+
     case 'create_server':
         $id = $_POST['server_id'] ?? '';
         $port = $_POST['port'] ?? '';
         $name = $_POST['name'] ?? '';
-        $slots = $_POST['slots'] ?? 12;
+        $slots = $_POST['slots'] ?? 10;
         $hostname = $_POST['hostname'] ?? $name;
-        $res = ServerCmd::createServerInstance($id, $port, $name, $slots, $hostname);
+        $mode = $_POST['mode'] ?? 'clanwar';
+        $res = ServerCmd::createServerInstance($id, $port, $name, $slots, $hostname, $mode);
         echo json_encode($res);
         break;
 
@@ -96,6 +106,7 @@ switch ($action) {
             'slots' => $_POST['slots'] ?? '',
             'map' => $_POST['map'] ?? '',
             'rcon_password' => $_POST['rcon_password'] ?? '',
+            'mode' => $_POST['mode'] ?? '',
         ];
         $res = ServerCmd::updateServerInstance($id, $data);
         echo json_encode($res);

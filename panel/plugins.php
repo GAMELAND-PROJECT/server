@@ -446,13 +446,18 @@ function escHtml(str) {
      QUICK SERVER MODE SWITCHER
 ═══════════════════════════════════════════════════════════ -->
 <div class="card" style="background:linear-gradient(135deg,rgba(79,70,229,0.1),rgba(6,182,212,0.05)); border:1px solid rgba(79,70,229,0.25);">
-    <div class="card-title">
-        <span>⚡ Quick Server Mode Switcher</span>
-        <span style="font-size:0.8rem; color:var(--text-muted);">Switch plugin set + player slots + auto restart</span>
+    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+            <span>⚡ Quick Server Mode Switcher</span>
+            <span class="badge" style="background:rgba(255,255,255,0.12); color:#fff; font-weight:700;">
+                Target: <?php echo htmlspecialchars($activeServer['name']); ?> (Port <?php echo (int)$activeServer['port']; ?>)
+            </span>
+        </div>
+        <span style="font-size:0.8rem; color:var(--text-muted);">Isolate plugins + slots + restart for this server only</span>
     </div>
 
-    <div style="margin-bottom:1rem; display:flex; align-items:center; gap:0.6rem; font-size:0.88rem; flex-wrap:wrap;">
-        <span style="color:var(--text-muted);">Current Active Server Mode:</span>
+    <div style="margin-bottom:0.85rem; display:flex; align-items:center; gap:0.6rem; font-size:0.88rem; flex-wrap:wrap;">
+        <span style="color:var(--text-muted);">Current Mode for «<?php echo htmlspecialchars($activeServer['name']); ?>»:</span>
         <?php if ($currentServerMode === 'clanwar'): ?>
             <span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.5); font-weight:700; padding:0.35rem 0.85rem; border-radius:999px; box-shadow:0 0 10px rgba(245,158,11,0.3);">
                 ⚔️ Clan War Mode (Strictly 10 Slots)
@@ -468,9 +473,13 @@ function escHtml(str) {
         <?php endif; ?>
     </div>
 
+    <p style="margin-bottom:1rem; font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
+        💡 این تغییر وضعیت به صورت ۱۰۰٪ مجزا و اختصاصی بر روی همین سرور (پورت <?php echo (int)$activeServer['port']; ?>) اعمال شده و هیچ‌گونه تداخل یا ری‌استارتی در سایر سرورهای شما ایجاد نمی‌کند.
+    </p>
+
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
         <form method="POST" action="plugins.php"
-              onsubmit="return confirm('Switch server to Clan War mode (strictly 10 slots) and restart?')">
+              onsubmit="return confirm('تغییر سرور «<?php echo htmlspecialchars(addslashes($activeServer['name'])); ?>» به مود کلن وار (۱۰ اسلات) و ری‌استارت فقط همین سرور؟')">
             <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
             <input type="hidden" name="target_mode" value="clanwar">
             <button type="submit" name="switch_mode" class="btn <?php echo ($currentServerMode === 'clanwar') ? 'btn-primary' : 'btn-secondary'; ?>" 
@@ -480,7 +489,7 @@ function escHtml(str) {
         </form>
 
         <form method="POST" action="plugins.php"
-              onsubmit="return confirm('Switch server to 5v5 Match Server mode (18 slots) and restart?')">
+              onsubmit="return confirm('تغییر سرور «<?php echo htmlspecialchars(addslashes($activeServer['name'])); ?>» به مود میکس 5v5 (۱۸ اسلات) و ری‌استارت فقط همین سرور؟')">
             <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
             <input type="hidden" name="target_mode" value="mix5v5">
             <button type="submit" name="switch_mode" class="btn <?php echo ($currentServerMode === 'mix5v5') ? 'btn-primary' : 'btn-secondary'; ?>" 
@@ -490,7 +499,7 @@ function escHtml(str) {
         </form>
 
         <form method="POST" action="plugins.php"
-              onsubmit="return confirm('Switch server to Classic Public mode (24 slots) and restart?')">
+              onsubmit="return confirm('تغییر سرور «<?php echo htmlspecialchars(addslashes($activeServer['name'])); ?>» به مود پابلیک (۲۴ اسلات) و ری‌استارت فقط همین سرور؟')">
             <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
             <input type="hidden" name="target_mode" value="public">
             <button type="submit" name="switch_mode" class="btn <?php echo ($currentServerMode === 'public') ? 'btn-primary' : 'btn-secondary'; ?>" 

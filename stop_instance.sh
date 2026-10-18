@@ -24,6 +24,10 @@ HLTV_SESSION="${HLTV_SESSION:-gameland_hltv_${INSTANCE_ID}}"
 COMPRESSOR_SESSION="${COMPRESSOR_SESSION:-demo_compressor_${INSTANCE_ID}}"
 
 tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+if [[ -n "${SERVER_PORT:-}" ]] && command -v fuser >/dev/null 2>&1; then
+    fuser -k "${SERVER_PORT}/udp" 2>/dev/null || true
+    fuser -k "${SERVER_PORT}/tcp" 2>/dev/null || true
+fi
 screen -X -S "$HLTV_SESSION" quit 2>/dev/null || true
 screen -X -S "$COMPRESSOR_SESSION" quit 2>/dev/null || true
 rm -f "${SERVER_DIR}/${INSTANCE_ID}.pid" 2>/dev/null || true

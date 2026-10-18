@@ -16,11 +16,11 @@ WorkingDirectory=${PROJECT_ROOT}
 # راه‌اندازی: اجرای سرور 18 اسلاته
 ExecStart=/bin/bash ${PROJECT_ROOT}/start.sh
 
-# استاپ: بستن کامل سرور و نشست‌ها
-ExecStop=/bin/bash -c 'pkill -9 -f hlds_linux 2>/dev/null; pkill -9 -f hltv 2>/dev/null; tmux kill-session -t gameland_server 2>/dev/null; rm -f ${PROJECT_ROOT}/gameland.pid; true'
+# استاپ: بستن کامل نشست و پورت همین سرور (بدون دست زدن به سایر سرورها)
+ExecStop=/bin/bash -c 'fuser -k 27015/udp 2>/dev/null; fuser -k 27015/tcp 2>/dev/null; tmux kill-session -t gameland_server 2>/dev/null; pkill -9 -f hltv 2>/dev/null; rm -f ${PROJECT_ROOT}/gameland.pid; true'
 
 # ریستارت دستی (systemctl restart)
-ExecReload=/bin/bash -c 'pkill -9 -f hlds_linux 2>/dev/null; pkill -9 -f hltv 2>/dev/null; tmux kill-session -t gameland_server 2>/dev/null; sleep 2; /bin/bash ${PROJECT_ROOT}/start.sh'
+ExecReload=/bin/bash -c 'fuser -k 27015/udp 2>/dev/null; fuser -k 27015/tcp 2>/dev/null; tmux kill-session -t gameland_server 2>/dev/null; sleep 1; /bin/bash ${PROJECT_ROOT}/start.sh'
 
 
 [Install]

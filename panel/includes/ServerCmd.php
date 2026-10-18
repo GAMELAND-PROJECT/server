@@ -34,6 +34,13 @@ class ServerCmd {
         foreach ($servers as $server) {
             $status = self::getServiceStatus($server['service_name']);
             $runtime = self::getServerRuntimeSettings($server);
+            $mode = self::getCurrentServerMode($server);
+            $modeTitle = '🎯 Classic Public';
+            if ($mode === 'clanwar') {
+                $modeTitle = '⚔️ Clan War (10s)';
+            } elseif ($mode === 'mix5v5') {
+                $modeTitle = '🎮 5v5 Match (18s)';
+            }
             $result[] = [
                 'id' => $server['id'],
                 'name' => $server['name'],
@@ -45,6 +52,8 @@ class ServerCmd {
                 'service_name' => $server['service_name'],
                 'server_dir' => $server['server_dir'],
                 'status' => $status,
+                'mode' => $mode,
+                'mode_title' => $modeTitle,
                 'protected' => $server['id'] === 'main',
             ];
         }
@@ -302,10 +311,11 @@ class ServerCmd {
         return @file_put_contents($start, $content) !== false;
     }
 
-    public static function createServerInstance($id, $port, $name, $slots = 12, $hostname = '') {
+    public static function createServerInstance($id, $port, $name, $slots = 10, $hostname = '', $mode = 'clanwar') {
         $id = trim((string)$id);
         $name = trim((string)$name);
         $port = (int)$port;
+        $mode = trim((string)$mode) ?: 'clanwar';
 
         if (!self::validateInstanceId($id) || $id === 'main') {
             return ['success' => false, 'message' => 'Invalid server id. Use 2-32 chars: letters, numbers, dash or underscore.'];
@@ -315,7 +325,7 @@ class ServerCmd {
         }
         $slots = (int)$slots;
         if ($slots < 1 || $slots > 32) {
-            return ['success' => false, 'message' => 'Invalid slot count. Use 1-32.'];
+            $slots = ($mode === 'clanwar') ? 10 : (($mode === 'mix5v5') ? 18 : 24);
         }
         if ($name === '') {
             $name = 'GAMELAND #' . $id;
@@ -328,7 +338,9 @@ class ServerCmd {
         $cmd = 'sudo -n ' . $helper . ' add '
              . escapeshellarg($id) . ' '
              . escapeshellarg((string)$port) . ' '
-             . escapeshellarg($name) . ' 2>&1';
+             . escapeshellarg($name) . ' '
+             . escapeshellarg((string)$slots) . ' '
+             . escapeshellarg($mode) . ' 2>&1';
         $lines = [];
         $exitCode = 1;
         @exec($cmd, $lines, $exitCode);
@@ -342,6 +354,8 @@ class ServerCmd {
                 if (($entry['id'] ?? '') === $id) {
                     $entry['name'] = $name;
                     $entry['port'] = $port;
+                    $entry['mode'] = $mode;
+                    $entry['slots'] = $slots;
                     $entry['rcon_password'] = $entry['rcon_password'] ?? 'GameLand@Rcon2026';
                     $serverDir = $entry['server_dir'] ?? $serverDir;
                     break;
@@ -354,6 +368,7 @@ class ServerCmd {
                 'MAP' => 'de_dust2',
             ]);
             self::writeServerCfgValue($serverDir, 'hostname', $hostname);
+            self::writeServerCfgValue($serverDir, 'sv_visiblemaxplayers', (string)$slots);
         }
 
         return [
@@ -398,6 +413,7 @@ class ServerCmd {
         $slots = (int)($data['slots'] ?? 0);
         $map = trim((string)($data['map'] ?? ''));
         $rcon = trim((string)($data['rcon_password'] ?? ''));
+        $mode = trim((string)($data['mode'] ?? ''));
 
         if ($port && ($port < 1024 || $port > 65535)) {
             return ['success' => false, 'message' => 'Invalid port.'];
@@ -456,15 +472,20 @@ class ServerCmd {
                     if ($name !== '') $entry['name'] = $name;
                     if ($port) $entry['port'] = $port;
                     if ($rcon !== '') $entry['rcon_password'] = $rcon;
+                    if ($slots) $entry['slots'] = $slots;
                     break;
                 }
             }
             self::writeRegistry($registry);
         }
 
+        if ($mode !== '') {
+            self::switchServerMode($server, $mode);
+        }
+
         return [
             'success' => true,
-            'message' => 'Server settings saved. Restart the server to apply port, map and slot changes.',
+            'message' => 'Server settings saved. Restart the server to apply changes.',
         ];
     }
 
@@ -1345,26 +1366,47 @@ class ServerCmd {
             return ['success' => false, 'message' => 'Unknown mode: ' . $targetMode];
         }
 
-        // 1. Privileged execution via sudo helper (guarantees root-level edit of start.sh and plugins.ini)
+        $serverId = $serverInfo['id'] ?? 'main';
+        $serverDir = $serverInfo['server_dir'];
+        $startSh = $serverDir . '/start.sh';
+        $envFile = $serverDir . '/.env';
+
+        // 1. Privileged execution via sudo helper (with instance id passed!)
         $helper = self::getPrivilegedHelperPath();
         if (is_file($helper) || is_file('/usr/local/sbin/gameland-panel-sudo')) {
             $hPath = is_file('/usr/local/sbin/gameland-panel-sudo') ? '/usr/local/sbin/gameland-panel-sudo' : $helper;
-            @exec("sudo -n " . escapeshellarg($hPath) . " switch_mode " . escapeshellarg($targetMode) . " 2>&1");
-            @exec("sudo -n " . escapeshellarg($hPath) . " set_slots " . escapeshellarg((string)$newSlots) . " 2>&1");
+            @exec("sudo -n " . escapeshellarg($hPath) . " switch_mode " . escapeshellarg($targetMode) . " " . escapeshellarg($serverId) . " 2>&1");
+            @exec("sudo -n " . escapeshellarg($hPath) . " set_slots " . escapeshellarg((string)$newSlots) . " " . escapeshellarg($serverId) . " 2>&1");
         }
 
-        // 2. Fallback direct edits
-        if (file_exists($startSh)) {
-            $content = (string)@file_get_contents($startSh);
-            $content = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="' . $newSlots . '"', $content);
-            @file_put_contents($startSh, $content);
-        }
-
-        if (file_exists($envFile)) {
-            $envContent = (string)@file_get_contents($envFile);
-            $envContent = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="' . $newSlots . '"', $envContent);
-            $envContent = preg_replace('/^MAX_PLAYERS=.*$/m', 'MAX_PLAYERS="' . $newSlots . '"', $envContent);
-            @file_put_contents($envFile, $envContent);
+        // 2. Direct edits for this specific server
+        if ($serverId === 'main') {
+            if (file_exists($startSh)) {
+                $content = (string)@file_get_contents($startSh);
+                $content = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="' . $newSlots . '"', $content);
+                @file_put_contents($startSh, $content);
+            }
+            if (file_exists($envFile)) {
+                $envContent = (string)@file_get_contents($envFile);
+                $envContent = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="' . $newSlots . '"', $envContent);
+                $envContent = preg_replace('/^MAX_PLAYERS=.*$/m', 'MAX_PLAYERS="' . $newSlots . '"', $envContent);
+                @file_put_contents($envFile, $envContent);
+            }
+        } else {
+            self::updateEnvFile($serverId, [
+                'MAX_PLAYERS' => $newSlots,
+            ]);
+            if (file_exists($envFile)) {
+                $envContent = (string)@file_get_contents($envFile);
+                $envContent = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="' . $newSlots . '"', $envContent);
+                $envContent = preg_replace('/^MAX_PLAYERS=.*$/m', 'MAX_PLAYERS="' . $newSlots . '"', $envContent);
+                @file_put_contents($envFile, $envContent);
+            }
+            if (file_exists($startSh)) {
+                $content = (string)@file_get_contents($startSh);
+                $content = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="' . $newSlots . '"', $content);
+                @file_put_contents($startSh, $content);
+            }
         }
 
         self::writeServerCfgValue($serverDir, 'sv_visiblemaxplayers', (string)$newSlots);
@@ -1374,9 +1416,26 @@ class ServerCmd {
             // If PHP direct write failed, privileged helper already took care of it
         }
 
+        // 3. Update registry servers.json with mode and slots
+        $registry = self::readRegistry();
+        if (isset($registry['servers']) && is_array($registry['servers'])) {
+            foreach ($registry['servers'] as &$entry) {
+                if (($entry['id'] ?? '') === $serverId) {
+                    $entry['mode'] = $targetMode;
+                    $entry['slots'] = $newSlots;
+                    break;
+                }
+            }
+            self::writeRegistry($registry);
+        }
+
+        // 4. Restart ONLY this server's dedicated service
+        $svc = $serverInfo['service_name'] ?? ($serverId === 'main' ? 'gameland.service' : 'gameland@' . $serverId . '.service');
+        self::controlService($svc, 'restart');
+
         return [
             'success' => true,
-            'message' => 'Switched to ' . $modeLabel . '. Server restart triggered.'
+            'message' => 'Server «' . ($serverInfo['name'] ?? $serverId) . '» switched to ' . $modeLabel . ' (' . $newSlots . ' slots). Service ' . $svc . ' restarted.'
         ];
     }
 

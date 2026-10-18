@@ -103,6 +103,8 @@ function gameland_normalize_server(array $server, string $fallbackIp): array {
         'users_ini'     => $serverDir . '/cstrike/addons/amxmodx/configs/users.ini',
         'maps_ini'      => $serverDir . '/cstrike/addons/amxmodx/configs/maps.ini',
         'log_file'      => $serverDir . '/logs/server_' . $id . '.log',
+        'mode'          => (string)($server['mode'] ?? 'clanwar'),
+        'slots'         => (int)($server['slots'] ?? 10),
     ];
 }
 

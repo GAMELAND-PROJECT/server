@@ -34,6 +34,7 @@ $servers = ServerCmd::getServerList($SERVERS);
                     <th>ID</th>
                     <th>Name / Hostname</th>
                     <th>Port</th>
+                    <th>Active Mode</th>
                     <th>Slots</th>
                     <th>Start Map</th>
                     <th>Status</th>
@@ -49,6 +50,31 @@ $servers = ServerCmd::getServerList($SERVERS);
                             <span style="color:var(--text-muted); font-size:0.8rem;"><?php echo htmlspecialchars($server['hostname']); ?></span>
                         </td>
                         <td><code><?php echo (int)$server['port']; ?></code></td>
+                        <td>
+                            <div style="display:flex; flex-direction:column; gap:0.35rem; align-items:flex-start;">
+                                <?php if (($server['mode'] ?? '') === 'clanwar'): ?>
+                                    <span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.5); font-weight:700; font-size:0.75rem; padding:0.2rem 0.55rem; border-radius:999px;">
+                                        ⚔️ Clan War (10s)
+                                    </span>
+                                <?php elseif (($server['mode'] ?? '') === 'mix5v5'): ?>
+                                    <span class="badge" style="background:rgba(99,102,241,0.2); color:#818cf8; border:1px solid rgba(99,102,241,0.5); font-weight:700; font-size:0.75rem; padding:0.2rem 0.55rem; border-radius:999px;">
+                                        🎮 5v5 Match (18s)
+                                    </span>
+                                <?php else: ?>
+                                    <span class="badge" style="background:rgba(16,185,129,0.2); color:#34d399; border:1px solid rgba(16,185,129,0.5); font-weight:700; font-size:0.75rem; padding:0.2rem 0.55rem; border-radius:999px;">
+                                        🎯 Public (24s)
+                                    </span>
+                                <?php endif; ?>
+
+                                <select class="input-field" style="padding:0.2rem 0.35rem; font-size:0.72rem; height:auto; min-width:120px; background:rgba(0,0,0,0.35); border-color:rgba(255,255,255,0.15); color:#fff;"
+                                        onchange="quickChangeServerMode('<?php echo htmlspecialchars($server['id']); ?>', this.value, '<?php echo htmlspecialchars(addslashes($server['name'])); ?>')">
+                                    <option value="" disabled selected>⚡ Change Mode</option>
+                                    <option value="clanwar" <?php echo (($server['mode'] ?? '') === 'clanwar') ? 'disabled' : ''; ?>>⚔️ Clan War (10s)</option>
+                                    <option value="mix5v5" <?php echo (($server['mode'] ?? '') === 'mix5v5') ? 'disabled' : ''; ?>>🎮 5v5 Match (18s)</option>
+                                    <option value="public" <?php echo (($server['mode'] ?? '') === 'public') ? 'disabled' : ''; ?>>🎯 Public (24s)</option>
+                                </select>
+                            </div>
+                        </td>
                         <td><?php echo (int)$server['slots']; ?></td>
                         <td><code><?php echo htmlspecialchars($server['map']); ?></code></td>
                         <td>
@@ -89,13 +115,21 @@ $servers = ServerCmd::getServerList($SERVERS);
             <input id="newServerId" class="input-field" placeholder="Instance ID, e.g. cs2">
             <input id="newServerName" class="input-field" placeholder="Panel name, e.g. GameLand #2">
             <input id="newServerHostname" class="input-field" placeholder="In-game hostname">
+            <div>
+                <label style="display:block; margin-bottom:0.3rem; font-size:0.8rem; color:var(--text-muted); font-weight:600;">Game Mode</label>
+                <select id="newServerMode" class="input-field" onchange="onNewServerModeChange(this.value)">
+                    <option value="clanwar" selected>⚔️ Clan War Mode (10 Slots - /cw, Captain Pick, Knife, Overtime)</option>
+                    <option value="mix5v5">🎮 5v5 Match Server (18 Slots - /mix, Auto-Captain, Match Bot)</option>
+                    <option value="public">🎯 Classic Public Server (24 Slots - Casual CS 1.6)</option>
+                </select>
+            </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
                 <input id="newServerPort" class="input-field" type="number" min="1024" max="65535" value="27016" placeholder="Port">
-                <input id="newServerSlots" class="input-field" type="number" min="1" max="32" value="12" placeholder="Slots">
+                <input id="newServerSlots" class="input-field" type="number" min="1" max="32" value="10" placeholder="Slots">
             </div>
             <button class="btn btn-primary" onclick="createServer()">Create Instance</button>
             <p style="color:var(--text-muted); font-size:0.82rem; line-height:1.6;">
-                Each instance gets its own directory, systemd service, tmux console, port and log file. Remove disables it and keeps files. Purge disables it and deletes its instance directory completely.
+                Each instance runs with 100% independence: its own directory, port, plugins.ini, slots, systemd service, and tmux console. Switching mode or restarting one server will never disrupt other servers.
             </p>
         </div>
     </div>
@@ -106,6 +140,15 @@ $servers = ServerCmd::getServerList($SERVERS);
             <input id="editServerId" class="input-field" readonly placeholder="Select a server from the table">
             <input id="editServerName" class="input-field" placeholder="Panel name">
             <input id="editServerHostname" class="input-field" placeholder="In-game hostname">
+            <div>
+                <label style="display:block; margin-bottom:0.3rem; font-size:0.8rem; color:var(--text-muted); font-weight:600;">Server Game Mode</label>
+                <select id="editServerMode" class="input-field">
+                    <option value="">Keep current mode</option>
+                    <option value="clanwar">⚔️ Clan War Mode (10 Slots)</option>
+                    <option value="mix5v5">🎮 5v5 Match Server (18 Slots)</option>
+                    <option value="public">🎯 Classic Public (24 Slots)</option>
+                </select>
+            </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
                 <input id="editServerPort" class="input-field" type="number" min="1024" max="65535" placeholder="Port">
                 <input id="editServerSlots" class="input-field" type="number" min="1" max="32" placeholder="Slots">
@@ -130,15 +173,47 @@ function refreshServers() {
     location.reload();
 }
 
+function onNewServerModeChange(mode) {
+    const slotsInput = document.getElementById('newServerSlots');
+    if (mode === 'clanwar') slotsInput.value = '10';
+    else if (mode === 'mix5v5') slotsInput.value = '18';
+    else if (mode === 'public') slotsInput.value = '24';
+}
+
+function quickChangeServerMode(id, targetMode, name) {
+    if (!targetMode) return;
+    const modeNames = {
+        'clanwar': 'Clan War (10 اسلات)',
+        'mix5v5': '5v5 Match (18 اسلات)',
+        'public': 'Classic Public (24 اسلات)'
+    };
+    const label = modeNames[targetMode] || targetMode;
+    if (!confirm('آیا مطمئن هستید که می‌خواهید سرور «' + name + '» (' + id + ') را به حالت ' + label + ' تغییر دهید؟\n\n(سایر سرورها کاملاً مجزا بوده و بدون هیچ اختلالی به کار خود ادامه می‌دهند)')) {
+        location.reload();
+        return;
+    }
+    postServerApi('switch_server_mode', { server_id: id, target_mode: targetMode })
+        .then(d => {
+            if (d.success) {
+                alert('✅ ' + (d.message || 'حالت سرور با موفقیت تغییر کرد و سرور ری‌استارت شد.'));
+                location.reload();
+            } else {
+                alert('❌ خطا: ' + (d.message || 'عملیات ناموفق بود.'));
+            }
+        })
+        .catch(e => alert('❌ خطای ارتباط: ' + e.message));
+}
+
 function createServer() {
     const id = document.getElementById('newServerId').value.trim();
     const name = document.getElementById('newServerName').value.trim();
     const hostname = document.getElementById('newServerHostname').value.trim() || name;
     const port = document.getElementById('newServerPort').value;
     const slots = document.getElementById('newServerSlots').value;
+    const mode = document.getElementById('newServerMode').value;
     if (!id || !port) return alert('Instance ID and port are required.');
-    if (!confirm('Create server instance ' + id + ' on port ' + port + '?')) return;
-    postServerApi('create_server', { server_id: id, name, hostname, port, slots })
+    if (!confirm('Create server instance ' + id + ' on port ' + port + ' (Mode: ' + mode + ')?')) return;
+    postServerApi('create_server', { server_id: id, name, hostname, port, slots, mode })
         .then(d => {
             alert(d.message || (d.success ? 'Created.' : 'Failed.'));
             if (d.success) location.reload();
@@ -153,6 +228,7 @@ function editServer(server) {
     document.getElementById('editServerSlots').value = server.slots || '';
     document.getElementById('editServerMap').value = server.map || '';
     document.getElementById('editServerRcon').value = '';
+    document.getElementById('editServerMode').value = server.mode || '';
 }
 
 function saveServerSettings() {
@@ -165,7 +241,8 @@ function saveServerSettings() {
         port: document.getElementById('editServerPort').value,
         slots: document.getElementById('editServerSlots').value,
         map: document.getElementById('editServerMap').value.trim(),
-        rcon_password: document.getElementById('editServerRcon').value.trim()
+        rcon_password: document.getElementById('editServerRcon').value.trim(),
+        mode: document.getElementById('editServerMode').value
     };
     postServerApi('update_server', payload).then(d => {
         alert(d.message || (d.success ? 'Saved.' : 'Failed.'));
