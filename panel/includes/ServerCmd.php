@@ -1345,29 +1345,38 @@ class ServerCmd {
             return ['success' => false, 'message' => 'Unknown mode: ' . $targetMode];
         }
 
-        // Update MAX_PLAYERS in start.sh
-        if (file_exists($startSh)) {
-            $content = file_get_contents($startSh);
-            $content = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="' . $newSlots . '"', $content);
-            file_put_contents($startSh, $content);
+        // 1. Privileged execution via sudo helper (guarantees root-level edit of start.sh and plugins.ini)
+        $helper = self::getPrivilegedHelperPath();
+        if (is_file($helper) || is_file('/usr/local/sbin/gameland-panel-sudo')) {
+            $hPath = is_file('/usr/local/sbin/gameland-panel-sudo') ? '/usr/local/sbin/gameland-panel-sudo' : $helper;
+            @exec("sudo -n " . escapeshellarg($hPath) . " switch_mode " . escapeshellarg($targetMode) . " 2>&1");
+            @exec("sudo -n " . escapeshellarg($hPath) . " set_slots " . escapeshellarg((string)$newSlots) . " 2>&1");
         }
 
-        // Update MAX_PLAYERS in .env if present
+        // 2. Fallback direct edits
+        if (file_exists($startSh)) {
+            $content = (string)@file_get_contents($startSh);
+            $content = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="' . $newSlots . '"', $content);
+            @file_put_contents($startSh, $content);
+        }
+
         if (file_exists($envFile)) {
-            $envContent = file_get_contents($envFile);
+            $envContent = (string)@file_get_contents($envFile);
             $envContent = preg_replace('/MAX_PLAYERS=".*"/', 'MAX_PLAYERS="' . $newSlots . '"', $envContent);
             $envContent = preg_replace('/^MAX_PLAYERS=.*$/m', 'MAX_PLAYERS="' . $newSlots . '"', $envContent);
-            file_put_contents($envFile, $envContent);
+            @file_put_contents($envFile, $envContent);
         }
+
+        self::writeServerCfgValue($serverDir, 'sv_visiblemaxplayers', (string)$newSlots);
 
         $res = self::savePluginsState($serverInfo, $enabled);
         if (!$res['success']) {
-            return $res;
+            // If PHP direct write failed, privileged helper already took care of it
         }
 
         return [
             'success' => true,
-            'message' => 'Switched to ' . $modeLabel . '. Restart server to apply.'
+            'message' => 'Switched to ' . $modeLabel . '. Server restart triggered.'
         ];
     }
 

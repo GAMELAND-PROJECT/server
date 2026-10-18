@@ -24,6 +24,51 @@ case "$action" in
         [[ "$service" =~ ^gameland(\@[a-zA-Z0-9_-]{2,32})?\.service$ ]] || exit 2
         exec /usr/bin/systemctl "$operation" "$service"
         ;;
+    switch_mode)
+        mode="${2:-clanwar}"
+        plugins_ini="${PROJECT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini"
+        if [ "$mode" = "clanwar" ]; then
+            sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="10"/' "${PROJECT_DIR}/start.sh"
+            if [ -f "${PROJECT_DIR}/.env" ]; then
+                sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="10"/' "${PROJECT_DIR}/.env"
+            fi
+            if [ -f "$plugins_ini" ]; then
+                sed -i -E 's/^[[:space:]]*mix_system\.amxx/;\0/' "$plugins_ini"
+                sed -i -E 's/^[[:space:]]*;[[:space:]]*clanwar_system\.amxx/clanwar_system.amxx/' "$plugins_ini"
+                if ! grep -q 'clanwar_system\.amxx' "$plugins_ini"; then
+                    echo "clanwar_system.amxx" >> "$plugins_ini"
+                fi
+            fi
+        elif [ "$mode" = "mix5v5" ]; then
+            sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="18"/' "${PROJECT_DIR}/start.sh"
+            if [ -f "${PROJECT_DIR}/.env" ]; then
+                sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="18"/' "${PROJECT_DIR}/.env"
+            fi
+            if [ -f "$plugins_ini" ]; then
+                sed -i -E 's/^[[:space:]]*clanwar_system\.amxx/;\0/' "$plugins_ini"
+                sed -i -E 's/^[[:space:]]*;[[:space:]]*mix_system\.amxx/mix_system.amxx/' "$plugins_ini"
+            fi
+        elif [ "$mode" = "public" ]; then
+            sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="24"/' "${PROJECT_DIR}/start.sh"
+            if [ -f "${PROJECT_DIR}/.env" ]; then
+                sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="24"/' "${PROJECT_DIR}/.env"
+            fi
+            if [ -f "$plugins_ini" ]; then
+                sed -i -E 's/^[[:space:]]*mix_system\.amxx/;\0/' "$plugins_ini"
+                sed -i -E 's/^[[:space:]]*clanwar_system\.amxx/;\0/' "$plugins_ini"
+            fi
+        fi
+        exit 0
+        ;;
+    set_slots)
+        slots="${2:-10}"
+        [[ "$slots" =~ ^[0-9]+$ ]] || exit 2
+        sed -i -E "s/MAX_PLAYERS=\".*\"/MAX_PLAYERS=\"$slots\"/" "${PROJECT_DIR}/start.sh"
+        if [ -f "${PROJECT_DIR}/.env" ]; then
+            sed -i -E "s/MAX_PLAYERS=\".*\"/MAX_PLAYERS=\"$slots\"/" "${PROJECT_DIR}/.env"
+        fi
+        exit 0
+        ;;
     compile)
         exec /bin/bash "${PROJECT_DIR}/install_mix.sh" "${2:-}"
         ;;
@@ -66,9 +111,11 @@ case "$action" in
         chmod -R 775 "${PROJECT_DIR}/panel" 2>/dev/null || true
         chmod -R 777 "${PROJECT_DIR}/panel/sessions" "${PROJECT_DIR}/panel/demos" 2>/dev/null || true
         chown -R www-data:www-data "${PROJECT_DIR}/panel" 2>/dev/null || true
-        if [ -d "${PROJECT_DIR}/instances" ]; then
-            chmod -R 777 "${PROJECT_DIR}/instances" 2>/dev/null || true
-            chown -R www-data:www-data "${PROJECT_DIR}/instances" 2>/dev/null || true
+        chmod 666 "${PROJECT_DIR}/start.sh" 2>/dev/null || true
+        chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
+        if command -v setfacl >/dev/null 2>&1; then
+            setfacl -m u:www-data:rw "${PROJECT_DIR}/start.sh" 2>/dev/null || true
+            setfacl -m u:www-data:rw "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
         fi
         exit 0
         ;;

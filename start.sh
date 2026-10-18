@@ -9,11 +9,16 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# ─── تنظیمات سرور (18 اسلات) ─────────────────────────────
+# ─── تنظیمات سرور ─────────────────────────────
 SERVER_PORT="27015"
 MAX_PLAYERS="18"
 MAP="de_dust2"
 SERVER_IP="0.0.0.0"
+
+if [ -f "${SCRIPT_DIR}/.env" ]; then
+    # shellcheck disable=SC1090
+    source "${SCRIPT_DIR}/.env"
+fi
 
 STEAMCMD_LINUX32="/opt/steamcmd/linux32"
 export LD_LIBRARY_PATH="${SCRIPT_DIR}:${STEAMCMD_LINUX32}:${LD_LIBRARY_PATH:-}"
