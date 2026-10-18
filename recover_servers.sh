@@ -94,48 +94,24 @@ for env_file in glob.glob(os.path.join(instances_dir, "*.env")):
             "server_dir": server_dir
         }
 
-# 2. Scan directories in /opt/gameland/instances/*
+# 2. Only check directories in /opt/gameland/instances/* if their .env config exists
 if os.path.isdir(instance_root):
     for entry in os.listdir(instance_root):
         inst_dir = os.path.join(instance_root, entry)
-        if os.path.isdir(inst_dir) and (os.path.isfile(os.path.join(inst_dir, "hlds_linux")) or os.path.isdir(os.path.join(inst_dir, "cstrike"))):
-            inst_id = entry
-            if inst_id not in discovered and inst_id != "server":
-                cfg_info = parse_server_cfg(os.path.join(inst_dir, "cstrike", "server.cfg"))
-                # Try finding port from env or start script
-                port = 27016
-                env_candidate = os.path.join(instances_dir, f"{inst_id}.env")
-                if os.path.isfile(env_candidate):
-                    env_data = parse_env_file(env_candidate)
-                    port = int(env_data.get("SERVER_PORT", port))
-                discovered[inst_id] = {
-                    "id": inst_id,
-                    "name": cfg_info["name"] or f"GameLand CS 1.6 {inst_id}",
-                    "ip": "127.0.0.1",
-                    "port": port,
-                    "rcon_password": cfg_info["rcon"],
-                    "service_name": f"gameland@{inst_id}.service",
-                    "server_dir": inst_dir
-                }
-
-# 3. Scan systemd units: /etc/systemd/system/gameland@*.service or /etc/systemd/system/multi-user.target.wants/gameland@*.service
-for pattern in ["/etc/systemd/system/gameland@*.service", "/etc/systemd/system/multi-user.target.wants/gameland@*.service"]:
-    for svc_path in glob.glob(pattern):
-        m = re.search(r'gameland@([a-zA-Z0-9_-]+)\.service', svc_path)
-        if m:
-            inst_id = m.group(1)
-            if inst_id not in discovered and inst_id != "main":
-                inst_dir = os.path.join(instance_root, inst_id)
-                cfg_info = parse_server_cfg(os.path.join(inst_dir, "cstrike", "server.cfg"))
-                discovered[inst_id] = {
-                    "id": inst_id,
-                    "name": cfg_info["name"] or f"GameLand CS 1.6 {inst_id}",
-                    "ip": "127.0.0.1",
-                    "port": 27016,
-                    "rcon_password": cfg_info["rcon"],
-                    "service_name": f"gameland@{inst_id}.service",
-                    "server_dir": inst_dir
-                }
+        env_candidate = os.path.join(instances_dir, f"{entry}.env")
+        if os.path.isdir(inst_dir) and os.path.isfile(env_candidate) and entry not in discovered and entry != "server":
+            cfg_info = parse_server_cfg(os.path.join(inst_dir, "cstrike", "server.cfg"))
+            env_data = parse_env_file(env_candidate)
+            port = int(env_data.get("SERVER_PORT", 27016))
+            discovered[entry] = {
+                "id": entry,
+                "name": cfg_info["name"] or f"GameLand CS 1.6 {entry}",
+                "ip": "127.0.0.1",
+                "port": port,
+                "rcon_password": cfg_info["rcon"],
+                "service_name": f"gameland@{entry}.service",
+                "server_dir": inst_dir
+            }
 
 server_list = list(discovered.values())
 server_list.sort(key=lambda s: s["port"])

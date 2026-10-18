@@ -38,6 +38,23 @@ cp_id = "cp_" + now.strftime("%Y%m%d_%H%M%S")
 cp_tar = os.path.join(checkpoint_dir, f"{cp_id}.tar.gz")
 cp_meta = os.path.join(checkpoint_dir, f"{cp_id}.json")
 
+# ── Discover registered servers from servers.json ─────────────────────────
+m_servers = os.path.join(script_dir, "instances", "servers.json")
+p_servers = "/opt/gameland/persistent/servers.json"
+servers_file_to_use = m_servers if os.path.isfile(m_servers) else p_servers
+
+registered_ids = set()
+if os.path.isfile(servers_file_to_use):
+    try:
+        with open(servers_file_to_use, 'r', encoding='utf-8', errors='ignore') as f:
+            s_data = json.load(f)
+            for s in s_data.get("servers", []):
+                sid = s.get("id")
+                if sid and sid != "main":
+                    registered_ids.add(sid)
+    except Exception:
+        pass
+
 archive_files = []
 
 # ── 1. ALL ADMIN FILES (users.ini) ──────────────────────────────────────────
@@ -51,43 +68,39 @@ m_users = os.path.join(script_dir, "cstrike", "addons", "amxmodx", "configs", "u
 if os.path.isfile(m_users):
     archive_files.append((m_users, "server/cstrike/addons/amxmodx/configs/users.ini"))
 
-# All instances users.ini
+# ONLY registered instances users.ini
 inst_root = "/opt/gameland/instances"
-if os.path.isdir(inst_root):
-    for entry in os.listdir(inst_root):
-        inst_users = os.path.join(inst_root, entry, "cstrike", "addons", "amxmodx", "configs", "users.ini")
-        if os.path.isfile(inst_users):
-            archive_files.append((inst_users, f"instances/{entry}/cstrike/addons/amxmodx/configs/users.ini"))
+for entry in registered_ids:
+    inst_users = os.path.join(inst_root, entry, "cstrike", "addons", "amxmodx", "configs", "users.ini")
+    if os.path.isfile(inst_users):
+        archive_files.append((inst_users, f"instances/{entry}/cstrike/addons/amxmodx/configs/users.ini"))
 
 # ── 2. ALL SERVER DEFINITIONS (servers.json, .env, ports, hostnames) ────────
 # Persistent servers.json
-p_servers = "/opt/gameland/persistent/servers.json"
 if os.path.isfile(p_servers):
     archive_files.append((p_servers, "persistent/servers.json"))
 
 # instances/servers.json
-m_servers = os.path.join(script_dir, "instances", "servers.json")
 if os.path.isfile(m_servers):
     archive_files.append((m_servers, "server/instances/servers.json"))
 
-# All instance environment configs (instances/*.env)
+# ONLY registered instance environment configs (instances/*.env)
 instances_dir = os.path.join(script_dir, "instances")
-if os.path.isdir(instances_dir):
-    for f in os.listdir(instances_dir):
-        if f.endswith(".env"):
-            archive_files.append((os.path.join(instances_dir, f), f"server/instances/{f}"))
+for sid in registered_ids:
+    env_file = os.path.join(instances_dir, f"{sid}.env")
+    if os.path.isfile(env_file):
+        archive_files.append((env_file, f"server/instances/{sid}.env"))
 
 # Main server.cfg (hostname & rcon password)
 m_cfg = os.path.join(script_dir, "cstrike", "server.cfg")
 if os.path.isfile(m_cfg):
     archive_files.append((m_cfg, "server/cstrike/server.cfg"))
 
-# Instance server.cfg files
-if os.path.isdir(inst_root):
-    for entry in os.listdir(inst_root):
-        inst_cfg = os.path.join(inst_root, entry, "cstrike", "server.cfg")
-        if os.path.isfile(inst_cfg):
-            archive_files.append((inst_cfg, f"instances/{entry}/cstrike/server.cfg"))
+# ONLY registered instance server.cfg files
+for sid in registered_ids:
+    inst_cfg = os.path.join(inst_root, sid, "cstrike", "server.cfg")
+    if os.path.isfile(inst_cfg):
+        archive_files.append((inst_cfg, f"instances/{sid}/cstrike/server.cfg"))
 
 # Count unique admins across all users.ini files
 admin_set = set()
@@ -253,9 +266,43 @@ with tarfile.open(tar_path, "r:gz") as tar:
             except Exception:
                 pass
 
-# Rebuild and sync server instances from disk
+# Sync restored servers.json to persistent and clean up orphan services
+restored_servers_json = os.path.join(script_dir, "instances", "servers.json")
+persistent_servers_json = "/opt/gameland/persistent/servers.json"
+active_ids = set()
+
+if os.path.isfile(restored_servers_json):
+    try:
+        with open(restored_servers_json, 'r', encoding='utf-8', errors='ignore') as f:
+            s_data = json.load(f)
+            for s in s_data.get("servers", []):
+                sid = s.get("id")
+                if sid:
+                    active_ids.add(sid)
+        os.makedirs(os.path.dirname(persistent_servers_json), exist_ok=True)
+        with open(persistent_servers_json, 'w', encoding='utf-8') as f:
+            json.dump(s_data, f, indent=2, ensure_ascii=False)
+        try:
+            os.chmod(persistent_servers_json, 0o666)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+# Stop and disable any orphan instance services not in active_ids
 try:
-    subprocess.run(["bash", os.path.join(script_dir, "recover_servers.sh")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    instances_dir = os.path.join(script_dir, "instances")
+    if os.path.isdir(instances_dir):
+        for f in os.listdir(instances_dir):
+            if f.endswith(".env"):
+                orphan_id = f[:-4]
+                if orphan_id not in active_ids:
+                    try:
+                        os.remove(os.path.join(instances_dir, f))
+                    except Exception:
+                        pass
+                    subprocess.run(["systemctl", "disable", "--now", f"gameland@{orphan_id}.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(["tmux", "kill-session", "-t", f"gameland_{orphan_id}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 except Exception:
     pass
 

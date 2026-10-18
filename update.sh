@@ -35,7 +35,7 @@ elif [ -f "$USERS_INI" ]; then
     cp -f "$USERS_INI" "$PERSIST_USERS"
 fi
 
-if [ -f "$SERVERS_JSON" ] && [ "$(stat -c%s "$SERVERS_JSON" 2>/dev/null || echo 0)" -gt 25 ]; then
+if [ -f "$SERVERS_JSON" ] && python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); sys.exit(0 if isinstance(d.get("servers"), list) else 1)' "$SERVERS_JSON" 2>/dev/null; then
     cp -f "$SERVERS_JSON" "$PERSIST_SERVERS"
     echo "[*] Saved registered server instances to persistent storage."
 elif [ -f "$PERSIST_SERVERS" ]; then
@@ -65,9 +65,6 @@ if [ -f "$PERSIST_SERVERS" ] && [ -s "$PERSIST_SERVERS" ]; then
     chmod 666 "$SERVERS_JSON" 2>/dev/null || true
     echo "[*] Restored server instances to instances/servers.json."
 fi
-
-# Auto-discover and sync any server instances on disk or in systemd
-bash "${SCRIPT_DIR}/recover_servers.sh" 2>/dev/null || true
 
 # 5. Tell Git to NEVER touch users.ini and servers.json during future git reset --hard
 git update-index --skip-worktree "$USERS_INI" 2>/dev/null || true
