@@ -1476,14 +1476,21 @@ class ServerCmd {
         $cstrike = $serverInfo['cstrike_dir'];
         $serverDir = $serverInfo['server_dir'] ?? dirname($cstrike);
 
-        // Always attempt fast git pull first if local git repository exists
+        // Always attempt fast git sync first if local git repository exists
         $gitPulled = false;
         if (is_dir($serverDir . '/.git')) {
             $gitOut = [];
             $gitCode = 1;
-            @exec("cd " . escapeshellarg($serverDir) . " && git pull --ff-only 2>&1", $gitOut, $gitCode);
+            @exec("cd " . escapeshellarg($serverDir) . " && git fetch origin main 2>&1 && git reset --hard origin/main 2>&1", $gitOut, $gitCode);
             if ($gitCode === 0) {
                 $gitPulled = true;
+            } else {
+                $helper = self::getPrivilegedHelperPath();
+                if (is_file($helper) || is_file('/usr/local/sbin/gameland-panel-sudo')) {
+                    $hPath = is_file('/usr/local/sbin/gameland-panel-sudo') ? '/usr/local/sbin/gameland-panel-sudo' : $helper;
+                    @exec("sudo -n " . escapeshellarg($hPath) . " git_sync 2>&1");
+                    $gitPulled = true;
+                }
             }
         }
 

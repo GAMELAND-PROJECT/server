@@ -27,7 +27,19 @@ case "$action" in
     switch_mode)
         mode="${2:-clanwar}"
         plugins_ini="${PROJECT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini"
+        server_cfg="${PROJECT_DIR}/cstrike/server.cfg"
+
+        # 1. First cleanly resolve any git conflicts and pull latest from GitHub
+        if [ -d "${PROJECT_DIR}/.git" ]; then
+            cd "${PROJECT_DIR}"
+            git fetch origin main 2>/dev/null || true
+            git reset --hard origin/main 2>/dev/null || true
+        fi
+
+        # 2. Configure target slots and plugins
+        slots="18"
         if [ "$mode" = "clanwar" ]; then
+            slots="10"
             sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="10"/' "${PROJECT_DIR}/start.sh"
             if [ -f "${PROJECT_DIR}/.env" ]; then
                 sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="10"/' "${PROJECT_DIR}/.env"
@@ -40,6 +52,7 @@ case "$action" in
                 fi
             fi
         elif [ "$mode" = "mix5v5" ]; then
+            slots="18"
             sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="18"/' "${PROJECT_DIR}/start.sh"
             if [ -f "${PROJECT_DIR}/.env" ]; then
                 sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="18"/' "${PROJECT_DIR}/.env"
@@ -49,6 +62,7 @@ case "$action" in
                 sed -i -E 's/^[[:space:]]*;[[:space:]]*mix_system\.amxx/mix_system.amxx/' "$plugins_ini"
             fi
         elif [ "$mode" = "public" ]; then
+            slots="24"
             sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="24"/' "${PROJECT_DIR}/start.sh"
             if [ -f "${PROJECT_DIR}/.env" ]; then
                 sed -i -E 's/MAX_PLAYERS=".*"/MAX_PLAYERS="24"/' "${PROJECT_DIR}/.env"
@@ -57,6 +71,30 @@ case "$action" in
                 sed -i -E 's/^[[:space:]]*mix_system\.amxx/;\0/' "$plugins_ini"
                 sed -i -E 's/^[[:space:]]*clanwar_system\.amxx/;\0/' "$plugins_ini"
             fi
+        fi
+
+        # Update server.cfg sv_visiblemaxplayers
+        if [ -f "$server_cfg" ]; then
+            sed -i -E "s/sv_visiblemaxplayers[[:space:]]+[0-9]+/sv_visiblemaxplayers $slots/" "$server_cfg" 2>/dev/null || true
+            if ! grep -q 'sv_visiblemaxplayers' "$server_cfg"; then
+                echo "sv_visiblemaxplayers $slots" >> "$server_cfg"
+            fi
+        fi
+
+        # 3. Cleanly kill old HLDS processes and tmux session to prevent zombie port locks
+        pkill -9 -f hlds_linux 2>/dev/null || true
+        tmux kill-session -t gameland_server 2>/dev/null || true
+        sleep 1
+
+        # 4. Restart service
+        /usr/bin/systemctl restart gameland.service 2>/dev/null || true
+        exit 0
+        ;;
+    git_sync)
+        if [ -d "${PROJECT_DIR}/.git" ]; then
+            cd "${PROJECT_DIR}"
+            git fetch origin main 2>/dev/null || true
+            git reset --hard origin/main 2>/dev/null || true
         fi
         exit 0
         ;;

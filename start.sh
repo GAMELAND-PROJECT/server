@@ -56,7 +56,8 @@ elif [ -f "${SCRIPT_DIR}/instances/servers.json" ]; then
     cp -f "${SCRIPT_DIR}/instances/servers.json" /opt/gameland/persistent/servers.json
 fi
 
-# ─── 2. بستن کامل هرگونه پروسس HLTV و کامپرسور ───────────────
+# ─── 2. بستن کامل هرگونه پروسس سرور، HLTV و کامپرسور ───────────────
+pkill -9 -f hlds_linux 2>/dev/null || true
 pkill -9 -f hltv 2>/dev/null || true
 screen -X -S gameland_hltv quit 2>/dev/null || true
 screen -X -S demo_compressor quit 2>/dev/null || true
@@ -107,7 +108,7 @@ if [ -n "$tmux_pid" ]; then
     echo "[*] PID $tmux_pid saved to gameland.pid"
 fi
 
-echo "[SUCCESS] GameLand Server (18 Slots) started in tmux session 'gameland_server'!"
+echo "[SUCCESS] GameLand Server (${MAX_PLAYERS} Slots) started in tmux session 'gameland_server'!"
 echo "-> Live console : tmux attach -t gameland_server"
 echo "-> Detach       : Ctrl+B then D"
 echo "-> Logs         : tail -f ${LOG_FILE}"
