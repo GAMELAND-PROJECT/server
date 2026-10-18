@@ -111,6 +111,30 @@ elif [ -s "$PROJECT_ROOT/instances/servers.json" ]; then
     cp -f "$PROJECT_ROOT/instances/servers.json" /opt/gameland/persistent/servers.json 2>/dev/null || true
 fi
 
+# Ensure Git never overwrites users.ini or servers.json during git reset
+if [ -d "$PROJECT_ROOT/.git" ]; then
+    git -C "$PROJECT_ROOT" update-index --skip-worktree "$CONFIGS_DIR/users.ini" 2>/dev/null || true
+    git -C "$PROJECT_ROOT" update-index --skip-worktree "$PROJECT_ROOT/instances/servers.json" 2>/dev/null || true
+    if [ -d "$PROJECT_ROOT/.git/hooks" ]; then
+        cat > "$PROJECT_ROOT/.git/hooks/post-checkout" << 'HOOK_EOF'
+#!/bin/bash
+if [ -f "/opt/gameland/persistent/users.ini" ] && [ -s "/opt/gameland/persistent/users.ini" ]; then
+    cp -f /opt/gameland/persistent/users.ini /opt/gameland/server/cstrike/addons/amxmodx/configs/users.ini 2>/dev/null || true
+    chmod 666 /opt/gameland/server/cstrike/addons/amxmodx/configs/users.ini 2>/dev/null || true
+fi
+if [ -f "/opt/gameland/persistent/servers.json" ] && [ -s "/opt/gameland/persistent/servers.json" ]; then
+    cp -f /opt/gameland/persistent/servers.json /opt/gameland/server/instances/servers.json 2>/dev/null || true
+    chmod 666 /opt/gameland/server/instances/servers.json 2>/dev/null || true
+fi
+git update-index --skip-worktree /opt/gameland/server/cstrike/addons/amxmodx/configs/users.ini 2>/dev/null || true
+git update-index --skip-worktree /opt/gameland/server/instances/servers.json 2>/dev/null || true
+HOOK_EOF
+        chmod +x "$PROJECT_ROOT/.git/hooks/post-checkout" 2>/dev/null || true
+        cp -f "$PROJECT_ROOT/.git/hooks/post-checkout" "$PROJECT_ROOT/.git/hooks/post-merge" 2>/dev/null || true
+        chmod +x "$PROJECT_ROOT/.git/hooks/post-merge" 2>/dev/null || true
+    fi
+fi
+
 if [ ! -s "$CONFIGS_DIR/users.ini" ]; then
     cat > "$CONFIGS_DIR/users.ini" << 'EOF'
 ; Users configuration file

@@ -41,6 +41,8 @@ Usage:
   svgl console [id|main]       Attach to tmux console
   svgl logs [id|main]          Follow systemd logs
   svgl tail [id|main]          Follow server log file
+  svgl update                  Safely update server from GitHub (Zero data loss)
+  svgl recover                 Recover lost admin accounts from instances & logs
   svgl install-template        Install gameland@.service template
 
 The web panel uses the same registry and SVGL commands. No server needs to be
@@ -603,8 +605,9 @@ show_menu() {
     echo -e "${CYAN}------------------------------------------${NC}"
     echo -e "  1) ${CYAN}Servers${NC} (select and manage)"
     echo -e "  2) ${GREEN}Add New Server Instance${NC}"
-    echo -e "  3) ${YELLOW}Update from GitHub${NC}"
+    echo -e "  3) ${YELLOW}Update from GitHub (Safe Update)${NC}"
     echo -e "  4) List Servers"
+    echo -e "  5) ${CYAN}Recover Admin Accounts${NC}"
     echo -e "  0) Exit"
     echo -e "${CYAN}==========================================${NC}"
 }
@@ -612,7 +615,7 @@ show_menu() {
 interactive_loop() {
     while true; do
         show_menu
-        read -r -p "  Select [0-4]: " choice
+        read -r -p "  Select [0-5]: " choice
         case "$choice" in
             1) servers_browser_menu ;;
             2)
@@ -622,8 +625,9 @@ interactive_loop() {
                 create_instance "$id" "$port" "$name"
                 sleep 3
                 ;;
-            3) cd "$PROJECT_DIR" && git pull; pause_menu ;;
+            3) bash "${PROJECT_DIR}/update.sh"; pause_menu ;;
             4) list_servers; pause_menu ;;
+            5) bash "${PROJECT_DIR}/recover_admins.sh"; pause_menu ;;
             0) exit 0 ;;
             *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
         esac
@@ -649,6 +653,8 @@ case "$cmd" in
     console) attach_console "${2:-main}" ;;
     logs) journalctl -u "$(service_name_for "${2:-main}")" -f ;;
     tail) tail -f "$(log_file_for "${2:-main}")" ;;
+    update) bash "${PROJECT_DIR}/update.sh" ;;
+    recover) bash "${PROJECT_DIR}/recover_admins.sh" ;;
     install-template) install_template ;;
     *) usage; exit 1 ;;
 esac
