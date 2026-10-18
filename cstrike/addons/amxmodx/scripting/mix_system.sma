@@ -330,6 +330,13 @@ public plugin_init()
     register_clcmd("say", "Hook_Say")
     register_clcmd("say_team", "Hook_SayTeam")
 
+    // Clan War Mode notice when in Mix Mode
+    register_clcmd("say /cw", "Cmd_NotifyClanWarMode")
+    register_clcmd("say_team /cw", "Cmd_NotifyClanWarMode")
+    register_clcmd("say /clanwar", "Cmd_NotifyClanWarMode")
+    register_clcmd("say_team /clanwar", "Cmd_NotifyClanWarMode")
+    register_clcmd("cw", "Cmd_NotifyClanWarMode")
+
     // Interactive crash-proof native text voting menus
     register_menucmd(register_menuid(MIX_VOTE_MENU_ID, 1), MENU_KEY_1 | MENU_KEY_2, "HandleMixVoteMenu")
     register_menucmd(register_menuid(KNIFE_SIDE_MENU_ID, 1), MENU_KEY_1 | MENU_KEY_2, "HandleKnifeSideMenu")

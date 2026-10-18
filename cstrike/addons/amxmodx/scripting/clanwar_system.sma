@@ -629,6 +629,8 @@ LoadConfiguration()
             {
                 if(equal(szKey, "START_MIX_COMMANDS"))
                     RegisterCommandsFromCSV(szValue, "Cmd_StartMix", g_aStartCmds)
+                else if(equal(szKey, "CLANWAR_ADMIN_COMMANDS"))
+                    RegisterCommandsFromCSV(szValue, "Cmd_ClanWarAdmin", g_aStartCmds)
                 else if(equal(szKey, "STOP_MIX_COMMANDS"))
                     RegisterCommandsFromCSV(szValue, "Cmd_StopMix", g_aStopCmds)
                 else if(equal(szKey, "WARM_COMMANDS"))
@@ -672,6 +674,12 @@ LoadConfiguration()
     // Make sure /warm is always explicitly registered for Warmup
     RegisterSingleCmd("say /warm", "Cmd_Warmup", g_aWarmCmds)
     RegisterSingleCmd("say_team /warm", "Cmd_Warmup", g_aWarmCmds)
+    RegisterSingleCmd("say /cw", "Cmd_ClanWarAdmin", g_aStartCmds)
+    RegisterSingleCmd("say_team /cw", "Cmd_ClanWarAdmin", g_aStartCmds)
+    RegisterSingleCmd("say /clanwar", "Cmd_ClanWarAdmin", g_aStartCmds)
+    RegisterSingleCmd("say_team /clanwar", "Cmd_ClanWarAdmin", g_aStartCmds)
+    RegisterSingleCmd("say /cwmenu", "Cmd_ClanWarAdmin", g_aStartCmds)
+    RegisterSingleCmd("say_team /cwmenu", "Cmd_ClanWarAdmin", g_aStartCmds)
 }
 
 RegisterCommandsFromCSV(const szCSV[], const szFunction[], Array:aHolder)
@@ -700,6 +708,12 @@ RegisterDefaultCommands()
 {
     RegisterSingleCmd("say /warm", "Cmd_Warmup", g_aWarmCmds)
     RegisterSingleCmd("say_team /warm", "Cmd_Warmup", g_aWarmCmds)
+    RegisterSingleCmd("say /cw", "Cmd_ClanWarAdmin", g_aStartCmds)
+    RegisterSingleCmd("say_team /cw", "Cmd_ClanWarAdmin", g_aStartCmds)
+    RegisterSingleCmd("say /clanwar", "Cmd_ClanWarAdmin", g_aStartCmds)
+    RegisterSingleCmd("say_team /clanwar", "Cmd_ClanWarAdmin", g_aStartCmds)
+    RegisterSingleCmd("say /cwmenu", "Cmd_ClanWarAdmin", g_aStartCmds)
+    RegisterSingleCmd("say_team /cwmenu", "Cmd_ClanWarAdmin", g_aStartCmds)
     RegisterSingleCmd("say /mix", "Cmd_StartMix", g_aStartCmds)
     RegisterSingleCmd("say_team /mix", "Cmd_StartMix", g_aStartCmds)
     RegisterSingleCmd("say /start", "Cmd_StartMix", g_aStartCmds)
@@ -4488,16 +4502,15 @@ public StartCaptainElection()
     g_bPickMode = true
     UpdateServerHostname()
 
-    // 1. Gather up to 10 players in game: Prioritize HUMANS first, then BOTS
+    // 1. Gather up to 10 human players from teams or spectator
     g_iEligibleVoterCount = 0
 
-    // Add humans first
     for(new id = 1; id <= MaxClients; id++)
     {
         if(is_user_connected(id) && !is_user_bot(id) && !is_user_hltv(id))
         {
             new TeamName:team = get_member(id, m_iTeam)
-            if(team == TEAM_CT || team == TEAM_TERRORIST || (g_bAdminForceStarted && team == TEAM_SPECTATOR))
+            if(team == TEAM_CT || team == TEAM_TERRORIST || team == TEAM_SPECTATOR)
             {
                 if(g_iEligibleVoterCount < 10)
                 {
@@ -4507,23 +4520,7 @@ public StartCaptainElection()
         }
     }
 
-    // Add bots to fill up to 10 if present
-    for(new id = 1; id <= MaxClients; id++)
-    {
-        if(is_user_connected(id) && is_user_bot(id) && !is_user_hltv(id))
-        {
-            new TeamName:team = get_member(id, m_iTeam)
-            if(team == TEAM_CT || team == TEAM_TERRORIST || (g_bAdminForceStarted && team == TEAM_SPECTATOR))
-            {
-                if(g_iEligibleVoterCount < 10)
-                {
-                    g_iEligibleVoters[g_iEligibleVoterCount++] = id
-                }
-            }
-        }
-    }
-
-    // 2. Move all gathered players to Spectator & reset votes
+    // 2. Move all gathered players to Spectator// 2. Move all gathered players to Spectator & reset votes
     for(new i = 0; i < g_iEligibleVoterCount; i++)
     {
         new id = g_iEligibleVoters[i]
@@ -4536,17 +4533,7 @@ public StartCaptainElection()
         g_iVotedForCapt[id] = 0
     }
 
-    // 3. Simulate bot votes for top candidates so dynamic vote numbers are seen
-    for(new i = 0; i < g_iEligibleVoterCount; i++)
-    {
-        new voterId = g_iEligibleVoters[i]
-        if(is_user_bot(voterId) && g_iEligibleVoterCount >= 2)
-        {
-            new randCandidate = g_iEligibleVoters[random_num(0, min(1, g_iEligibleVoterCount - 1))]
-            g_iVotedForCapt[voterId] = randCandidate
-            g_iPlayerCaptVotes[randCandidate]++
-        }
-    }
+    // Real human election without bots
 
     g_iCaptVoteTimer = g_bFastTestMode ? 10 : 20
     set_task(1.0, "Task_CaptVoteTimer", TASK_CW_CAPTAIN_VOTE, .flags = "b")
@@ -4594,13 +4581,13 @@ public ShowCaptainVoteMenu(id)
         num_to_str(candidateId, szData, charsmax(szData))
 
         new iVotes = g_iPlayerCaptVotes[candidateId]
-        if(candidateId == id)
-        {
-            formatex(szItem, charsmax(szItem), "\d%s [You - Cannot self-vote] (%d vote%s)", g_szUserName[candidateId], iVotes, iVotes == 1 ? "" : "s")
-        }
-        else if(g_iVotedForCapt[id] == candidateId)
+        if(g_iVotedForCapt[id] == candidateId)
         {
             formatex(szItem, charsmax(szItem), "\y[*] \w%s \y[VOTED] \d(%d vote%s)", g_szUserName[candidateId], iVotes, iVotes == 1 ? "" : "s")
+        }
+        else if(candidateId == id)
+        {
+            formatex(szItem, charsmax(szItem), "\w%s \y[You] \d(%d vote%s)", g_szUserName[candidateId], iVotes, iVotes == 1 ? "" : "s")
         }
         else
         {
@@ -4633,12 +4620,6 @@ public HandleCaptainVoteMenu(id, iMenu, iItem)
     menu_destroy(iMenu)
 
     new candidateId = str_to_num(szData)
-    if(candidateId == id)
-    {
-        client_print_color(id, print_team_default, "^4[GAMELAND CW] ^1You cannot vote for yourself! Choose another player.")
-        ShowCaptainVoteMenu(id)
-        return PLUGIN_HANDLED
-    }
 
     if(!is_user_connected(candidateId))
     {
@@ -4831,7 +4812,7 @@ public TriggerNextPickTurn()
     if(g_iMatchState != STATE_PICKING)
         return
 
-    // Gather spectators (humans and bots)
+    // Gather spectators
     new iPool[MAX_PLAYERS], iPoolCount = 0
     for(new id = 1; id <= MaxClients; id++)
     {
@@ -4846,14 +4827,20 @@ public TriggerNextPickTurn()
 
     if(iPoolCount == 0)
     {
-        if(GetTeamPlayerCount(TEAM_CT) + GetTeamPlayerCount(TEAM_TERRORIST) >= 2)
+        new iCtCount = GetTeamPlayerCount(TEAM_CT)
+        new iTrCount = GetTeamPlayerCount(TEAM_TERRORIST)
+
+        if(iCtCount >= 5 && iTrCount >= 5)
         {
             FinishDraftPhase()
         }
         else
         {
-            client_print_color(0, print_team_default, "^4[GAMELAND CW] ^3No spectators available in draft pool! ^1Add bots with ^4/cw bots^1.")
-            StartWarmup()
+            client_print_color(0, print_team_default, "^4[GAMELAND CW] ^3Both Captains assigned! (CT: ^4%s ^3| TR: ^4%s^3)",
+                g_szUserName[g_iCaptainCT], g_szUserName[g_iCaptainTR])
+            client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Drafting complete for current players. Start match with ^4/mix ^1or ^4/cw^1.")
+            g_bPickMode = false
+            UpdateServerHostname()
         }
         return
     }
@@ -4892,15 +4879,6 @@ public TriggerNextPickTurn()
         return
     }
 
-    // Check if active captain is a bot -> auto pick after 2 seconds!
-    if(is_user_bot(activeCaptain))
-    {
-        client_print_color(0, print_team_default, "^4[GAMELAND CW] ^4Round %d ^1| Turn: Bot Captain ^3%s ^1(%s) is picking... (2s)",
-            g_iDraftRound, g_szUserName[activeCaptain], szTeamName)
-        set_task(2.0, "Task_BotCaptainPick", TASK_CW_PICK_TIMER)
-        return
-    }
-
     g_iPickTimer = g_bFastTestMode ? 10 : 15
     set_task(1.0, "Task_PickTimerCountdown", TASK_CW_PICK_TIMER, .flags = "b")
 
@@ -4908,38 +4886,6 @@ public TriggerNextPickTurn()
         g_iDraftRound, g_szUserName[activeCaptain], szTeamName, g_iPickTimer)
 
     ShowPickMenu(activeCaptain)
-}
-
-public Task_BotCaptainPick()
-{
-    if(g_iMatchState != STATE_PICKING)
-        return
-
-    new activeCaptain = (g_iCurrentDraftTurn == 1) ? g_iCaptainCT : g_iCaptainTR
-    if(!is_user_connected(activeCaptain))
-        return
-
-    new iPool[MAX_PLAYERS], iPoolCount = 0
-    for(new id = 1; id <= MaxClients; id++)
-    {
-        if(is_user_connected(id) && !is_user_hltv(id))
-        {
-            if(get_member(id, m_iTeam) == TEAM_SPECTATOR)
-            {
-                iPool[iPoolCount++] = id
-            }
-        }
-    }
-
-    if(iPoolCount > 0)
-    {
-        new pickedPlayer = iPool[random_num(0, iPoolCount - 1)]
-        ApplyDraftPick(activeCaptain, pickedPlayer)
-    }
-    else
-    {
-        FinishDraftPhase()
-    }
 }
 
 stock FindFallbackCaptain(TeamName:targetTeam)
@@ -4972,7 +4918,7 @@ public ShowPickMenu(id)
             {
                 new szData[8], szItem[64]
                 num_to_str(p, szData, charsmax(szData))
-                formatex(szItem, charsmax(szItem), "\w%s%s", g_szUserName[p], is_user_bot(p) ? " \d[BOT]" : "")
+                formatex(szItem, charsmax(szItem), "\w%s", g_szUserName[p])
                 menu_additem(iMenu, szItem, szData)
             }
         }
@@ -5122,44 +5068,52 @@ public Cmd_ClanWarAdmin(id)
         return PLUGIN_HANDLED
     }
 
-    new szArg[32]
-    read_argv(1, szArg, charsmax(szArg))
+    new szFullArgs[64], szToken1[32], szToken2[32]
+    read_args(szFullArgs, charsmax(szFullArgs))
+    remove_quotes(szFullArgs)
+    trim(szFullArgs)
 
-    if(equali(szArg, "start") || equali(szArg, "force"))
+    // Parse arguments: e.g. "/cw start" -> token1="/cw", token2="start"
+    // or console "cw start" -> token1="start", token2=""
+    parse(szFullArgs, szToken1, charsmax(szToken1), szToken2, charsmax(szToken2))
+
+    new szSubCmd[32]
+    if(szToken1[0] == '/' || equali(szToken1, "cw") || equali(szToken1, "clanwar") || equali(szToken1, "cwmenu"))
+    {
+        copy(szSubCmd, charsmax(szSubCmd), szToken2)
+    }
+    else
+    {
+        copy(szSubCmd, charsmax(szSubCmd), szToken1)
+    }
+
+    if(equali(szSubCmd, "start") || equali(szSubCmd, "force"))
     {
         g_bAdminForceStarted = true
         client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Admin ^4%s ^1force-started the countdown!", g_szUserName[id])
         StartCaptainCountdown()
         return PLUGIN_HANDLED
     }
-    else if(equali(szArg, "fast") || equali(szArg, "speed"))
+    else if(equali(szSubCmd, "fast") || equali(szSubCmd, "speed"))
     {
         g_bFastTestMode = !g_bFastTestMode
         client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Fast Test Mode is now: ^4%s ^1(5s countdown, 10s election, 10s pick)", g_bFastTestMode ? "ENABLED" : "DISABLED")
         return PLUGIN_HANDLED
     }
-    else if(equali(szArg, "bots") || equali(szArg, "bot") || equali(szArg, "addbots"))
-    {
-        return Cmd_AddTestBots(id)
-    }
-    else if(equali(szArg, "kickbots") || equali(szArg, "nobot") || equali(szArg, "rembots"))
-    {
-        return Cmd_KickTestBots(id)
-    }
-    else if(equali(szArg, "vote") || equali(szArg, "elect"))
+    else if(equali(szSubCmd, "vote") || equali(szSubCmd, "elect"))
     {
         g_bAdminForceStarted = true
         client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Admin ^4%s ^1force-started Captain Election!", g_szUserName[id])
         StartCaptainElection()
         return PLUGIN_HANDLED
     }
-    else if(equali(szArg, "draft") || equali(szArg, "pick"))
+    else if(equali(szSubCmd, "draft") || equali(szSubCmd, "pick"))
     {
         client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Admin ^4%s ^1force-started Team Drafting!", g_szUserName[id])
         StartDraftPhase()
         return PLUGIN_HANDLED
     }
-    else if(equali(szArg, "stop") || equali(szArg, "warm"))
+    else if(equali(szSubCmd, "stop") || equali(szSubCmd, "warm"))
     {
         g_bAdminForceStarted = false
         client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Admin ^4%s ^1reset server to WarmUp!", g_szUserName[id])
@@ -5169,47 +5123,12 @@ public Cmd_ClanWarAdmin(id)
 
     if(id > 0)
     {
-        client_print_color(id, print_team_default, "^4[GAMELAND CW] ^1Opening Clan War Menu... ^3[/cw start, /cw fast, /cw bots, /cw nobot, /cw vote, /cw draft, /cw stop]")
         ShowClanWarAdminMenu(id)
     }
     else
     {
-        server_print("[GAMELAND CW] Usage: amx_cw <start|fast|bots|nobot|vote|draft|stop>")
+        server_print("[GAMELAND CW] Usage: amx_cw <start|fast|vote|draft|stop>")
     }
-    return PLUGIN_HANDLED
-}
-
-public Cmd_AddTestBots(id)
-{
-    new iCurrent = 0
-    for(new p = 1; p <= MaxClients; p++)
-    {
-        if(is_user_connected(p) && !is_user_hltv(p))
-            iCurrent++
-    }
-
-    new iNeeded = 10 - iCurrent
-    if(iNeeded <= 0)
-    {
-        client_print_color(id, print_team_default, "^4[GAMELAND CW] ^1Server already has ^310 players^1! No bots needed.")
-        return PLUGIN_HANDLED
-    }
-
-    client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Admin ^4%s ^1spawning ^3%d test bots ^1to test Clan War Mode (10 slots)!", g_szUserName[id], iNeeded)
-
-    server_cmd("bot_stop 1; bot_quota_mode fill; bot_join_after_player 0; bot_quota 10")
-    for(new i = 0; i < iNeeded; i++)
-    {
-        server_cmd("bot_add")
-    }
-
-    return PLUGIN_HANDLED
-}
-
-public Cmd_KickTestBots(id)
-{
-    client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Admin ^4%s ^1removed all test bots.", g_szUserName[id])
-    server_cmd("bot_quota 0; bot_kick")
     return PLUGIN_HANDLED
 }
 
@@ -5224,21 +5143,20 @@ public ShowClanWarAdminMenu(id)
     new szMenu[512]
     new iLen = 0
 
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y[GAMELAND] Clan War Mode Control\w^n")
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\dState: \r%s \d| Fast: \y%s^n^n", 
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y[GAMELAND] Clan War Control Menu\w^n")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\dStatus: \r%s \d| Fast: \y%s^n^n", 
         szState, g_bFastTestMode ? "ON (5s)" : "OFF (30s)")
 
     iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y1. \wStart 30s Countdown \y[/cw start]^n")
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y2. \wFast Test Mode: %s^n", g_bFastTestMode ? "\r[ON - 5s]" : "\d[OFF - 30s]")
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y3. \wAdd Test Bots (Fill to 10) \y[/cw bots]^n")
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y4. \wRemove all Test Bots \r[/cw nobot]^n")
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y5. \wStart Captain Election Now \y[/cw vote]^n")
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y6. \wStart Team Drafting Phase \y[/cw draft]^n")
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y7. \wStart Match Vote (Knife vs Live) \y[/mix]^n")
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y8. \rReset to WarmUp \d[/cw stop]^n^n")
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y0. \dExit")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y2. \wStart Captain Election Now \y[/cw vote]^n")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y3. \wStart Team Drafting Phase \y[/cw draft]^n")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y4. \wStart Match Vote (Knife vs Live) \y[/mix]^n")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y5. \wFast Test Mode: %s^n", g_bFastTestMode ? "\r[ON - 5s]" : "\d[OFF - 30s]")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y6. \wMove All to Spectator \y[/spec]^n")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y7. \rReset to WarmUp \d[/cw stop]^n^n")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y0. \dExit Menu")
 
-    new keys = MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8 | MENU_KEY_0
+    new keys = MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_0
     show_menu(id, keys, szMenu, -1, CW_ADMIN_MENU_ID)
 }
 
@@ -5249,52 +5167,47 @@ public HandleClanWarNativeMenu(id, key)
 
     switch(key)
     {
-        case 0:
+        case 0: // 1. Start Countdown
         {
             g_bAdminForceStarted = true
             client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Admin ^4%s ^1force-started the countdown!", g_szUserName[id])
             StartCaptainCountdown()
         }
-        case 1:
-        {
-            g_bFastTestMode = !g_bFastTestMode
-            client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Fast Test Mode is now: ^4%s ^1(5s countdown, 10s election, 10s pick)", g_bFastTestMode ? "ENABLED" : "DISABLED")
-            ShowClanWarAdminMenu(id)
-        }
-        case 2:
-        {
-            Cmd_AddTestBots(id)
-            ShowClanWarAdminMenu(id)
-        }
-        case 3:
-        {
-            Cmd_KickTestBots(id)
-            ShowClanWarAdminMenu(id)
-        }
-        case 4:
+        case 1: // 2. Start Captain Election
         {
             g_bAdminForceStarted = true
             client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Admin ^4%s ^1force-started Captain Election!", g_szUserName[id])
             StartCaptainElection()
         }
-        case 5:
+        case 2: // 3. Start Team Drafting
         {
             client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Admin ^4%s ^1force-started Team Drafting!", g_szUserName[id])
             StartDraftPhase()
         }
-        case 6:
+        case 3: // 4. Start Match Vote
         {
             StartMixVote()
         }
-        case 7:
+        case 4: // 5. Fast Test Mode
+        {
+            g_bFastTestMode = !g_bFastTestMode
+            client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Fast Test Mode is now: ^4%s ^1(5s countdown, 10s election, 10s pick)", g_bFastTestMode ? "ENABLED" : "DISABLED")
+            ShowClanWarAdminMenu(id)
+        }
+        case 5: // 6. Move All to Spectator
+        {
+            Cmd_SpecAll(id)
+            ShowClanWarAdminMenu(id)
+        }
+        case 6: // 7. Reset to WarmUp
         {
             g_bAdminForceStarted = false
             client_print_color(0, print_team_default, "^4[GAMELAND CW] ^1Admin ^4%s ^1reset server to WarmUp!", g_szUserName[id])
             StartWarmup()
         }
-        case 9:
+        case 9: // 0. Exit
         {
-            // Exit menu
+            // Close menu
         }
     }
     return PLUGIN_HANDLED
