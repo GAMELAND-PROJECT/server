@@ -427,11 +427,11 @@ function escHtml(str) {
     </div>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
         <form method="POST" action="plugins.php"
-              onsubmit="return confirm('Switch server to 5v5 AutoMix mode (12 slots) and restart?')">
+              onsubmit="return confirm('Switch server to 5v5 Match Server mode (18 slots) and restart?')">
             <input type="hidden" name="csrf_token" value="<?php echo Auth::csrf_token(); ?>">
             <input type="hidden" name="target_mode" value="mix5v5">
             <button type="submit" name="switch_mode" class="btn btn-primary" style="padding:0.8rem 1.35rem;">
-                🎮 5v5 AutoMix Mode (12 Slots)
+                🎮 5v5 Match Server Mode (18 Slots)
             </button>
         </form>
 
@@ -448,11 +448,11 @@ function escHtml(str) {
 
 
 <!-- ══════════════════════════════════════════════════════
-     MIX IN-GAME CONTROLS  (via RCON)
+     MATCH SERVER IN-GAME CONTROLS  (via RCON)
 ═══════════════════════════════════════════════════════════ -->
 <div class="card" style="border:1px solid rgba(139,92,246,0.35); background:linear-gradient(135deg,rgba(139,92,246,0.07),rgba(6,182,212,0.03));">
     <div class="card-title" style="color:var(--accent);">
-        <span>🎮 AutoMix In-Game Controls (Live RCON)</span>
+        <span>🎮 Match Server In-Game Controls (Live RCON)</span>
         <span id="mixCmdStatus" style="font-size:0.8rem; color:var(--text-muted);"></span>
     </div>
 
@@ -465,8 +465,8 @@ function escHtml(str) {
         <button onclick="mixCmd('knife')" class="btn btn-secondary mix-ctrl-btn" title="Start knife round (amx_knife)">
             🔪 Knife Round
         </button>
-        <button onclick="mixCmd('start')" class="btn btn-primary mix-ctrl-btn" title="Start AutoMix queue (amx_mixa)">
-            ▶️ Start AutoMix
+        <button onclick="mixCmd('start')" class="btn btn-primary mix-ctrl-btn" title="Start Match queue (amx_mixa)">
+            ▶️ Start Match
         </button>
         <button onclick="mixCmd('warm')" class="btn btn-secondary mix-ctrl-btn" title="Start warmup (amx_warm)">
             🔥 WarmUp
@@ -512,8 +512,8 @@ function escHtml(str) {
     </div>
 
     <?php foreach ($sections as $secName => $secPlugins): ?>
-    <div class="card" style="margin-bottom:1.1rem;<?php echo ($secName==='5v5 Mix System')?'border:1px solid var(--accent);':''; ?>">
-        <div class="card-title" style="color:<?php echo ($secName==='5v5 Mix System')?'var(--accent)':'var(--text-main)'; ?>;">
+    <div class="card" style="margin-bottom:1.1rem;<?php echo ($secName==='5v5 Match Server')?'border:1px solid var(--accent);':''; ?>">
+        <div class="card-title" style="color:<?php echo ($secName==='5v5 Match Server')?'var(--accent)':'var(--text-main)'; ?>;">
             <span>📂 <?php echo htmlspecialchars($secName); ?> <span style="font-size:0.8rem; opacity:0.7;">(<?php echo count($secPlugins); ?> plugins)</span></span>
         </div>
 
@@ -525,7 +525,7 @@ function escHtml(str) {
                         <th>Plugin File</th>
                         <th>Description / Comment</th>
                         <th style="width:130px;">.amxx Binary</th>
-                        <?php if ($secName==='5v5 Mix System'): ?>
+                        <?php if ($secName==='5v5 Match Server'): ?>
                         <th style="width:130px;">Build Status</th>
                         <?php endif; ?>
                     </tr>
@@ -560,7 +560,7 @@ function escHtml(str) {
                                 <span style="color:var(--danger); font-size:0.8rem; font-weight:600;">✖ Missing</span>
                             <?php endif; ?>
                         </td>
-                        <?php if ($secName==='5v5 Mix System'): ?>
+                        <?php if ($secName==='5v5 Match Server'): ?>
                         <td>
                             <?php if ($bstat): ?>
                                 <?php if ($bstat['needs_rebuild']): ?>
@@ -598,7 +598,7 @@ function mixCmd(action) {
     const labels = {
         restart_round: '🔄 Restarting Round...',
         knife:         '🔪 Starting Knife Round...',
-        start:         '▶️ Starting AutoMix...',
+        start:         '▶️ Starting Match...',
         warm:          '🔥 Starting WarmUp...',
         pause:         '⏸ Toggling Pause...',
         stop:          '🛑 Stopping Match...',

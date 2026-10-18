@@ -1,6 +1,6 @@
 #!/bin/bash
 # =========================================================
-# GameLand CS 1.6 - Mix System 5v5 Installer & Compiler
+# GameLand CS 1.6 - Match Server 5v5 Installer & Compiler
 # =========================================================
 
 set -e
@@ -34,7 +34,7 @@ if [ "${1:-}" = "fixperms_only" ]; then
 fi
 
 echo "================================================="
-echo "   GameLand 5v5 Mix System - Setup & Compiler   "
+echo "   GameLand 5v5 Match Server - Setup & Compiler  "
 echo "   Directory: ${PROJECT_DIR}"
 echo "================================================="
 
@@ -113,7 +113,7 @@ for plugin_entry in \
     "mix_system.amxx:GAMELAND 5v5 mix and match manager" \
     "mix_system_voice_chat.amxx:automatic sv_alltalk state for mix rounds" \
     "gameland_admin_tools.amxx:/map menu and sv_alltalk shortcuts" \
-    "player_drop.amxx:AutoMix player drop / substitute" \
+    "player_drop.amxx:Match Server player drop / substitute" \
     "backweapons.amxx:weapons displayed on players backs" \
     "gameland_lan_optimizer.amxx:network latency and fps optimizer" \
     "gameland_sound_optimizer.amxx:spatial sound enhancer" \
@@ -192,7 +192,7 @@ fi
 
 echo ""
 echo "================================================="
-echo "   [SUCCESS] 5v5 Mix System Ready!              "
+echo "   [SUCCESS] 5v5 Match Server Ready!            "
 echo "================================================="
 echo " Commands for Admins in-game:"
 echo "   say /a         -> Master Admin Panel (Add/Remove Admins, Teams, Mix, Maps)"

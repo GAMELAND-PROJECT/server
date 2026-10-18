@@ -1148,7 +1148,7 @@ class ServerCmd {
                     $plugins[] = [
                         'file'       => $pluginFile,
                         'enabled'    => $isEnabled,
-                        'section'    => $isMixPlugin ? '5v5 Mix System' : $currentSection,
+                        'section'    => $isMixPlugin ? '5v5 Match Server' : $currentSection,
                         'comment'    => $comment,
                         'is_mix'     => $isMixPlugin,
                         'installed'  => file_exists($pluginsDir . '/' . $pluginFile),
@@ -1167,7 +1167,7 @@ class ServerCmd {
                     $plugins[] = [
                         'file'       => $f,
                         'enabled'    => false,
-                        'section'    => $isMix ? '5v5 Mix System' : 'Custom / Unregistered',
+                        'section'    => $isMix ? '5v5 Match Server' : 'Custom / Unregistered',
                         'comment'    => 'Found in plugins folder',
                         'is_mix'     => $isMix,
                         'installed'  => true,
@@ -1804,9 +1804,9 @@ class ServerCmd {
             'gameland_sound_optimizer.amxx' => 'GameLand spatial sound & footsteps enhancer',
             'gameland_fastduck_fix.amxx'    => 'GameLand fast duck / silent run enforcer',
             'gameland_admin_tools.amxx'     => 'GameLand admin tools (/map, /j0-/j2, /ff0-/ff1)',
-            'mix_system.amxx'               => 'AutoMix 5v5 System (main)',
-            'mix_system_voice_chat.amxx'    => 'AutoMix Voice Chat',
-            'player_drop.amxx'              => 'AutoMix player drop/substitute',
+            'mix_system.amxx'               => 'Match Server 5v5 System (main)',
+            'mix_system_voice_chat.amxx'    => 'Match Server Voice Chat',
+            'player_drop.amxx'              => 'Match Server player drop/substitute',
             'backweapons.amxx'              => 'GameLand Back Weapons display',
         ];
 
@@ -1830,8 +1830,8 @@ class ServerCmd {
             } elseif (!preg_match('/^\s*' . preg_quote($mf, '/') . '/m', $content)) {
                 // Not present at all → add it
                 // Ensure we have a section header
-                if (!str_contains($content, '; GameLand & AutoMix System')) {
-                    $content .= "\n; GameLand & AutoMix System\n";
+                if (!str_contains($content, '; GameLand & Match Server System')) {
+                    $content .= "\n; GameLand & Match Server System\n";
                 }
                 $content .= $mf . " ; " . $desc . "\n";
                 $modified = true;

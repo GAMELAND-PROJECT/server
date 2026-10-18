@@ -50,7 +50,7 @@ define('PANEL_PASS', 'changeme123'); // Change this to your preferred password!
 define('SESSION_TIMEOUT', 604800);
 
 // -------------------------------------------------------------
-// GitHub Integration (for AutoMix plugin auto-deploy)
+// GitHub Integration (for Match Server plugin auto-deploy)
 // Set your GitHub Personal Access Token here to enable:
 //   - Triggering GitHub Actions builds remotely
 //   - Downloading pre-built .amxx artifacts (recommended!)

@@ -74,11 +74,11 @@ async function runRcon(cmd, promptMsg = '') {
     }
 }
 
-// High-level AutoMix Match Controls via dedicated mix_command API action
+// High-level Match Server Controls via dedicated mix_command API action
 // Uses correct AMX Mod X server-side commands (not say /cmd which requires a player)
 async function sendMixAction(actionType) {
     const labels = {
-        start:         'Start AutoMix (amx_mixa)',
+        start:         'Start Match (amx_mixa)',
         stop:          'Stop Match (amx_mixstop)',
         knife:         'Knife Round (amx_knife)',
         warm:          'WarmUp (amx_warm)',

@@ -27,7 +27,7 @@
 #include <reapi>
 #include <mix_system>
 
-#define PLUGIN_NAME        "GAMELAND Mix System"
+#define PLUGIN_NAME        "GAMELAND Match Server"
 #define PLUGIN_VERSION     "2.1.0-ReAPI"
 #define PLUGIN_AUTHOR      "GAMELAND"
 

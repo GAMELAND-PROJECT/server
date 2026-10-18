@@ -55,7 +55,7 @@ try {
             🔪 Knife Round
         </button>
         <button onclick="sendMixAction('start')" class="btn btn-primary" title="amx_mixa">
-            ⚡ Start AutoMix
+            ⚡ Start Match
         </button>
         <button onclick="sendMixAction('warm')" class="btn btn-secondary" title="amx_warm">
             🔥 WarmUp
@@ -64,7 +64,7 @@ try {
             ⏸ Pause
         </button>
         <button onclick="sendMixAction('stop')" class="btn btn-danger" title="amx_mixstop">
-            🛑 Stop Mix
+            🛑 Stop Match
         </button>
 
         <span style="width:1px; height:32px; background:var(--border-color); display:inline-block; vertical-align:middle; margin:0 4px;"></span>
@@ -73,7 +73,7 @@ try {
         <a href="plugins.php" class="btn btn-primary"
            style="background:linear-gradient(135deg,#06b6d4,#4f46e5); font-weight:600;"
            title="Go to Plugins page for GitHub Deploy">
-            🔄 Update AutoMix Plugin
+            🔄 Update Match Server Plugin
         </a>
 
         <!-- Checkpoint Buttons -->
@@ -250,12 +250,12 @@ function changeMap(mapName) {
         .catch(e => showAlert('❌ Network error: ' + e.message, 'danger'));
 }
 
-// ── AutoMix In-Game RCON Commands ────────────────────────────────────────────
+// ── Match Server In-Game RCON Commands ────────────────────────────────────────────
 function sendMixAction(action) {
     const labels = {
         restart_round: 'Restart Round (sv_restart 1)',
         knife:         'Knife Round (amx_knife)',
-        start:         'Start AutoMix (amx_mixa)',
+        start:         'Start Match (amx_mixa)',
         warm:          'WarmUp (amx_warm)',
         pause:         'Pause/Unpause (amx_pause)',
         stop:          'Stop Match (amx_mixstop)',
