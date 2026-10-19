@@ -41,6 +41,7 @@ class ServerCmd {
             } elseif ($mode === 'mix5v5') {
                 $modeTitle = '🎮 5v5 Match (18s)';
             }
+            $afkGuard = self::getServerAfkGuard($server);
             $result[] = [
                 'id' => $server['id'],
                 'name' => $server['name'],
@@ -54,6 +55,7 @@ class ServerCmd {
                 'status' => $status,
                 'mode' => $mode,
                 'mode_title' => $modeTitle,
+                'afk_guard' => $afkGuard,
                 'protected' => $server['id'] === 'main',
             ];
         }
@@ -481,6 +483,10 @@ class ServerCmd {
 
         if ($mode !== '') {
             self::switchServerMode($server, $mode);
+        }
+
+        if (isset($data['afk_guard']) && $data['afk_guard'] !== '') {
+            self::setServerAfkGuard($server, (int)$data['afk_guard']);
         }
 
         return [
@@ -1436,6 +1442,96 @@ class ServerCmd {
         return [
             'success' => true,
             'message' => 'Server «' . ($serverInfo['name'] ?? $serverId) . '» switched to ' . $modeLabel . ' (' . $newSlots . ' slots). Service ' . $svc . ' restarted.'
+        ];
+    }
+
+    /**
+     * Get AFK Guard status for a specific server (0 = Disabled/Test, 1 = Full Guard, 2 = Spec Only)
+     */
+    public static function getServerAfkGuard($serverInfo) {
+        $serverDir = $serverInfo['server_dir'] ?? '';
+        $cfg = rtrim($serverDir, '/') . '/cstrike/server.cfg';
+        if (file_exists($cfg)) {
+            $raw = (string)@file_get_contents($cfg);
+            if (preg_match('/^[ \t]*gameland_afk_guard[ \t]+([0-2])/mi', $raw, $m)) {
+                return (int)$m[1];
+            }
+        }
+
+        // Check registry fallback
+        $registry = self::readRegistry();
+        if (isset($registry['servers']) && is_array($registry['servers'])) {
+            $serverId = $serverInfo['id'] ?? '';
+            foreach ($registry['servers'] as $entry) {
+                if (($entry['id'] ?? '') === $serverId && isset($entry['afk_guard'])) {
+                    return (int)$entry['afk_guard'];
+                }
+            }
+        }
+
+        return 1; // Default: Full Guard
+    }
+
+    /**
+     * Set AFK Guard status for a specific server, apply live via RCON and persist in server.cfg + registry
+     */
+    public static function setServerAfkGuard($serverInfo, $mode) {
+        $mode = (int)$mode;
+        if ($mode < 0 || $mode > 2) {
+            $mode = 1;
+        }
+
+        $serverId = $serverInfo['id'] ?? 'main';
+        $serverDir = $serverInfo['server_dir'] ?? '';
+
+        // 1. Persist in cstrike/server.cfg
+        self::writeServerCfgValue($serverDir, 'gameland_afk_guard', (string)$mode);
+        self::writeServerCfgValue($serverDir, 'mp_autokick', '0');
+
+        // 2. Persist in registry servers.json
+        $registry = self::readRegistry();
+        if (isset($registry['servers']) && is_array($registry['servers'])) {
+            foreach ($registry['servers'] as &$entry) {
+                if (($entry['id'] ?? '') === $serverId) {
+                    $entry['afk_guard'] = $mode;
+                    break;
+                }
+            }
+            self::writeRegistry($registry);
+        }
+
+        // 3. Live Apply via RCON (Immediate effect without server restart!)
+        $liveSuccess = false;
+        $liveMsg = '';
+        try {
+            $rcon = new GoldSourceRcon(
+                $serverInfo['ip'],
+                $serverInfo['port'],
+                $serverInfo['rcon_password'],
+                1.5
+            );
+            $rcon->execute('gameland_afk_guard ' . $mode);
+            $rcon->execute('mp_autokick 0');
+            $rcon->execute('amx_afk_guard ' . $mode);
+            $liveSuccess = true;
+            $liveMsg = ' (اعمال زنده و فوری در سرور بدون نیاز به ری‌استارت)';
+        } catch (Exception $e) {
+            $liveSuccess = false;
+            $liveMsg = ' (در کانفیگ سرور ذخیره شد؛ به دلیل در دسترس نبودن RCON، پس از ری‌استارت یا راند بعدی اعمال می‌شود)';
+        }
+
+        $modeLabels = [
+            0 => 'غیرفعال (مخصوص تست کلن‌وار - بدون کیک و اسپکت)',
+            1 => 'حفاظت کامل (حالت عادی - انتقال به اسپکت + کیک تایم‌اوت)',
+            2 => 'فقط انتقال به اسپکت (بدون هیچ‌گونه کیک)'
+        ];
+
+        return [
+            'success' => true,
+            'afk_guard' => $mode,
+            'server_id' => $serverId,
+            'live_applied' => $liveSuccess,
+            'message' => 'وضعیت AFK برای سرور «' . ($serverInfo['name'] ?? $serverId) . '» به «' . $modeLabels[$mode] . '» تغییر یافت' . $liveMsg,
         ];
     }
 

@@ -35,6 +35,7 @@ $servers = ServerCmd::getServerList($SERVERS);
                     <th>Name / Hostname</th>
                     <th>Port</th>
                     <th>Active Mode</th>
+                    <th>AFK Guard</th>
                     <th>Slots</th>
                     <th>Start Map</th>
                     <th>Status</th>
@@ -72,6 +73,32 @@ $servers = ServerCmd::getServerList($SERVERS);
                                     <option value="clanwar" <?php echo (($server['mode'] ?? '') === 'clanwar') ? 'disabled' : ''; ?>>⚔️ Clan War (10s)</option>
                                     <option value="mix5v5" <?php echo (($server['mode'] ?? '') === 'mix5v5') ? 'disabled' : ''; ?>>🎮 5v5 Match (18s)</option>
                                     <option value="public" <?php echo (($server['mode'] ?? '') === 'public') ? 'disabled' : ''; ?>>🎯 Public (24s)</option>
+                                </select>
+                            </div>
+                        </td>
+                        <td>
+                            <div style="display:flex; flex-direction:column; gap:0.35rem; align-items:flex-start;">
+                                <?php $afkVal = (int)($server['afk_guard'] ?? 1); ?>
+                                <?php if ($afkVal === 0): ?>
+                                    <span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.5); font-weight:700; font-size:0.75rem; padding:0.2rem 0.55rem; border-radius:999px;" title="کیک و انتقال به اسپکت خاموش است">
+                                        🧪 OFF (Test Mode)
+                                    </span>
+                                <?php elseif ($afkVal === 2): ?>
+                                    <span class="badge" style="background:rgba(245,158,11,0.2); color:#fbbf24; border:1px solid rgba(245,158,11,0.5); font-weight:700; font-size:0.75rem; padding:0.2rem 0.55rem; border-radius:999px;" title="انتقال به اسپکت بدون هیچ‌گونه کیک">
+                                        👁️ Spec Only (No Kick)
+                                    </span>
+                                <?php else: ?>
+                                    <span class="badge" style="background:rgba(16,185,129,0.2); color:#34d399; border:1px solid rgba(16,185,129,0.5); font-weight:700; font-size:0.75rem; padding:0.2rem 0.55rem; border-radius:999px;" title="محافظت کامل فعال">
+                                        🛡️ FULL (Spec + Kick)
+                                    </span>
+                                <?php endif; ?>
+
+                                <select class="input-field" style="padding:0.2rem 0.35rem; font-size:0.72rem; height:auto; min-width:125px; background:rgba(0,0,0,0.35); border-color:rgba(255,255,255,0.15); color:#fff;"
+                                        onchange="quickChangeServerAfkGuard('<?php echo htmlspecialchars($server['id']); ?>', this.value, '<?php echo htmlspecialchars(addslashes($server['name'])); ?>')">
+                                    <option value="" disabled selected>⚡ AFK Guard</option>
+                                    <option value="0" <?php echo ($afkVal === 0) ? 'disabled' : ''; ?>>🧪 Disabled (Test Mode)</option>
+                                    <option value="2" <?php echo ($afkVal === 2) ? 'disabled' : ''; ?>>👁️ Spec Only (No Kick)</option>
+                                    <option value="1" <?php echo ($afkVal === 1) ? 'disabled' : ''; ?>>🛡️ Full Guard (Normal)</option>
                                 </select>
                             </div>
                         </td>
@@ -149,6 +176,14 @@ $servers = ServerCmd::getServerList($SERVERS);
                     <option value="public">🎯 Classic Public (24 Slots)</option>
                 </select>
             </div>
+            <div>
+                <label style="display:block; margin-bottom:0.3rem; font-size:0.8rem; color:var(--text-muted); font-weight:600;">AFK & Idle Protection</label>
+                <select id="editServerAfkGuard" class="input-field">
+                    <option value="1">🛡️ Full Guard (Spec after 2m, Kick after 5m)</option>
+                    <option value="0">🧪 Disabled (Testing Mode - No Spec, No Kick)</option>
+                    <option value="2">👁️ Spec Only (Move to Spec, Never Kick)</option>
+                </select>
+            </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
                 <input id="editServerPort" class="input-field" type="number" min="1024" max="65535" placeholder="Port">
                 <input id="editServerSlots" class="input-field" type="number" min="1" max="32" placeholder="Slots">
@@ -204,6 +239,30 @@ function quickChangeServerMode(id, targetMode, name) {
         .catch(e => alert('❌ خطای ارتباط: ' + e.message));
 }
 
+function quickChangeServerAfkGuard(id, mode, name) {
+    if (mode === '' || mode === null || mode === undefined) return;
+    const modeLabels = {
+        '0': 'غیرفعال (مخصوص تست - بدون کیک و بدون انتقال به اسپکت)',
+        '1': 'حفاظت کامل (حالت عادی - انتقال به اسپکت + کیک)',
+        '2': 'فقط انتقال به اسپکت (بدون هیچ‌گونه کیک)'
+    };
+    const label = modeLabels[mode] || mode;
+    if (!confirm('آیا مایلید وضعیت AFK سرور «' + name + '» را به «' + label + '» تغییر دهید؟\n\n(این تغییر بدون ری‌استارت و بلافاصله در سرور اعمال می‌شود)')) {
+        location.reload();
+        return;
+    }
+    postServerApi('set_afk_guard', { server_id: id, afk_guard: mode })
+        .then(d => {
+            if (d.success) {
+                alert('✅ ' + (d.message || 'وضعیت AFK با موفقیت تغییر کرد.'));
+                location.reload();
+            } else {
+                alert('❌ خطا: ' + (d.message || 'عملیات ناموفق بود.'));
+            }
+        })
+        .catch(e => alert('❌ خطای ارتباط: ' + e.message));
+}
+
 function createServer() {
     const id = document.getElementById('newServerId').value.trim();
     const name = document.getElementById('newServerName').value.trim();
@@ -229,6 +288,7 @@ function editServer(server) {
     document.getElementById('editServerMap').value = server.map || '';
     document.getElementById('editServerRcon').value = '';
     document.getElementById('editServerMode').value = server.mode || '';
+    document.getElementById('editServerAfkGuard').value = (server.afk_guard !== undefined) ? String(server.afk_guard) : '1';
 }
 
 function saveServerSettings() {
@@ -242,7 +302,8 @@ function saveServerSettings() {
         slots: document.getElementById('editServerSlots').value,
         map: document.getElementById('editServerMap').value.trim(),
         rcon_password: document.getElementById('editServerRcon').value.trim(),
-        mode: document.getElementById('editServerMode').value
+        mode: document.getElementById('editServerMode').value,
+        afk_guard: document.getElementById('editServerAfkGuard').value
     };
     postServerApi('update_server', payload).then(d => {
         alert(d.message || (d.success ? 'Saved.' : 'Failed.'));

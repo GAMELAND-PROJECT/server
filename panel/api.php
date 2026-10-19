@@ -76,6 +76,15 @@ switch ($action) {
         echo json_encode($res);
         break;
 
+    case 'set_afk_guard':
+        $serverId = $_POST['server_id'] ?? ($activeServer['id'] ?? 'main');
+        $mode = (int)($_POST['afk_guard'] ?? $_POST['mode'] ?? 1);
+        global $SERVERS;
+        $targetServer = $SERVERS[$serverId] ?? $activeServer;
+        $res = ServerCmd::setServerAfkGuard($targetServer, $mode);
+        echo json_encode($res);
+        break;
+
     case 'create_server':
         $id = $_POST['server_id'] ?? '';
         $port = $_POST['port'] ?? '';
@@ -107,6 +116,7 @@ switch ($action) {
             'map' => $_POST['map'] ?? '',
             'rcon_password' => $_POST['rcon_password'] ?? '',
             'mode' => $_POST['mode'] ?? '',
+            'afk_guard' => $_POST['afk_guard'] ?? '',
         ];
         $res = ServerCmd::updateServerInstance($id, $data);
         echo json_encode($res);

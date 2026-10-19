@@ -150,6 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['compile_plugins'])) {
 $plugins     = ServerCmd::getPluginsList($activeServer);
 $gitStatus   = ServerCmd::getGitRepoStatus();
 $currentServerMode = ServerCmd::getCurrentServerMode($activeServer);
+$activeServerAfkGuard = ServerCmd::getServerAfkGuard($activeServer);
 
 $lastSyncFile = $activeServer['cstrike_dir'] . '/addons/amxmodx/configs/.mix_last_sync.json';
 $lastBuildFile = $activeServer['cstrike_dir'] . '/addons/amxmodx/configs/.mix_last_build.json';
@@ -513,6 +514,63 @@ function escHtml(str) {
 
 
 <!-- ══════════════════════════════════════════════════════
+     AFK & IDLE PROTECTION CONTROLS (PER SERVER)
+═══════════════════════════════════════════════════════════ -->
+<div class="card" style="border:1px solid rgba(239,68,68,0.35); background:linear-gradient(135deg,rgba(239,68,68,0.06),rgba(245,158,11,0.03)); margin-bottom:1.5rem;">
+    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+            <span>🛡️ کنترل AFK و کیک / انتقال به اسپکت — «<?php echo htmlspecialchars($activeServer['name']); ?>»</span>
+            <span class="badge" style="background:rgba(255,255,255,0.12); color:#fff; font-weight:700;">
+                پورت <?php echo (int)$activeServer['port']; ?>
+            </span>
+        </div>
+        <div id="afkBadgeContainer">
+            <?php if ($activeServerAfkGuard === 0): ?>
+                <span class="badge" style="background:rgba(239,68,68,0.25); color:#f87171; border:1px solid rgba(239,68,68,0.6); font-weight:700; padding:0.35rem 0.85rem; border-radius:999px; box-shadow:0 0 12px rgba(239,68,68,0.3);">
+                    🧪 غیرفعال (مخصوص تست) — بدون کیک و اسپکت
+                </span>
+            <?php elseif ($activeServerAfkGuard === 2): ?>
+                <span class="badge" style="background:rgba(245,158,11,0.25); color:#fbbf24; border:1px solid rgba(245,158,11,0.6); font-weight:700; padding:0.35rem 0.85rem; border-radius:999px; box-shadow:0 0 12px rgba(245,158,11,0.3);">
+                    👁️ فقط انتقال به اسپکت (بدون هیچ‌گونه کیک)
+                </span>
+            <?php else: ?>
+                <span class="badge" style="background:rgba(16,185,129,0.25); color:#34d399; border:1px solid rgba(16,185,129,0.6); font-weight:700; padding:0.35rem 0.85rem; border-radius:999px; box-shadow:0 0 12px rgba(16,185,129,0.3);">
+                    🛡️ فعال کامل — انتقال به اسپکت پس از ۲د و کیک پس از ۵د
+                </span>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <p style="margin-bottom:1rem; font-size:0.83rem; color:var(--text-muted); line-height:1.6;">
+        💡 <strong>ویژه تست پلاگین کلن‌وار:</strong> با فعال‌سازی حالت «مخصوص تست»، سیستم خودکار به هیچ بازیکنی کیک نمی‌دهد و کسی را به اسپکت منتقل نمی‌کند تا شما و همراهانتان بتوانید با خیال آسوده تنظیمات و گیم‌پلی کلن‌وار را آزمایش کنید. این کلید برای هر سرور کاملاً جداگانه عمل می‌کند و بلافاصله به صورت زنده (بدون نیاز به ری‌استارت) اعمال می‌گردد.
+    </p>
+
+    <div id="afkAlertBox" style="display:none; padding:0.75rem 1rem; border-radius:8px; margin-bottom:1rem; font-size:0.88rem;"></div>
+
+    <div style="display:flex; gap:0.85rem; flex-wrap:wrap;">
+        <button type="button" onclick="setServerAfk('<?php echo htmlspecialchars($activeServer['id']); ?>', 0)"
+                class="btn <?php echo ($activeServerAfkGuard === 0) ? 'btn-danger' : 'btn-secondary'; ?>"
+                style="padding:0.75rem 1.3rem; font-weight:700; <?php if($activeServerAfkGuard === 0) echo 'background:linear-gradient(135deg,#ef4444,#b91c1c); box-shadow:0 0 15px rgba(239,68,68,0.4); border-color:#ef4444; color:#fff;'; ?>">
+            🧪 غیرفعال کردن کیک و اسپکت (مخصوص تست کلن‌وار) <?php if($activeServerAfkGuard === 0) echo '✓ فعال'; ?>
+        </button>
+
+        <button type="button" onclick="setServerAfk('<?php echo htmlspecialchars($activeServer['id']); ?>', 2)"
+                class="btn <?php echo ($activeServerAfkGuard === 2) ? 'btn-warning' : 'btn-secondary'; ?>"
+                style="padding:0.75rem 1.3rem; font-weight:700; <?php if($activeServerAfkGuard === 2) echo 'background:linear-gradient(135deg,#f59e0b,#d97706); box-shadow:0 0 15px rgba(245,158,11,0.4); border-color:#f59e0b; color:#fff;'; ?>">
+            👁️ فقط انتقال به اسپکت (بدون کیک) <?php if($activeServerAfkGuard === 2) echo '✓ فعال'; ?>
+        </button>
+
+        <button type="button" onclick="setServerAfk('<?php echo htmlspecialchars($activeServer['id']); ?>', 1)"
+                class="btn <?php echo ($activeServerAfkGuard === 1) ? 'btn-primary' : 'btn-secondary'; ?>"
+                style="padding:0.75rem 1.3rem; font-weight:700; <?php if($activeServerAfkGuard === 1) echo 'box-shadow:0 0 15px rgba(16,185,129,0.4); border-color:#10b981;'; ?>">
+            🛡️ فعال‌سازی کامل محافظت AFK (حالت عادی سرور) <?php if($activeServerAfkGuard === 1) echo '✓ فعال'; ?>
+        </button>
+    </div>
+</div>
+
+
+
+<!-- ══════════════════════════════════════════════════════
      CLAN WAR MODE: IN-GAME CONTROLS & COMPILER (10 SLOTS)
 ═══════════════════════════════════════════════════════════ -->
 <div class="card" style="border:1px solid rgba(245,158,11,0.45); background:linear-gradient(135deg,rgba(245,158,11,0.08),rgba(217,119,6,0.03)); margin-bottom:1.5rem;">
@@ -787,6 +845,52 @@ function mixCmd(action) {
 
 function escHtml(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function setServerAfk(serverId, mode) {
+    const alertBox = document.getElementById('afkAlertBox');
+    if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = 'rgba(6,182,212,0.15)';
+        alertBox.style.border = '1px solid rgba(6,182,212,0.4)';
+        alertBox.style.color = 'var(--accent)';
+        alertBox.textContent = '⏳ در حال اعمال تنظیمات AFK به صورت زنده در سرور...';
+    }
+
+    const fd = new FormData();
+    fd.append('csrf_token', window.CSRF_TOKEN);
+    fd.append('action', 'set_afk_guard');
+    fd.append('server_id', serverId);
+    fd.append('afk_guard', mode);
+
+    fetch('api.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                if (alertBox) {
+                    alertBox.style.background = 'rgba(16,185,129,0.15)';
+                    alertBox.style.border = '1px solid rgba(16,185,129,0.4)';
+                    alertBox.style.color = 'var(--success)';
+                    alertBox.textContent = '✅ ' + (d.message || 'تنظیمات AFK با موفقیت اعمال شد.');
+                }
+                setTimeout(() => location.reload(), 800);
+            } else {
+                if (alertBox) {
+                    alertBox.style.background = 'rgba(239,68,68,0.15)';
+                    alertBox.style.border = '1px solid rgba(239,68,68,0.4)';
+                    alertBox.style.color = 'var(--danger)';
+                    alertBox.textContent = '❌ خطا: ' + (d.message || 'عملیات ناموفق بود.');
+                }
+            }
+        })
+        .catch(e => {
+            if (alertBox) {
+                alertBox.style.background = 'rgba(239,68,68,0.15)';
+                alertBox.style.border = '1px solid rgba(239,68,68,0.4)';
+                alertBox.style.color = 'var(--danger)';
+                alertBox.textContent = '❌ خطای ارتباط: ' + e.message;
+            }
+        });
 }
 </script>
 
