@@ -1871,7 +1871,7 @@ public HookChooseTeam_Pre(id, MenuChooseTeam:slot)
 
 	if(slot == MenuChoose_T || slot == MenuChoose_CT || slot == MenuChoose_AutoSelect || slot == MenuChoose_Spec)
 	{
-		SetHookChainReturn(ATYPE_INTEGER, 0)
+		SetHookChainReturn(ATYPE_BOOL, false)
 		if(slot == MenuChoose_T)
 		{
 			ApplyRestrictedJoinKey(id, 0, true)

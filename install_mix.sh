@@ -242,8 +242,21 @@ if [ "${1:-}" == "--sync-all" ]; then
         fi
 
         if [ -d "${target_dir}/cstrike/addons/amxmodx/plugins" ]; then
+            # Sync all compiled plugins
             cp -f "${PLUGINS_DIR}"/*.amxx "${target_dir}/cstrike/addons/amxmodx/plugins/" 2>/dev/null || true
             chmod 666 "${target_dir}/cstrike/addons/amxmodx/plugins/"*.amxx 2>/dev/null || true
+
+            # Sync language dictionary files
+            mkdir -p "${target_dir}/cstrike/addons/amxmodx/data/lang" 2>/dev/null || true
+            cp -rf "${PROJECT_DIR}/cstrike/addons/amxmodx/data/lang"/* "${target_dir}/cstrike/addons/amxmodx/data/lang/" 2>/dev/null || true
+
+            # Sync configs, stop.cfg, start.cfg, server rules
+            cp -f "${PROJECT_DIR}/cstrike"/*.cfg "${target_dir}/cstrike/" 2>/dev/null || true
+            mkdir -p "${target_dir}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
+            cp -f "${CONFIGS_DIR}"/ClanWarSettings.ini "${target_dir}/cstrike/addons/amxmodx/configs/" 2>/dev/null || true
+            cp -f "${CONFIGS_DIR}"/MixSettings.ini "${target_dir}/cstrike/addons/amxmodx/configs/" 2>/dev/null || true
+            cp -f "${CONFIGS_DIR}"/*.cfg "${target_dir}/cstrike/addons/amxmodx/configs/" 2>/dev/null || true
+
             chown -R www-data:www-data "${target_dir}/cstrike/addons/amxmodx" 2>/dev/null || true
             synced_count=$((synced_count + 1))
 
@@ -259,7 +272,7 @@ if [ "${1:-}" == "--sync-all" ]; then
             if [ "$was_active" = true ]; then
                 echo "  -> Restarting instance '$s_id' ($svc)..."
                 systemctl restart "$svc" 2>/dev/null || true
-                sleep 1.5
+                sleep 2.5
                 if systemctl is-active --quiet "$svc" 2>/dev/null; then
                     echo "     [✔ RUNNING] Instance '$s_id' is active and online!"
                 else
