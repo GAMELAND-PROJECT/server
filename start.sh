@@ -11,13 +11,23 @@ cd "$SCRIPT_DIR"
 
 # ─── تنظیمات سرور ─────────────────────────────
 SERVER_PORT="27015"
-MAX_PLAYERS="18"
+MAX_PLAYERS="10"
 MAP="de_dust2"
 SERVER_IP="0.0.0.0"
 
 if [ -f "${SCRIPT_DIR}/.env" ]; then
     # shellcheck disable=SC1090
     source "${SCRIPT_DIR}/.env"
+fi
+
+# تشخیص هوشمند اسلات بر اساس مد فعال
+PLUGINS_INI="${SCRIPT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini"
+if [ -f "$PLUGINS_INI" ]; then
+    if grep -Eq '^[[:space:]]*clanwar_system\.amxx' "$PLUGINS_INI"; then
+        MAX_PLAYERS="10"
+    elif grep -Eq '^[[:space:]]*mix_system\.amxx' "$PLUGINS_INI"; then
+        [ "${MAX_PLAYERS}" = "10" ] && MAX_PLAYERS="18"
+    fi
 fi
 
 STEAMCMD_LINUX32="/opt/steamcmd/linux32"
@@ -61,10 +71,7 @@ if command -v fuser >/dev/null 2>&1; then
     fuser -k "${SERVER_PORT}/udp" 2>/dev/null || true
     fuser -k "${SERVER_PORT}/tcp" 2>/dev/null || true
 fi
-if [ -f "${SCRIPT_DIR}/gameland.pid" ]; then
-    kill -9 "$(cat "${SCRIPT_DIR}/gameland.pid")" 2>/dev/null || true
-    rm -f "${SCRIPT_DIR}/gameland.pid" 2>/dev/null || true
-fi
+rm -f "${SCRIPT_DIR}/gameland.pid" 2>/dev/null || true
 screen -X -S gameland_hltv quit 2>/dev/null || true
 screen -X -S demo_compressor quit 2>/dev/null || true
 
@@ -102,10 +109,10 @@ tmux new-session -d -s gameland_server \
         sleep 3; \
     done"
 
-tmux_pid=$(tmux display-message -t gameland_server -p '#{pid}' 2>/dev/null || echo "")
+tmux_pid=$(tmux display-message -t gameland_server -p '#{pane_pid}' 2>/dev/null || echo "")
 if [ -n "$tmux_pid" ]; then
     echo "$tmux_pid" > "${SCRIPT_DIR}/gameland.pid"
-    echo "[*] PID $tmux_pid saved to gameland.pid"
+    echo "[*] Pane PID $tmux_pid saved to gameland.pid"
 fi
 
 echo "[SUCCESS] GameLand Server (${MAX_PLAYERS} Slots) started in tmux session 'gameland_server'!"

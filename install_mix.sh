@@ -191,8 +191,14 @@ cat > "${CONFIGS_DIR}/.mix_last_build.json" <<EOF
 EOF
 echo "  -> Wrote deploy record: ${CONFIGS_DIR}/.mix_last_build.json (${COMPILED_COUNT} managed plugins)"
 
-echo "[5/5] Optimizing server config for 5v5..."
-sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="18"/' "${PROJECT_DIR}/start.sh"
+echo "[5/5] Optimizing server config for active game mode..."
+if grep -Eq '^[[:space:]]*clanwar_system\.amxx' "${CONFIGS_DIR}/plugins.ini" 2>/dev/null; then
+    sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="10"/' "${PROJECT_DIR}/start.sh"
+    echo "  -> Clan War active: set MAX_PLAYERS to 10"
+elif grep -Eq '^[[:space:]]*mix_system\.amxx' "${CONFIGS_DIR}/plugins.ini" 2>/dev/null; then
+    sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="18"/' "${PROJECT_DIR}/start.sh"
+    echo "  -> 5v5 Match active: set MAX_PLAYERS to 18"
+fi
 
 # Instances synchronization & automatic multi-server restart
 if [ "${1:-}" == "--sync-all" ]; then
@@ -300,6 +306,15 @@ if [ -f "/opt/gameland/persistent/users.ini" ]; then
 fi
 if [ -f "/opt/gameland/persistent/servers.json" ]; then
     cp -f /opt/gameland/persistent/servers.json "${PROJECT_DIR}/instances/servers.json" 2>/dev/null || true
+    python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1], "r") as f: d = json.load(f)
+    if isinstance(d.get("servers"), list):
+        d["servers"] = [s for s in d["servers"] if s.get("id") and s.get("id") != "main"]
+        with open(sys.argv[1], "w") as f: json.dump(d, f, indent=2)
+except Exception: pass
+' "${PROJECT_DIR}/instances/servers.json" 2>/dev/null || true
 fi
 
 echo " Restarting gameland.service to load plugins..."

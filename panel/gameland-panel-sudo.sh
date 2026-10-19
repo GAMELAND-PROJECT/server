@@ -185,7 +185,7 @@ case "$action" in
             chmod 666 "$cfg" 2>/dev/null || true
         fi
 
-        # Also persist in servers.json
+        # Also persist in servers.json (instances only, never main)
         for reg_file in "${PROJECT_DIR}/instances/servers.json" "/opt/gameland/persistent/servers.json"; do
             if [ -f "$reg_file" ]; then
                 php -r '
@@ -193,19 +193,21 @@ case "$action" in
                     $data = json_decode(@file_get_contents($f), true);
                     if (!is_array($data)) $data = ["servers" => []];
                     if (!isset($data["servers"]) || !is_array($data["servers"])) $data["servers"] = [];
-                    $found = false;
-                    foreach ($data["servers"] as &$s) {
-                        if (($s["id"] ?? "") === $targetId) {
-                            $s["afk_guard"] = $targetMode;
-                            $found = true;
-                            break;
+                    if ($targetId !== "main" && $targetId !== "") {
+                        $found = false;
+                        foreach ($data["servers"] as &$s) {
+                            if (($s["id"] ?? "") === $targetId) {
+                                $s["afk_guard"] = $targetMode;
+                                $found = true;
+                                break;
+                            }
+                        }
+                        if (!$found) {
+                            $data["servers"][] = ["id" => $targetId, "afk_guard" => $targetMode];
                         }
                     }
-                    if (!$found) {
-                        $data["servers"][] = ["id" => $targetId, "afk_guard" => $targetMode];
-                    }
-                    file_put_contents($f, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "
-");
+                    $data["servers"] = array_values(array_filter($data["servers"], fn($s) => ($s["id"] ?? "") !== "main" && ($s["id"] ?? "") !== ""));
+                    file_put_contents($f, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
                 ' "$reg_file" "$id" "$mode" 2>/dev/null || true
             fi
         done

@@ -76,6 +76,21 @@ ensure_registry() {
             printf '{\n  "servers": []\n}\n' > "$REGISTRY_FILE"
         fi
     fi
+    for reg_f in "$REGISTRY_FILE" "/opt/gameland/persistent/servers.json"; do
+        if [[ -f "$reg_f" ]]; then
+            python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1], "r") as f: d = json.load(f)
+    if isinstance(d.get("servers"), list):
+        filtered = [s for s in d["servers"] if s.get("id") and s.get("id") != "main"]
+        if len(filtered) != len(d["servers"]):
+            d["servers"] = filtered
+            with open(sys.argv[1], "w") as f: json.dump(d, f, indent=2)
+except Exception: pass
+' "$reg_f" 2>/dev/null || true
+        fi
+    done
     if [[ -d "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" ]]; then
         chmod -R 777 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
         chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/"*.ini 2>/dev/null || true
@@ -398,7 +413,7 @@ list_servers() {
             $j = json_decode(@file_get_contents($f), true);
             foreach (($j["servers"] ?? []) as $s) {
                 $id = $s["id"] ?? "";
-                if ($id === "") continue;
+                if ($id === "" || $id === "main") continue;
                 printf("%-14s %-28s %-8s %-28s ", $id, $s["service_name"] ?? ("gameland@$id.service"), $s["port"] ?? "-", "gameland_$id");
                 system("systemctl is-active --quiet " . escapeshellarg($s["service_name"] ?? "gameland@$id.service") . " && echo running || echo stopped");
             }
@@ -433,7 +448,7 @@ server_rows() {
             $j = json_decode(@file_get_contents($f), true);
             foreach (($j["servers"] ?? []) as $s) {
                 $id = $s["id"] ?? "";
-                if ($id === "") continue;
+                if ($id === "" || $id === "main") continue;
                 $service = $s["service_name"] ?? ("gameland@$id.service");
                 $status = trim(shell_exec("systemctl is-active " . escapeshellarg($service) . " 2>/dev/null")) === "active" ? "running" : "stopped";
                 echo $id . "|" . ($s["name"] ?? $id) . "|" . ($s["port"] ?? "-") . "|" . $service . "|gameland_" . $id . "|" . $status . "\n";

@@ -97,7 +97,7 @@ def detect_mode_and_slots(server_dir, env_data):
 # 1. Scan /opt/gameland/server/instances/*.env
 for env_file in glob.glob(os.path.join(instances_dir, "*.env")):
     inst_id = os.path.basename(env_file)[:-4]
-    if inst_id and inst_id != "servers":
+    if inst_id and inst_id != "servers" and inst_id != "main":
         env_data = parse_env_file(env_file)
         server_dir = env_data.get("SERVER_DIR", os.path.join(instance_root, inst_id))
         port = int(env_data.get("SERVER_PORT", 27016))
@@ -122,7 +122,7 @@ if os.path.isdir(instance_root):
     for entry in os.listdir(instance_root):
         inst_dir = os.path.join(instance_root, entry)
         env_candidate = os.path.join(instances_dir, f"{entry}.env")
-        if os.path.isdir(inst_dir) and os.path.isfile(env_candidate) and entry not in discovered and entry != "server":
+        if os.path.isdir(inst_dir) and os.path.isfile(env_candidate) and entry not in discovered and entry != "server" and entry != "main":
             cfg_info = parse_server_cfg(os.path.join(inst_dir, "cstrike", "server.cfg"))
             env_data = parse_env_file(env_candidate)
             port = int(env_data.get("SERVER_PORT", 27016))
@@ -139,7 +139,7 @@ if os.path.isdir(instance_root):
                 "slots": slots
             }
 
-server_list = list(discovered.values())
+server_list = [s for s in discovered.values() if s.get("id") and s.get("id") != "main"]
 server_list.sort(key=lambda s: s["port"])
 
 print(f"[*] Found {len(server_list)} existing server instance(s) on disk/systemd:")

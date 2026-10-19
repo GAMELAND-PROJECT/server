@@ -35,6 +35,21 @@ elif [ -f "$USERS_INI" ]; then
     cp -f "$USERS_INI" "$PERSIST_USERS"
 fi
 
+# Sanitize and remove any ghost 'main' instance from servers.json
+for reg_f in "$SERVERS_JSON" "$PERSIST_SERVERS"; do
+    if [ -f "$reg_f" ]; then
+        python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1], "r") as f: d = json.load(f)
+    if isinstance(d.get("servers"), list):
+        filtered = [s for s in d["servers"] if s.get("id") and s.get("id") != "main"]
+        with open(sys.argv[1], "w") as f: json.dump({"servers": filtered}, f, indent=2)
+except Exception: pass
+' "$reg_f" 2>/dev/null || true
+    fi
+done
+
 if [ -f "$SERVERS_JSON" ] && python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); sys.exit(0 if isinstance(d.get("servers"), list) else 1)' "$SERVERS_JSON" 2>/dev/null; then
     cp -f "$SERVERS_JSON" "$PERSIST_SERVERS"
     echo "[*] Saved registered server instances to persistent storage."

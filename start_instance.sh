@@ -97,7 +97,7 @@ if [[ "$session_started" != "true" ]]; then
     exit 1
 fi
 
-tmux_pid="$(tmux display-message -t "$TMUX_SESSION" -p '#{pid}' 2>/dev/null || true)"
+tmux_pid="$(tmux display-message -t "$TMUX_SESSION" -p '#{pane_pid}' 2>/dev/null || true)"
 if [[ -n "$tmux_pid" ]]; then
     echo "$tmux_pid" > "${SERVER_DIR}/${INSTANCE_ID}.pid"
 fi

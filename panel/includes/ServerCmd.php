@@ -189,8 +189,9 @@ class ServerCmd {
     }
 
     private static function getServerRuntimeSettings(array $server) {
+        $defaultSlots = (($server['mode'] ?? '') === 'clanwar') ? 10 : ((($server['mode'] ?? '') === 'public') ? 24 : 18);
         $settings = [
-            'slots' => 18,
+            'slots' => $defaultSlots,
             'map' => 'de_dust2',
             'hostname' => $server['name'] ?? '',
         ];
@@ -216,6 +217,9 @@ class ServerCmd {
                 $content = (string)file_get_contents($start);
                 if (preg_match('/^MAX_PLAYERS="([^"]+)"/m', $content, $m)) $settings['slots'] = (int)$m[1];
                 if (preg_match('/^MAP="([^"]+)"/m', $content, $m)) $settings['map'] = $m[1];
+            }
+            if (($server['mode'] ?? '') === 'clanwar') {
+                $settings['slots'] = 10;
             }
         } else {
             $env = self::getManagerRoot() . '/instances/' . $server['id'] . '.env';
@@ -252,6 +256,9 @@ class ServerCmd {
         $dir = dirname($path);
         if (!is_dir($dir)) {
             @mkdir($dir, 0775, true);
+        }
+        if (isset($registry['servers']) && is_array($registry['servers'])) {
+            $registry['servers'] = array_values(array_filter($registry['servers'], fn($s) => ($s['id'] ?? '') !== 'main' && ($s['id'] ?? '') !== ''));
         }
         @mkdir('/opt/gameland/persistent', 0777, true);
         @file_put_contents('/opt/gameland/persistent/servers.json', json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
@@ -1501,26 +1508,28 @@ class ServerCmd {
             @exec("sudo -n " . escapeshellarg($hPath) . " set_afk_guard " . escapeshellarg((string)$mode) . " " . escapeshellarg($serverId) . " 2>&1");
         }
 
-        // 2. Persist in registry servers.json (ensuring main is also recorded!)
-        $registry = self::readRegistry();
-        if (!isset($registry['servers']) || !is_array($registry['servers'])) {
-            $registry['servers'] = [];
-        }
-        $found = false;
-        foreach ($registry['servers'] as &$entry) {
-            if (($entry['id'] ?? '') === $serverId) {
-                $entry['afk_guard'] = $mode;
-                $found = true;
-                break;
+        // 2. Persist in registry servers.json (for instances only, never main)
+        if ($serverId !== 'main' && $serverId !== '') {
+            $registry = self::readRegistry();
+            if (!isset($registry['servers']) || !is_array($registry['servers'])) {
+                $registry['servers'] = [];
             }
+            $found = false;
+            foreach ($registry['servers'] as &$entry) {
+                if (($entry['id'] ?? '') === $serverId) {
+                    $entry['afk_guard'] = $mode;
+                    $found = true;
+                    break;
+                }
+            }
+            if (!$found) {
+                $registry['servers'][] = [
+                    'id' => $serverId,
+                    'afk_guard' => $mode
+                ];
+            }
+            self::writeRegistry($registry);
         }
-        if (!$found) {
-            $registry['servers'][] = [
-                'id' => $serverId,
-                'afk_guard' => $mode
-            ];
-        }
-        self::writeRegistry($registry);
 
         // 3. Live Apply via RCON (Immediate effect without server restart!)
         $liveSuccess = false;
