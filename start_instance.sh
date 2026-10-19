@@ -35,12 +35,15 @@ sys.exit(1)
         r_port=$(echo "$recovered_json" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("port", 27016))')
         r_dir=$(echo "$recovered_json" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("server_dir", "/opt/gameland/instances/'"$INSTANCE_ID"'"))')
         r_slots=$(echo "$recovered_json" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("slots", 10))')
+        r_name=$(echo "$recovered_json" | python3 -c 'import json, sys; d=json.load(sys.stdin); print(d.get("hostname") or d.get("name") or "'"$INSTANCE_ID"'")')
         mkdir -p "${MANAGER_ROOT}/instances"
         cat > "$ENV_FILE" <<EOF
 INSTANCE_ID="${INSTANCE_ID}"
 SERVER_DIR="${r_dir}"
 SERVER_IP="0.0.0.0"
 SERVER_PORT="${r_port}"
+SERVER_NAME="${r_name}"
+HOSTNAME="${r_name}"
 MAX_PLAYERS="${r_slots}"
 MAP="de_dust2"
 TMUX_SESSION="gameland_${INSTANCE_ID}"
@@ -66,15 +69,50 @@ HLTV_SESSION="${HLTV_SESSION:-gameland_hltv_${INSTANCE_ID}}"
 COMPRESSOR_SESSION="${COMPRESSOR_SESSION:-demo_compressor_${INSTANCE_ID}}"
 STEAMCMD_LINUX32="${STEAMCMD_LINUX32:-/opt/steamcmd/linux32}"
 
+# Dynamic hostname resolution from servers.json if not explicit or generic
+if [[ -z "${HOSTNAME:-}" || "${HOSTNAME:-}" == "GAMELAND" ]]; then
+    resolved_name=$(python3 -c '
+import json, sys
+iid = sys.argv[1]
+for p in ["/opt/gameland/server/instances/servers.json", "/opt/gameland/persistent/servers.json"]:
+    try:
+        with open(p) as f:
+            for s in json.load(f).get("servers", []):
+                if s.get("id") == iid:
+                    print(s.get("hostname") or s.get("name") or "")
+                    sys.exit(0)
+    except Exception: pass
+sys.exit(1)
+' "$INSTANCE_ID" 2>/dev/null || true)
+    if [[ -n "$resolved_name" ]]; then
+        HOSTNAME="$resolved_name"
+        SERVER_NAME="$resolved_name"
+    fi
+fi
+HOSTNAME="${HOSTNAME:-${SERVER_NAME:-${INSTANCE_ID}}}"
+
 cd "$SERVER_DIR"
 mkdir -p "${SERVER_DIR}/logs"
 LOG_FILE="${SERVER_DIR}/logs/server_${INSTANCE_ID}.log"
 
 echo "================================================="
 echo " Starting GameLand instance: ${INSTANCE_ID}"
+echo " Hostname: ${HOSTNAME}"
 echo " IP: ${SERVER_IP} | Port: ${SERVER_PORT} | Slots: ${MAX_PLAYERS}"
 echo " Dir: ${SERVER_DIR}"
 echo "================================================="
+
+# Ensure instance server.cfg has its own unique hostname
+if [[ -f "${SERVER_DIR}/cstrike/server.cfg" ]]; then
+    sed -i -E "s/^[[:space:]]*hostname[[:space:]]+.*/hostname \"${HOSTNAME}\"/" "${SERVER_DIR}/cstrike/server.cfg" 2>/dev/null || true
+    if ! grep -q '^[[:space:]]*hostname' "${SERVER_DIR}/cstrike/server.cfg"; then
+        echo "hostname \"${HOSTNAME}\"" >> "${SERVER_DIR}/cstrike/server.cfg"
+    fi
+fi
+# Strip any hardcoded hostname from gameland.cfg in instance folder
+if [[ -f "${SERVER_DIR}/cstrike/gameland.cfg" ]]; then
+    sed -i -E '/^[[:space:]]*hostname[[:space:]]+/d' "${SERVER_DIR}/cstrike/gameland.cfg" 2>/dev/null || true
+fi
 
 # Clean any existing sessions for this instance
 tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
@@ -112,10 +150,11 @@ for attempt in 1 2 3; do
         "cd '${SERVER_DIR}' && while true; do \
             chmod +x ./hlds_linux ./hlds_run 2>/dev/null || true; \
             export LD_LIBRARY_PATH='${SERVER_DIR}:${STEAMCMD_LINUX32}:${LD_LIBRARY_PATH:-}'; \
-            echo '[START] Launching hlds_linux for ${INSTANCE_ID} (Port: ${SERVER_PORT}, Slots: ${MAX_PLAYERS})...'; \
+            echo '[START] Launching hlds_linux for ${INSTANCE_ID} (Hostname: ${HOSTNAME}, Port: ${SERVER_PORT}, Slots: ${MAX_PLAYERS})...'; \
             ./hlds_linux -game cstrike -console \
                 -ip ${SERVER_IP} \
                 +port ${SERVER_PORT} \
+                +hostname \"${HOSTNAME}\" \
                 +map ${MAP} \
                 +maxplayers ${MAX_PLAYERS} \
                 +sv_lan 0 \
