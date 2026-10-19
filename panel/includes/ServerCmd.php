@@ -32,7 +32,7 @@ class ServerCmd {
     public static function getServerList(array $servers) {
         $result = [];
         foreach ($servers as $server) {
-            $status = self::getServiceStatus($server['service_name']);
+            $status = self::getServiceStatus($server['service_name'], (int)($server['port'] ?? 0), $server['id'] ?? '');
             $runtime = self::getServerRuntimeSettings($server);
             $mode = self::getCurrentServerMode($server);
             $modeTitle = '🎯 Classic Public';
@@ -563,9 +563,9 @@ class ServerCmd {
      * Get systemctl service status
      */
     /**
-     * Get systemctl service status
+     * Get systemctl service status with true process / port verification
      */
-    public static function getServiceStatus($serviceName) {
+    public static function getServiceStatus($serviceName, $port = 0, $serverId = '') {
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
             $output = @shell_exec('tasklist /FI "IMAGENAME eq hlds.exe" 2>&1');
             return (stripos((string)$output, 'hlds.exe') !== false) ? 'running' : 'stopped';
@@ -573,7 +573,40 @@ class ServerCmd {
         $cleanService = escapeshellarg($serviceName);
         $output = @shell_exec("systemctl is-active {$cleanService} 2>&1");
         $status = trim((string)$output);
-        return ($status === 'active') ? 'running' : 'stopped';
+        if ($status !== 'active') {
+            return 'stopped';
+        }
+
+        // If port is known, verify port binding so stale oneshot services don't report running when offline
+        if ($port > 0) {
+            $portInt = (int)$port;
+            $ssOut = @shell_exec("ss -lun '( sport = :{$portInt} )' 2>/dev/null");
+            if (!empty($ssOut) && stripos($ssOut, ":{$portInt}") !== false) {
+                return 'running';
+            }
+            // Fallback fuser check
+            $fuserOut = @shell_exec("fuser {$portInt}/udp 2>/dev/null");
+            if (!empty(trim((string)$fuserOut))) {
+                return 'running';
+            }
+            // Fallback pgrep check
+            $pgrep = @shell_exec("pgrep -f '\\+port {$portInt}' 2>/dev/null");
+            if (!empty(trim((string)$pgrep))) {
+                return 'running';
+            }
+            // If systemd says active, but port is not bound by any process, it is stopped!
+            return 'stopped';
+        }
+
+        // Default fallback for main (port 27015)
+        if ($serviceName === 'gameland.service') {
+            $ssOut = @shell_exec("ss -lun '( sport = :27015 )' 2>/dev/null");
+            if (empty($ssOut) || stripos($ssOut, ':27015') === false) {
+                return 'stopped';
+            }
+        }
+
+        return 'running';
     }
 
     /**
@@ -584,6 +617,14 @@ class ServerCmd {
             return ['success' => false, 'message' => 'Invalid action'];
         }
 
+        $port = 0;
+        foreach (self::getManagedServers() as $s) {
+            if (($s['service_name'] ?? '') === $serviceName) {
+                $port = (int)($s['port'] ?? 0);
+                break;
+            }
+        }
+
         $cleanService = escapeshellarg($serviceName);
         $cleanAction = escapeshellarg($action);
         
@@ -592,8 +633,8 @@ class ServerCmd {
         $helper = escapeshellarg(self::getPrivilegedHelperPath());
         @exec("sudo -n {$helper} service {$cleanAction} {$cleanService} 2>&1", $lines, $exitCode);
         $output = implode("\n", $lines);
-        sleep(1);
-        $newStatus = self::getServiceStatus($serviceName);
+        sleep(2);
+        $newStatus = self::getServiceStatus($serviceName, $port);
         return [
             'success' => $exitCode === 0,
             'action' => $action,

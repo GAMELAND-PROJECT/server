@@ -6,7 +6,7 @@ require_once __DIR__ . '/ServerCmd.php';
 
 Auth::check();
 $activeServer = get_active_server();
-$serverStatus = ServerCmd::getServiceStatus($activeServer['service_name']);
+$serverStatus = ServerCmd::getServiceStatus($activeServer['service_name'], (int)($activeServer['port'] ?? 0), $activeServer['id'] ?? '');
 ?>
 <!DOCTYPE html>
 <html lang="en">

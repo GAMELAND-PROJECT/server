@@ -15,8 +15,42 @@ fi
 
 ENV_FILE="${MANAGER_ROOT}/instances/${INSTANCE_ID}.env"
 if [[ ! -f "$ENV_FILE" ]]; then
-    echo "[ERROR] Instance config not found: $ENV_FILE"
-    exit 1
+    echo "[WARN] Instance config not found: $ENV_FILE. Attempting auto-recovery from servers.json..."
+    recovered_json=$(python3 -c '
+import json, sys
+iid = sys.argv[1]
+for p in ["/opt/gameland/server/instances/servers.json", "/opt/gameland/persistent/servers.json"]:
+    try:
+        with open(p) as f:
+            d = json.load(f)
+            for s in d.get("servers", []):
+                if s.get("id") == iid:
+                    print(json.dumps(s))
+                    sys.exit(0)
+    except Exception: pass
+sys.exit(1)
+' "$INSTANCE_ID" 2>/dev/null || true)
+
+    if [[ -n "$recovered_json" ]]; then
+        r_port=$(echo "$recovered_json" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("port", 27016))')
+        r_dir=$(echo "$recovered_json" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("server_dir", "/opt/gameland/instances/'"$INSTANCE_ID"'"))')
+        r_slots=$(echo "$recovered_json" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("slots", 10))')
+        mkdir -p "${MANAGER_ROOT}/instances"
+        cat > "$ENV_FILE" <<EOF
+INSTANCE_ID="${INSTANCE_ID}"
+SERVER_DIR="${r_dir}"
+SERVER_IP="0.0.0.0"
+SERVER_PORT="${r_port}"
+MAX_PLAYERS="${r_slots}"
+MAP="de_dust2"
+TMUX_SESSION="gameland_${INSTANCE_ID}"
+STEAMCMD_LINUX32="/opt/steamcmd/linux32"
+EOF
+        echo "[OK] Successfully auto-recovered $ENV_FILE!"
+    else
+        echo "[ERROR] Instance config not found: $ENV_FILE and could not recover from servers.json"
+        exit 1
+    fi
 fi
 
 # shellcheck disable=SC1090
@@ -25,7 +59,7 @@ source "$ENV_FILE"
 SERVER_DIR="${SERVER_DIR:?SERVER_DIR is required}"
 SERVER_PORT="${SERVER_PORT:?SERVER_PORT is required}"
 SERVER_IP="${SERVER_IP:-0.0.0.0}"
-MAX_PLAYERS="${MAX_PLAYERS:-12}"
+MAX_PLAYERS="${MAX_PLAYERS:-10}"
 MAP="${MAP:-de_dust2}"
 TMUX_SESSION="${TMUX_SESSION:-gameland_${INSTANCE_ID}}"
 HLTV_SESSION="${HLTV_SESSION:-gameland_hltv_${INSTANCE_ID}}"
@@ -38,31 +72,35 @@ LOG_FILE="${SERVER_DIR}/logs/server_${INSTANCE_ID}.log"
 
 echo "================================================="
 echo " Starting GameLand instance: ${INSTANCE_ID}"
-echo " IP: ${SERVER_IP} | Port: ${SERVER_PORT}"
+echo " IP: ${SERVER_IP} | Port: ${SERVER_PORT} | Slots: ${MAX_PLAYERS}"
 echo " Dir: ${SERVER_DIR}"
 echo "================================================="
 
-export LD_LIBRARY_PATH="${SERVER_DIR}:${STEAMCMD_LINUX32}:${LD_LIBRARY_PATH:-}"
-
+# Clean any existing sessions for this instance
 tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
 screen -X -S "$HLTV_SESSION" quit 2>/dev/null || true
 screen -X -S "$COMPRESSOR_SESSION" quit 2>/dev/null || true
 
-if command -v fuser >/dev/null 2>&1; then
-    fuser -k -9 "${SERVER_PORT}/udp" 2>/dev/null || true
-    fuser -k -9 "${SERVER_PORT}/tcp" 2>/dev/null || true
-fi
-
-# Ensure port and tmux session are fully released before starting
-sleep 1.0
-for i in 1 2 3 4; do
-    if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+# Actively wait for port to be completely free (eliminates port collision race condition)
+for ((p=1; p<=8; p++)); do
+    is_busy=false
+    if command -v fuser >/dev/null 2>&1; then
+        if fuser "${SERVER_PORT}/udp" >/dev/null 2>&1; then
+            is_busy=true
+            fuser -k -9 "${SERVER_PORT}/udp" 2>/dev/null || true
+            fuser -k -9 "${SERVER_PORT}/tcp" 2>/dev/null || true
+        fi
+    fi
+    if [ "$is_busy" = "false" ]; then
         break
     fi
-    tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
     sleep 0.5
 done
 
+# Ensure binary permissions are executable
+chmod +x "${SERVER_DIR}/hlds_linux" "${SERVER_DIR}/hlds_run" "${SERVER_DIR}"/*.sh 2>/dev/null || true
+
+# Rotate log file if > 10MB
 if [[ -f "$LOG_FILE" ]] && [[ "$(stat -c%s "$LOG_FILE")" -gt 10485760 ]]; then
     mv "$LOG_FILE" "${LOG_FILE}.1"
 fi
@@ -72,7 +110,9 @@ session_started=false
 for attempt in 1 2 3; do
     if tmux new-session -d -s "$TMUX_SESSION" \
         "cd '${SERVER_DIR}' && while true; do \
-            echo '[START] Launching hlds_linux for ${INSTANCE_ID}...'; \
+            chmod +x ./hlds_linux ./hlds_run 2>/dev/null || true; \
+            export LD_LIBRARY_PATH='${SERVER_DIR}:${STEAMCMD_LINUX32}:${LD_LIBRARY_PATH:-}'; \
+            echo '[START] Launching hlds_linux for ${INSTANCE_ID} (Port: ${SERVER_PORT}, Slots: ${MAX_PLAYERS})...'; \
             ./hlds_linux -game cstrike -console \
                 -ip ${SERVER_IP} \
                 +port ${SERVER_PORT} \
@@ -102,5 +142,12 @@ if [[ -n "$tmux_pid" ]]; then
     echo "$tmux_pid" > "${SERVER_DIR}/${INSTANCE_ID}.pid"
 fi
 
-echo "[SUCCESS] Instance '${INSTANCE_ID}' started in tmux session '${TMUX_SESSION}'."
+# Verify startup health
+sleep 1.5
+if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    echo "[SUCCESS] Instance '${INSTANCE_ID}' started in tmux session '${TMUX_SESSION}' on port ${SERVER_PORT}."
+else
+    echo "[WARN] Instance '${INSTANCE_ID}' session exited prematurely. Check logs at: ${LOG_FILE}"
+fi
+
 

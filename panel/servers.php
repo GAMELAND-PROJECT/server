@@ -314,11 +314,12 @@ function saveServerSettings() {
 function serverService(id, action) {
     if (!confirm(action + ' server ' + id + '?')) return;
     postServerApi('switch_server', { server_id: id })
-        .then(() => postServerApi('service_control', { service_action: action }))
+        .then(() => postServerApi('service_control', { server_id: id, service_action: action }))
         .then(d => {
             alert((d.output ? d.output + '\n' : '') + 'Status: ' + (d.status || 'unknown'));
             location.reload();
-        });
+        })
+        .catch(e => alert('Error: ' + e.message));
 }
 
 function removeServer(id, purge) {

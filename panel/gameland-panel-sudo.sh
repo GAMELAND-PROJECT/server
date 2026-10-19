@@ -22,6 +22,45 @@ case "$action" in
         operation="${2:-}"; service="${3:-}"
         [[ "$operation" =~ ^(start|stop|restart|is-active)$ ]] || exit 2
         [[ "$service" =~ ^gameland(\@[a-zA-Z0-9_-]{2,32})?\.service$ ]] || exit 2
+
+        if [ "$operation" = "is-active" ]; then
+            if ! /usr/bin/systemctl is-active --quiet "$service" 2>/dev/null; then
+                echo "inactive"
+                exit 3
+            fi
+            inst_id="main"
+            if [[ "$service" =~ ^gameland\@([a-zA-Z0-9_-]+)\.service$ ]]; then
+                inst_id="${BASH_REMATCH[1]}"
+            fi
+            tmux_name="gameland_server"
+            [ "$inst_id" != "main" ] && tmux_name="gameland_${inst_id}"
+
+            # Verify that the tmux session is genuinely alive
+            if ! tmux has-session -t "$tmux_name" 2>/dev/null; then
+                echo "inactive"
+                exit 3
+            fi
+            echo "active"
+            exit 0
+        fi
+
+        if [ "$operation" = "start" ]; then
+            # If systemd considers it active (exited) but tmux or port died,
+            # systemctl start is a no-op! We must restart to force ExecStart to run!
+            if /usr/bin/systemctl is-active --quiet "$service" 2>/dev/null; then
+                inst_id="main"
+                if [[ "$service" =~ ^gameland\@([a-zA-Z0-9_-]+)\.service$ ]]; then
+                    inst_id="${BASH_REMATCH[1]}"
+                fi
+                tmux_name="gameland_server"
+                [ "$inst_id" != "main" ] && tmux_name="gameland_${inst_id}"
+                if ! tmux has-session -t "$tmux_name" 2>/dev/null; then
+                    exec /usr/bin/systemctl restart "$service"
+                fi
+            fi
+            exec /usr/bin/systemctl start "$service"
+        fi
+
         exec /usr/bin/systemctl "$operation" "$service"
         ;;
     sync_all_plugins)

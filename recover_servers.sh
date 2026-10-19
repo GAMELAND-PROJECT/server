@@ -117,14 +117,14 @@ for env_file in glob.glob(os.path.join(instances_dir, "*.env")):
             "slots": slots
         }
 
-# 2. Only check directories in /opt/gameland/instances/* if their .env config exists
+# 2. Check directories in /opt/gameland/instances/*
 if os.path.isdir(instance_root):
     for entry in os.listdir(instance_root):
         inst_dir = os.path.join(instance_root, entry)
         env_candidate = os.path.join(instances_dir, f"{entry}.env")
-        if os.path.isdir(inst_dir) and os.path.isfile(env_candidate) and entry not in discovered and entry != "server" and entry != "main":
+        if os.path.isdir(inst_dir) and entry not in discovered and entry != "server" and entry != "main":
             cfg_info = parse_server_cfg(os.path.join(inst_dir, "cstrike", "server.cfg"))
-            env_data = parse_env_file(env_candidate)
+            env_data = parse_env_file(env_candidate) if os.path.isfile(env_candidate) else {}
             port = int(env_data.get("SERVER_PORT", 27016))
             mode, slots = detect_mode_and_slots(inst_dir, env_data)
             discovered[entry] = {
@@ -138,6 +138,13 @@ if os.path.isdir(instance_root):
                 "mode": mode,
                 "slots": slots
             }
+            if not os.path.isfile(env_candidate):
+                try:
+                    with open(env_candidate, "w") as ef:
+                        ef.write(f'INSTANCE_ID="{entry}"\nSERVER_DIR="{inst_dir}"\nSERVER_IP="0.0.0.0"\nSERVER_PORT="{port}"\nMAX_PLAYERS="{slots}"\nMAP="de_dust2"\nTMUX_SESSION="gameland_{entry}"\nSTEAMCMD_LINUX32="/opt/steamcmd/linux32"\n')
+                    os.chmod(env_candidate, 0o666)
+                except Exception:
+                    pass
 
 server_list = [s for s in discovered.values() if s.get("id") and s.get("id") != "main"]
 server_list.sort(key=lambda s: s["port"])

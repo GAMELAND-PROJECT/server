@@ -11,7 +11,7 @@ require_once __DIR__ . '/includes/ServerCmd.php';
 
 Auth::check();
 $activeServer = get_active_server();
-$serverStatus = ServerCmd::getServiceStatus($activeServer['service_name']);
+$serverStatus = ServerCmd::getServiceStatus($activeServer['service_name'], (int)($activeServer['port'] ?? 0), $activeServer['id'] ?? '');
 
 $msg = '';
 $msgType = '';
@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['save_admin']) || !em
                         if ($sId !== $activeServer['id'] && !empty($srv['users_ini'])) {
                             try {
                                 ServerCmd::saveAdmin($srv['users_ini'], $auth, $password, $access, $flags, $comment, $oldAuth);
-                                if (ServerCmd::getServiceStatus($srv['service_name']) === 'running') {
+                                if (ServerCmd::getServiceStatus($srv['service_name'], (int)($srv['port'] ?? 0), $srv['id'] ?? '') === 'running') {
                                     ServerCmd::reloadAdminsLive($srv);
                                 }
                             } catch (Throwable $t) {
@@ -109,7 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['delete_admin']) || !
                         if ($sId !== $activeServer['id'] && !empty($srv['users_ini'])) {
                             try {
                                 ServerCmd::deleteAdmin($srv['users_ini'], $auth);
-                                if (ServerCmd::getServiceStatus($srv['service_name']) === 'running') {
+                                if (ServerCmd::getServiceStatus($srv['service_name'], (int)($srv['port'] ?? 0), $srv['id'] ?? '') === 'running') {
                                     ServerCmd::reloadAdminsLive($srv);
                                 }
                             } catch (Throwable $t) {

@@ -57,6 +57,11 @@ elif [ -f "$PERSIST_SERVERS" ]; then
     echo "[*] Protected existing server instances in persistent storage."
 fi
 
+mkdir -p "${PERSIST_DIR}/instances_env"
+if compgen -G "${SCRIPT_DIR}/instances/*.env" > /dev/null; then
+    cp -f "${SCRIPT_DIR}/instances"/*.env "${PERSIST_DIR}/instances_env/" 2>/dev/null || true
+fi
+
 # 2. Kill HLTV completely
 pkill -9 -f hltv 2>/dev/null || true
 screen -X -S gameland_hltv quit 2>/dev/null || true
@@ -79,6 +84,12 @@ if [ -f "$PERSIST_SERVERS" ] && [ -s "$PERSIST_SERVERS" ]; then
     cp -f "$PERSIST_SERVERS" "$SERVERS_JSON"
     chmod 666 "$SERVERS_JSON" 2>/dev/null || true
     echo "[*] Restored server instances to instances/servers.json."
+fi
+
+if compgen -G "${PERSIST_DIR}/instances_env/*.env" > /dev/null; then
+    mkdir -p "${SCRIPT_DIR}/instances"
+    cp -f "${PERSIST_DIR}/instances_env"/*.env "${SCRIPT_DIR}/instances/" 2>/dev/null || true
+    chmod 666 "${SCRIPT_DIR}/instances"/*.env 2>/dev/null || true
 fi
 
 # 5. Tell Git to NEVER touch users.ini and servers.json during future git reset --hard
@@ -106,10 +117,21 @@ HOOK_EOF
 fi
 
 # 7. Ensure execute permissions on all binaries and scripts
-chmod +x "${SCRIPT_DIR}/hlds_linux" "${SCRIPT_DIR}/hlds_run" "${SCRIPT_DIR}"/*.sh 2>/dev/null || true
+chmod +x "${SCRIPT_DIR}/hlds_linux" "${SCRIPT_DIR}/hlds_run" "${SCRIPT_DIR}"/*.sh "${SCRIPT_DIR}/panel/gameland-panel-sudo.sh" 2>/dev/null || true
 ln -sf "${SCRIPT_DIR}/svgl.sh" /usr/local/bin/svgl 2>/dev/null || true
 ln -sf "${SCRIPT_DIR}/svgl.sh" /usr/local/bin/SVGL 2>/dev/null || true
 chmod +x /usr/local/bin/svgl /usr/local/bin/SVGL 2>/dev/null || true
+
+# Refresh systemd service definitions
+if [ -f "${SCRIPT_DIR}/gameland@.service" ]; then
+    cp -f "${SCRIPT_DIR}/gameland@.service" /etc/systemd/system/gameland@.service 2>/dev/null || true
+    chmod 644 /etc/systemd/system/gameland@.service 2>/dev/null || true
+fi
+if [ -f "${SCRIPT_DIR}/gameland.service" ]; then
+    cp -f "${SCRIPT_DIR}/gameland.service" /etc/systemd/system/gameland.service 2>/dev/null || true
+    chmod 644 /etc/systemd/system/gameland.service 2>/dev/null || true
+fi
+systemctl daemon-reload 2>/dev/null || true
 
 # 8. Recompile and restart cleanly
 echo "[*] Compiling mix system plugins..."

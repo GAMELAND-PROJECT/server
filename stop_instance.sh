@@ -16,6 +16,21 @@ ENV_FILE="${MANAGER_ROOT}/instances/${INSTANCE_ID}.env"
 if [[ -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$ENV_FILE"
+else
+    # Auto-discover port from servers.json
+    SERVER_PORT=$(python3 -c '
+import json, sys
+iid = sys.argv[1]
+for p in ["/opt/gameland/server/instances/servers.json", "/opt/gameland/persistent/servers.json"]:
+    try:
+        with open(p) as f:
+            for s in json.load(f).get("servers", []):
+                if s.get("id") == iid:
+                    print(s.get("port", ""))
+                    sys.exit(0)
+    except Exception: pass
+sys.exit(1)
+' "$INSTANCE_ID" 2>/dev/null || true)
 fi
 
 SERVER_DIR="${SERVER_DIR:-/opt/gameland/instances/${INSTANCE_ID}}"

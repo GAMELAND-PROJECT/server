@@ -152,8 +152,15 @@ log_file_for() {
 }
 
 is_running() {
+    local id="${1:-main}"
+    local svc tmux_name
+    svc="$(service_name_for "$id")"
+    tmux_name="$(tmux_name_for "$id")"
+
     command -v systemctl >/dev/null 2>&1 || return 1
-    systemctl is-active --quiet "$(service_name_for "${1:-main}")" 2>/dev/null
+    systemctl is-active --quiet "$svc" 2>/dev/null || return 1
+    tmux has-session -t "$tmux_name" 2>/dev/null || return 1
+    return 0
 }
 
 control_server() {
@@ -414,8 +421,15 @@ list_servers() {
             foreach (($j["servers"] ?? []) as $s) {
                 $id = $s["id"] ?? "";
                 if ($id === "" || $id === "main") continue;
-                printf("%-14s %-28s %-8s %-28s ", $id, $s["service_name"] ?? ("gameland@$id.service"), $s["port"] ?? "-", "gameland_$id");
-                system("systemctl is-active --quiet " . escapeshellarg($s["service_name"] ?? "gameland@$id.service") . " && echo running || echo stopped");
+                $tmux = "gameland_$id";
+                $svc = $s["service_name"] ?? ("gameland@$id.service");
+                printf("%-14s %-28s %-8s %-28s ", $id, $svc, $s["port"] ?? "-", $tmux);
+                $status = "stopped";
+                $res = @exec("systemctl is-active --quiet " . escapeshellarg($svc) . " 2>/dev/null && tmux has-session -t " . escapeshellarg($tmux) . " 2>/dev/null && echo running || echo stopped");
+                if (trim((string)$res) === "running") {
+                    $status = "running";
+                }
+                echo $status . "\n";
             }
         ' "$REGISTRY_FILE"
     else
