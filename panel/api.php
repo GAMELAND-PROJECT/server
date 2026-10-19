@@ -204,7 +204,10 @@ switch ($action) {
     // ─── Service Control (start/stop/restart) ───────────────────────────────
     case 'service_control':
         $serviceAction = $_POST['service_action'] ?? '';
-        $res = ServerCmd::controlService($activeServer['service_name'], $serviceAction);
+        $targetServerId = $_POST['server_id'] ?? ($activeServer['id'] ?? 'main');
+        global $SERVERS;
+        $svcTarget = $SERVERS[$targetServerId] ?? $activeServer;
+        $res = ServerCmd::controlService($svcTarget['service_name'], $serviceAction);
         echo json_encode($res);
         break;
 

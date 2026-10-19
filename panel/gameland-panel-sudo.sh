@@ -162,6 +162,52 @@ case "$action" in
         /usr/bin/systemctl restart "$svc" 2>/dev/null || true
         exit 0
         ;;
+    set_afk_guard)
+        mode="${2:-1}"
+        id="${3:-main}"
+        [[ "$mode" =~ ^[0-2]$ ]] || exit 2
+
+        if [ "$id" = "main" ] || [ -z "$id" ]; then
+            cfg="${PROJECT_DIR}/cstrike/server.cfg"
+        else
+            cfg="/opt/gameland/instances/${id}/cstrike/server.cfg"
+            [ ! -f "$cfg" ] && [ -f "${PROJECT_DIR}/instances/${id}/cstrike/server.cfg" ] && cfg="${PROJECT_DIR}/instances/${id}/cstrike/server.cfg"
+        fi
+
+        if [ -f "$cfg" ]; then
+            sed -i -E "s/^[[:space:]]*gameland_afk_guard[[:space:]]+[0-9]+/gameland_afk_guard $mode/" "$cfg" 2>/dev/null || true
+            if ! grep -q 'gameland_afk_guard' "$cfg"; then
+                echo "gameland_afk_guard $mode" >> "$cfg"
+            fi
+            chmod 666 "$cfg" 2>/dev/null || true
+        fi
+
+        # Also persist in servers.json
+        for reg_file in "${PROJECT_DIR}/instances/servers.json" "/opt/gameland/persistent/servers.json"; do
+            if [ -f "$reg_file" ]; then
+                php -r '
+                    $f = $argv[1]; $targetId = $argv[2]; $targetMode = (int)$argv[3];
+                    $data = json_decode(@file_get_contents($f), true);
+                    if (!is_array($data)) $data = ["servers" => []];
+                    if (!isset($data["servers"]) || !is_array($data["servers"])) $data["servers"] = [];
+                    $found = false;
+                    foreach ($data["servers"] as &$s) {
+                        if (($s["id"] ?? "") === $targetId) {
+                            $s["afk_guard"] = $targetMode;
+                            $found = true;
+                            break;
+                        }
+                    }
+                    if (!$found) {
+                        $data["servers"][] = ["id" => $targetId, "afk_guard" => $targetMode];
+                    }
+                    file_put_contents($f, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "
+");
+                ' "$reg_file" "$id" "$mode" 2>/dev/null || true
+            fi
+        done
+        exit 0
+        ;;
     git_sync)
         if [ -d "${PROJECT_DIR}/.git" ]; then
             cd "${PROJECT_DIR}"
@@ -244,7 +290,10 @@ case "$action" in
             find "/opt/gameland/instances" -name "start.sh" -exec chmod 666 {} + 2>/dev/null || true
         fi
         chmod 666 "${PROJECT_DIR}/start.sh" 2>/dev/null || true
+        chmod 666 "${PROJECT_DIR}/cstrike/server.cfg" 2>/dev/null || true
         chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
+        chmod -R 777 /opt/gameland/persistent 2>/dev/null || true
+        [ -f /opt/gameland/persistent/servers.json ] && chmod 666 /opt/gameland/persistent/servers.json 2>/dev/null || true
         if command -v setfacl >/dev/null 2>&1; then
             setfacl -m u:www-data:rw "${PROJECT_DIR}/start.sh" 2>/dev/null || true
             setfacl -m u:www-data:rw "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true

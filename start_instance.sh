@@ -49,9 +49,19 @@ screen -X -S "$HLTV_SESSION" quit 2>/dev/null || true
 screen -X -S "$COMPRESSOR_SESSION" quit 2>/dev/null || true
 
 if command -v fuser >/dev/null 2>&1; then
-    fuser -k "${SERVER_PORT}/udp" 2>/dev/null || true
-    fuser -k "${SERVER_PORT}/tcp" 2>/dev/null || true
+    fuser -k -9 "${SERVER_PORT}/udp" 2>/dev/null || true
+    fuser -k -9 "${SERVER_PORT}/tcp" 2>/dev/null || true
 fi
+
+# Ensure port and tmux session are fully released before starting
+sleep 1.0
+for i in 1 2 3; do
+    if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+        break
+    fi
+    tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+    sleep 0.5
+done
 
 if [[ -f "$LOG_FILE" ]] && [[ "$(stat -c%s "$LOG_FILE")" -gt 10485760 ]]; then
     mv "$LOG_FILE" "${LOG_FILE}.1"

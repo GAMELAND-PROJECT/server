@@ -481,7 +481,8 @@ class ServerCmd {
             self::writeRegistry($registry);
         }
 
-        if ($mode !== '') {
+        $currentMode = self::getCurrentServerMode($server);
+        if ($mode !== '' && $mode !== $currentMode) {
             self::switchServerMode($server, $mode);
         }
 
@@ -1437,7 +1438,11 @@ class ServerCmd {
 
         // 4. Restart ONLY this server's dedicated service
         $svc = $serverInfo['service_name'] ?? ($serverId === 'main' ? 'gameland.service' : 'gameland@' . $serverId . '.service');
-        self::controlService($svc, 'restart');
+        // Note: gameland-panel-sudo switch_mode already performs isolated restart safely.
+        // We only trigger controlService if not on Linux or if sudo helper was absent.
+        if (!is_file('/usr/local/sbin/gameland-panel-sudo')) {
+            self::controlService($svc, 'restart');
+        }
 
         return [
             'success' => true,
@@ -1488,17 +1493,33 @@ class ServerCmd {
         self::writeServerCfgValue($serverDir, 'gameland_afk_guard', (string)$mode);
         self::writeServerCfgValue($serverDir, 'mp_autokick', '0');
 
-        // 2. Persist in registry servers.json
-        $registry = self::readRegistry();
-        if (isset($registry['servers']) && is_array($registry['servers'])) {
-            foreach ($registry['servers'] as &$entry) {
-                if (($entry['id'] ?? '') === $serverId) {
-                    $entry['afk_guard'] = $mode;
-                    break;
-                }
-            }
-            self::writeRegistry($registry);
+        // 1.1 Also invoke privileged helper to ensure root server.cfg is written even if php lacks direct write perm
+        $helper = self::getPrivilegedHelperPath();
+        if (is_file($helper) || is_file('/usr/local/sbin/gameland-panel-sudo')) {
+            $hPath = is_file('/usr/local/sbin/gameland-panel-sudo') ? '/usr/local/sbin/gameland-panel-sudo' : $helper;
+            @exec("sudo -n " . escapeshellarg($hPath) . " set_afk_guard " . escapeshellarg((string)$mode) . " " . escapeshellarg($serverId) . " 2>&1");
         }
+
+        // 2. Persist in registry servers.json (ensuring main is also recorded!)
+        $registry = self::readRegistry();
+        if (!isset($registry['servers']) || !is_array($registry['servers'])) {
+            $registry['servers'] = [];
+        }
+        $found = false;
+        foreach ($registry['servers'] as &$entry) {
+            if (($entry['id'] ?? '') === $serverId) {
+                $entry['afk_guard'] = $mode;
+                $found = true;
+                break;
+            }
+        }
+        if (!$found) {
+            $registry['servers'][] = [
+                'id' => $serverId,
+                'afk_guard' => $mode
+            ];
+        }
+        self::writeRegistry($registry);
 
         // 3. Live Apply via RCON (Immediate effect without server restart!)
         $liveSuccess = false;
