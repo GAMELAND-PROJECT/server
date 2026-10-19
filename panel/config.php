@@ -75,6 +75,7 @@ $SERVERS = [
     'main' => [
         'id'            => 'main',
         'name'          => 'GameLand CS 1.6 #1 (Competitive)',
+        'hostname'      => 'GameLand CS 1.6 #1 (Competitive)',
         'ip'            => $detectedPublicIp,
         'port'          => 27015,
         'rcon_password' => 'GameLand@Rcon2026',
@@ -90,10 +91,13 @@ $SERVERS = [
 function gameland_normalize_server(array $server, string $fallbackIp): array {
     $id = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)($server['id'] ?? ''));
     $serverDir = rtrim((string)($server['server_dir'] ?? ''), '/');
+    $name = (string)($server['name'] ?? ('GameLand ' . $id));
+    $hostname = (string)($server['hostname'] ?? $name);
 
     return [
         'id'            => $id,
-        'name'          => (string)($server['name'] ?? ('GameLand ' . $id)),
+        'name'          => $name,
+        'hostname'      => $hostname,
         'ip'            => (string)($server['ip'] ?? $fallbackIp),
         'port'          => (int)($server['port'] ?? 27015),
         'rcon_password' => (string)($server['rcon_password'] ?? 'GameLand@Rcon2026'),
@@ -109,6 +113,9 @@ function gameland_normalize_server(array $server, string $fallbackIp): array {
 }
 
 $instancesRegistry = dirname(__DIR__) . '/instances/servers.json';
+if ((!is_file($instancesRegistry) || filesize($instancesRegistry) < 20) && is_file('/opt/gameland/persistent/servers.json')) {
+    $instancesRegistry = '/opt/gameland/persistent/servers.json';
+}
 if (is_file($instancesRegistry)) {
     $registry = json_decode((string)file_get_contents($instancesRegistry), true);
     foreach (($registry['servers'] ?? []) as $server) {

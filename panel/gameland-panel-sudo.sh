@@ -195,10 +195,11 @@ case "$action" in
         done
 
         # 5. ISOLATED RESTART: Only terminate this instance's tmux session and port!
-        # NEVER kill all hlds_linux with pkill!
         tmux kill-session -t "$tmux_session" 2>/dev/null || true
         if [ -n "$port" ] && command -v fuser >/dev/null 2>&1; then
             fuser -k "${port}/udp" 2>/dev/null || true
+            client_port=$((port == 27015 ? 27005 : port + 100))
+            fuser -k "${client_port}/udp" 2>/dev/null || true
         fi
         sleep 0.5
         /usr/bin/systemctl restart "$svc" 2>/dev/null || true

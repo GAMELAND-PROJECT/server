@@ -11,6 +11,7 @@ cd "$SCRIPT_DIR"
 
 # ─── تنظیمات سرور ─────────────────────────────
 SERVER_PORT="27015"
+CLIENT_PORT="${CLIENT_PORT:-27005}"
 MAX_PLAYERS="10"
 MAP="de_dust2"
 SERVER_IP="0.0.0.0"
@@ -89,6 +90,7 @@ fi
 if command -v fuser >/dev/null 2>&1; then
     fuser -k "${SERVER_PORT}/udp" 2>/dev/null || true
     fuser -k "${SERVER_PORT}/tcp" 2>/dev/null || true
+    fuser -k "${CLIENT_PORT}/udp" 2>/dev/null || true
 fi
 rm -f "${SCRIPT_DIR}/gameland.pid" 2>/dev/null || true
 screen -X -S gameland_hltv quit 2>/dev/null || true
@@ -120,6 +122,7 @@ tmux new-session -d -s gameland_server \
         ./hlds_linux -game cstrike -console \
             -ip ${SERVER_IP} \
             +port ${SERVER_PORT} \
+            +clientport ${CLIENT_PORT} \
             +hostname "${HOSTNAME}" \
             +cw_base_hostname "${HOSTNAME}" \
             +mix_base_hostname "${HOSTNAME}" \

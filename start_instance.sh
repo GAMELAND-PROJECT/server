@@ -61,6 +61,7 @@ source "$ENV_FILE"
 
 SERVER_DIR="${SERVER_DIR:?SERVER_DIR is required}"
 SERVER_PORT="${SERVER_PORT:?SERVER_PORT is required}"
+CLIENT_PORT="${CLIENT_PORT:-$((SERVER_PORT == 27015 ? 27005 : SERVER_PORT + 100))}"
 SERVER_IP="${SERVER_IP:-0.0.0.0}"
 MAX_PLAYERS="${MAX_PLAYERS:-10}"
 MAP="${MAP:-de_dust2}"
@@ -153,14 +154,15 @@ tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
 screen -X -S "$HLTV_SESSION" quit 2>/dev/null || true
 screen -X -S "$COMPRESSOR_SESSION" quit 2>/dev/null || true
 
-# Actively wait for port to be completely free (eliminates port collision race condition)
+# Actively wait for ports to be completely free (eliminates port collision race condition)
 for ((p=1; p<=8; p++)); do
     is_busy=false
     if command -v fuser >/dev/null 2>&1; then
-        if fuser "${SERVER_PORT}/udp" >/dev/null 2>&1; then
+        if fuser "${SERVER_PORT}/udp" >/dev/null 2>&1 || fuser "${CLIENT_PORT}/udp" >/dev/null 2>&1; then
             is_busy=true
             fuser -k -9 "${SERVER_PORT}/udp" 2>/dev/null || true
             fuser -k -9 "${SERVER_PORT}/tcp" 2>/dev/null || true
+            fuser -k -9 "${CLIENT_PORT}/udp" 2>/dev/null || true
         fi
     fi
     if [ "$is_busy" = "false" ]; then
@@ -188,6 +190,7 @@ for attempt in 1 2 3; do
             ./hlds_linux -game cstrike -console \
                 -ip ${SERVER_IP} \
                 +port ${SERVER_PORT} \
+                +clientport ${CLIENT_PORT} \
                 +hostname \"${HOSTNAME}\" \
                 +cw_base_hostname \"${HOSTNAME}\" \
                 +mix_base_hostname \"${HOSTNAME}\" \

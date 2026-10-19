@@ -29,6 +29,21 @@ class ServerCmd {
         return is_string($id) && preg_match('/^[a-zA-Z0-9_-]{2,32}$/', $id);
     }
 
+    /**
+     * Get GoldSourceRcon instance for a server
+     */
+    public static function getRcon($serverId = 'main') {
+        global $SERVERS;
+        if (!isset($SERVERS[$serverId])) {
+            return null;
+        }
+        $server = $SERVERS[$serverId];
+        $ip = $server['ip'] ?? '127.0.0.1';
+        $port = (int)($server['port'] ?? 27015);
+        $pass = (string)($server['rcon_password'] ?? '');
+        return new \GoldSourceRcon($ip, $port, $pass, 1.5);
+    }
+
     public static function getServerList(array $servers) {
         $result = [];
         foreach ($servers as $server) {
@@ -488,10 +503,10 @@ class ServerCmd {
         if ($effectiveHost !== '') {
             try {
                 $rconObj = self::getRcon($id);
-                if ($rconObj && $rconObj->connect()) {
-                    $rconObj->rconCommand('cw_base_hostname "' . addslashes($effectiveHost) . '"');
-                    $rconObj->rconCommand('mix_base_hostname "' . addslashes($effectiveHost) . '"');
-                    $rconObj->rconCommand('hostname "' . addslashes($effectiveHost) . '"');
+                if ($rconObj) {
+                    $rconObj->execute('cw_base_hostname "' . addslashes($effectiveHost) . '"');
+                    $rconObj->execute('mix_base_hostname "' . addslashes($effectiveHost) . '"');
+                    $rconObj->execute('hostname "' . addslashes($effectiveHost) . '"');
                 }
             } catch (\Throwable $e) {}
         }
@@ -608,9 +623,6 @@ class ServerCmd {
     }
 
     /**
-     * Get systemctl service status
-     */
-    /**
      * Get systemctl service status with true process / port verification
      */
     public static function getServiceStatus($serviceName, $port = 0, $serverId = '') {
@@ -618,6 +630,22 @@ class ServerCmd {
             $output = @shell_exec('tasklist /FI "IMAGENAME eq hlds.exe" 2>&1');
             return (stripos((string)$output, 'hlds.exe') !== false) ? 'running' : 'stopped';
         }
+
+        // 1. Privileged check via sudo helper (verifies systemctl AND live tmux session as root)
+        $helper = self::getPrivilegedHelperPath();
+        if (is_file($helper) || is_file('/usr/local/sbin/gameland-panel-sudo')) {
+            $h = is_file('/usr/local/sbin/gameland-panel-sudo') ? '/usr/local/sbin/gameland-panel-sudo' : $helper;
+            $cleanSvc = escapeshellarg($serviceName);
+            $cleanH = escapeshellarg($h);
+            $sudoOut = trim((string)@shell_exec("sudo -n {$cleanH} service is-active {$cleanSvc} 2>&1"));
+            if ($sudoOut === 'active') {
+                return 'running';
+            } elseif ($sudoOut === 'inactive') {
+                return 'stopped';
+            }
+        }
+
+        // 2. Direct systemctl check
         $cleanService = escapeshellarg($serviceName);
         $output = @shell_exec("systemctl is-active {$cleanService} 2>&1");
         $status = trim((string)$output);
@@ -625,33 +653,38 @@ class ServerCmd {
             return 'stopped';
         }
 
-        // If port is known, verify port binding so stale oneshot services don't report running when offline
+        // 3. Fast UDP A2S query check if port is known
         if ($port > 0) {
             $portInt = (int)$port;
+            try {
+                $rcon = new \GoldSourceRcon('127.0.0.1', $portInt, '', 0.3);
+                $info = $rcon->getInfo();
+                if ($info !== false && is_array($info)) {
+                    return 'running';
+                }
+            } catch (\Throwable $e) {}
+
             $ssOut = @shell_exec("ss -lun '( sport = :{$portInt} )' 2>/dev/null");
             if (!empty($ssOut) && stripos($ssOut, ":{$portInt}") !== false) {
                 return 'running';
             }
-            // Fallback fuser check
+
             $fuserOut = @shell_exec("fuser {$portInt}/udp 2>/dev/null");
             if (!empty(trim((string)$fuserOut))) {
                 return 'running';
             }
-            // Fallback pgrep check
+
             $pgrep = @shell_exec("pgrep -f '\\+port {$portInt}' 2>/dev/null");
             if (!empty(trim((string)$pgrep))) {
                 return 'running';
             }
-            // If systemd says active, but port is not bound by any process, it is stopped!
-            return 'stopped';
         }
 
-        // Default fallback for main (port 27015)
-        if ($serviceName === 'gameland.service') {
-            $ssOut = @shell_exec("ss -lun '( sport = :27015 )' 2>/dev/null");
-            if (empty($ssOut) || stripos($ssOut, ':27015') === false) {
-                return 'stopped';
-            }
+        // 4. Check tmux session if serverId known
+        $tmuxName = ($serverId === 'main' || empty($serverId)) ? 'gameland_server' : ('gameland_' . $serverId);
+        $tmuxCheck = @shell_exec('tmux has-session -t ' . escapeshellarg($tmuxName) . ' 2>&1');
+        if ($tmuxCheck === null || trim((string)$tmuxCheck) === '') {
+            return 'running';
         }
 
         return 'running';
@@ -666,9 +699,11 @@ class ServerCmd {
         }
 
         $port = 0;
+        $serverId = '';
         foreach (self::getManagedServers() as $s) {
             if (($s['service_name'] ?? '') === $serviceName) {
                 $port = (int)($s['port'] ?? 0);
+                $serverId = $s['id'] ?? '';
                 break;
             }
         }
@@ -682,7 +717,7 @@ class ServerCmd {
         @exec("sudo -n {$helper} service {$cleanAction} {$cleanService} 2>&1", $lines, $exitCode);
         $output = implode("\n", $lines);
         sleep(2);
-        $newStatus = self::getServiceStatus($serviceName, $port);
+        $newStatus = self::getServiceStatus($serviceName, $port, $serverId);
         return [
             'success' => $exitCode === 0,
             'action' => $action,
