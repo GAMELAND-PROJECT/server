@@ -55,7 +55,7 @@ fi
 
 # Ensure port and tmux session are fully released before starting
 sleep 1.0
-for i in 1 2 3; do
+for i in 1 2 3 4; do
     if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
         break
     fi
@@ -67,19 +67,35 @@ if [[ -f "$LOG_FILE" ]] && [[ "$(stat -c%s "$LOG_FILE")" -gt 10485760 ]]; then
     mv "$LOG_FILE" "${LOG_FILE}.1"
 fi
 
-tmux new-session -d -s "$TMUX_SESSION" \
-    "cd '${SERVER_DIR}' && while true; do \
-        echo '[START] Launching hlds_linux for ${INSTANCE_ID}...'; \
-        ./hlds_linux -game cstrike -console \
-            -ip ${SERVER_IP} \
-            +port ${SERVER_PORT} \
-            +map ${MAP} \
-            +maxplayers ${MAX_PLAYERS} \
-            +sv_lan 0 \
-            2>&1 | tee -a '${LOG_FILE}'; \
-        echo '[CRASH] ${INSTANCE_ID} stopped. Restarting in 3s...'; \
-        sleep 3; \
-    done"
+# Create session with retry so transient tmux locks never fail systemd
+session_started=false
+for attempt in 1 2 3; do
+    if tmux new-session -d -s "$TMUX_SESSION" \
+        "cd '${SERVER_DIR}' && while true; do \
+            echo '[START] Launching hlds_linux for ${INSTANCE_ID}...'; \
+            ./hlds_linux -game cstrike -console \
+                -ip ${SERVER_IP} \
+                +port ${SERVER_PORT} \
+                +map ${MAP} \
+                +maxplayers ${MAX_PLAYERS} \
+                +sv_lan 0 \
+                2>&1 | tee -a '${LOG_FILE}'; \
+            echo '[CRASH] ${INSTANCE_ID} stopped. Restarting in 3s...'; \
+            sleep 3; \
+        done"; then
+        session_started=true
+        break
+    else
+        echo "[WARN] Attempt $attempt to create tmux session '$TMUX_SESSION' failed, cleaning up and retrying..."
+        tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+        sleep 1.0
+    fi
+done
+
+if [[ "$session_started" != "true" ]]; then
+    echo "[ERROR] Failed to start tmux session '$TMUX_SESSION' after 3 attempts!"
+    exit 1
+fi
 
 tmux_pid="$(tmux display-message -t "$TMUX_SESSION" -p '#{pid}' 2>/dev/null || true)"
 if [[ -n "$tmux_pid" ]]; then
@@ -87,3 +103,4 @@ if [[ -n "$tmux_pid" ]]; then
 fi
 
 echo "[SUCCESS] Instance '${INSTANCE_ID}' started in tmux session '${TMUX_SESSION}'."
+

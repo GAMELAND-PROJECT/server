@@ -652,18 +652,59 @@ sync_plugins_to_instance() {
     fi
     if [[ "$id" == "all" ]]; then
         local count=0
-        for target in "${INSTANCE_ROOT_DEFAULT}"/* "${PROJECT_DIR}/instances"/*; do
+        declare -A SEEN_INST
+        local inst_targets=()
+
+        # Discover from servers.json
+        for reg_f in "${REGISTRY_FILE}" "/opt/gameland/persistent/servers.json"; do
+            if [[ -f "$reg_f" ]]; then
+                while read -r s_id; do
+                    if [[ -n "$s_id" && "$s_id" != "main" && -z "${SEEN_INST[$s_id]:-}" ]]; then
+                        SEEN_INST["$s_id"]=1
+                        inst_targets+=("$s_id")
+                    fi
+                done < <(python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); print("
+".join([str(s.get("id","")) for s in d.get("servers",[]) if s.get("id")]))' "$reg_f" 2>/dev/null || true)
+            fi
+        done
+
+        # Also discover from filesystem
+        for inst_d in "${INSTANCE_ROOT_DEFAULT}"/*; do
+            if [[ -d "$inst_d" ]]; then
+                local s_id
+                s_id="$(basename "$inst_d")"
+                if [[ -n "$s_id" && "$s_id" != "*" && "$s_id" != "main" && -z "${SEEN_INST[$s_id]:-}" ]]; then
+                    SEEN_INST["$s_id"]=1
+                    inst_targets+=("$s_id")
+                fi
+            fi
+        done
+
+        for s_id in "${inst_targets[@]}"; do
+            local target="${INSTANCE_ROOT_DEFAULT}/${s_id}"
+            if [[ ! -d "$target" && -d "${PROJECT_DIR}/instances/${s_id}" ]]; then
+                target="${PROJECT_DIR}/instances/${s_id}"
+            fi
+
             if [[ -d "$target/cstrike/addons/amxmodx/plugins" ]]; then
                 cp -f "${PROJECT_DIR}/cstrike/addons/amxmodx/plugins/"*.amxx "$target/cstrike/addons/amxmodx/plugins/"
-                local inst_id
-                inst_id="$(basename "$target")"
-                if systemctl is-active --quiet "gameland@${inst_id}.service" 2>/dev/null; then
-                    systemctl restart "gameland@${inst_id}.service" 2>/dev/null || true
-                    echo -e "  ${GREEN}✔${NC} Synced & restarted instance: ${BOLD}${inst_id}${NC}"
-                else
-                    echo -e "  ${GREEN}✔${NC} Synced to instance: ${inst_id}"
-                fi
+                chmod 666 "$target/cstrike/addons/amxmodx/plugins/"*.amxx 2>/dev/null || true
+                chown -R www-data:www-data "$target/cstrike/addons/amxmodx" 2>/dev/null || true
                 count=$((count + 1))
+
+                local svc="gameland@${s_id}.service"
+                if systemctl is-active --quiet "$svc" 2>/dev/null || systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+                    systemctl restart "$svc" 2>/dev/null || true
+                    sleep 1.5
+                    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                        echo -e "  ${GREEN}✔ [RUNNING]${NC} Synced & restarted instance: ${BOLD}${s_id}${NC}"
+                    else
+                        systemctl start "$svc" 2>/dev/null || true
+                        echo -e "  ${YELLOW}⚡ [RESTARTED]${NC} Started instance: ${BOLD}${s_id}${NC}"
+                    fi
+                else
+                    echo -e "  ${GREEN}✔${NC} Synced to instance: ${s_id}"
+                fi
             fi
         done
         echo -e "${GREEN}[OK] Synced updated .amxx plugins to ${count} instances!${NC}"

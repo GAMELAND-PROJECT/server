@@ -180,6 +180,7 @@ class ServerCmd {
             if ($result['success'] && $restart) {
                 $result['restart'] = self::controlService($server['service_name'], 'restart');
                 $result['success'] = $result['restart']['success'] ?? false;
+                sleep(1);
             }
             $result['message'] = $result['success'] ? 'Deployed successfully.' : 'Deployment failed.';
             $results[$id] = $result;

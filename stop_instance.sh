@@ -28,9 +28,17 @@ if [[ -n "${SERVER_PORT:-}" ]] && command -v fuser >/dev/null 2>&1; then
     fuser -k -9 "${SERVER_PORT}/udp" 2>/dev/null || true
     fuser -k -9 "${SERVER_PORT}/tcp" 2>/dev/null || true
 fi
-sleep 0.5
+sleep 1.0
+if [[ -n "${SERVER_PORT:-}" ]] && command -v fuser >/dev/null 2>&1; then
+    # Double-check if still bound
+    if fuser "${SERVER_PORT}/udp" >/dev/null 2>&1; then
+        fuser -k -9 "${SERVER_PORT}/udp" 2>/dev/null || true
+        sleep 0.5
+    fi
+fi
 screen -X -S "$HLTV_SESSION" quit 2>/dev/null || true
 screen -X -S "$COMPRESSOR_SESSION" quit 2>/dev/null || true
 rm -f "${SERVER_DIR}/${INSTANCE_ID}.pid" 2>/dev/null || true
 
-echo "[OK] Instance '${INSTANCE_ID}' stopped."
+echo "[OK] Instance '${INSTANCE_ID}' stopped cleanly."
+

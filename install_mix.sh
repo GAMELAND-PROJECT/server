@@ -194,22 +194,84 @@ echo "  -> Wrote deploy record: ${CONFIGS_DIR}/.mix_last_build.json (${COMPILED_
 echo "[5/5] Optimizing server config for 5v5..."
 sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="18"/' "${PROJECT_DIR}/start.sh"
 
-# Instances are completely isolated and independent!
-# To sync plugins to an instance explicitly, use: svgl sync-plugins <id>
+# Instances synchronization & automatic multi-server restart
 if [ "${1:-}" == "--sync-all" ]; then
-    echo "[*] Synchronizing plugins to all instances (--sync-all specified)..."
-    for inst in /opt/gameland/instances/* "${PROJECT_DIR}/instances"/*; do
-        if [ -d "${inst}/cstrike/addons/amxmodx/plugins" ]; then
-            cp -f "${PLUGINS_DIR}"/*.amxx "${inst}/cstrike/addons/amxmodx/plugins/" 2>/dev/null || true
-            inst_id="$(basename "$inst")"
-            if systemctl is-active --quiet "gameland@${inst_id}.service" 2>/dev/null; then
-                systemctl restart "gameland@${inst_id}.service" 2>/dev/null || true
-                echo "  -> Synced plugins & restarted instance: ${inst_id}"
-            else
-                echo "  -> Synced plugins to instance: ${inst_id}"
+    echo "[*] Synchronizing updated plugins to all registered server instances..."
+    
+    # 1. Collect all known instance IDs from servers.json and /opt/gameland/instances
+    declare -A SEEN_INSTANCES
+    INST_LIST=()
+
+    # Read from servers.json
+    for reg_json in "${PROJECT_DIR}/instances/servers.json" "/opt/gameland/persistent/servers.json"; do
+        if [ -f "$reg_json" ]; then
+            while read -r s_id; do
+                if [ -n "$s_id" ] && [ "$s_id" != "main" ] && [ -z "${SEEN_INSTANCES[$s_id]:-}" ]; then
+                    SEEN_INSTANCES["$s_id"]=1
+                    INST_LIST+=("$s_id")
+                fi
+            done < <(python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); print("
+".join([str(s.get("id","")) for s in d.get("servers",[]) if s.get("id")]))' "$reg_json" 2>/dev/null || true)
+        fi
+    done
+
+    # Also discover from filesystem
+    for inst_dir in /opt/gameland/instances/*; do
+        if [ -d "$inst_dir" ]; then
+            s_id="$(basename "$inst_dir")"
+            if [ -n "$s_id" ] && [ "$s_id" != "*" ] && [ "$s_id" != "main" ] && [ -z "${SEEN_INSTANCES[$s_id]:-}" ]; then
+                SEEN_INSTANCES["$s_id"]=1
+                INST_LIST+=("$s_id")
             fi
         fi
     done
+
+    # 2. Sync plugins and restart instances with clean status checking
+    synced_count=0
+    for s_id in "${INST_LIST[@]}"; do
+        # Determine instance directory
+        target_dir="/opt/gameland/instances/${s_id}"
+        if [ ! -d "$target_dir" ] && [ -d "${PROJECT_DIR}/instances/${s_id}" ]; then
+            target_dir="${PROJECT_DIR}/instances/${s_id}"
+        fi
+
+        if [ -d "${target_dir}/cstrike/addons/amxmodx/plugins" ]; then
+            cp -f "${PLUGINS_DIR}"/*.amxx "${target_dir}/cstrike/addons/amxmodx/plugins/" 2>/dev/null || true
+            chmod 666 "${target_dir}/cstrike/addons/amxmodx/plugins/"*.amxx 2>/dev/null || true
+            chown -R www-data:www-data "${target_dir}/cstrike/addons/amxmodx" 2>/dev/null || true
+            synced_count=$((synced_count + 1))
+
+            svc="gameland@${s_id}.service"
+            # Check if active OR enabled in systemd
+            was_active=false
+            if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                was_active=true
+            elif systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+                was_active=true
+            fi
+
+            if [ "$was_active" = true ]; then
+                echo "  -> Restarting instance '$s_id' ($svc)..."
+                systemctl restart "$svc" 2>/dev/null || true
+                sleep 1.5
+                if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                    echo "     [✔ RUNNING] Instance '$s_id' is active and online!"
+                else
+                    echo "     [!] Retrying startup for '$s_id'..."
+                    systemctl start "$svc" 2>/dev/null || true
+                    sleep 1.0
+                    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                        echo "     [✔ RUNNING] Instance '$s_id' is active!"
+                    else
+                        echo "     [✖ FAILED] Check logs: journalctl -u $svc -n 20"
+                    fi
+                fi
+            else
+                echo "  -> Synced plugins to stopped instance '$s_id'."
+            fi
+        fi
+    done
+    echo "[*] Total instances synchronized: $synced_count"
 else
     echo "[*] Server instances remain isolated and untouched (full independence)."
 fi

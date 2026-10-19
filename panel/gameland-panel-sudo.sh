@@ -24,6 +24,9 @@ case "$action" in
         [[ "$service" =~ ^gameland(\@[a-zA-Z0-9_-]{2,32})?\.service$ ]] || exit 2
         exec /usr/bin/systemctl "$operation" "$service"
         ;;
+    sync_all_plugins)
+        exec /bin/bash "${PROJECT_DIR}/install_mix.sh" --sync-all
+        ;;
     switch_mode)
         mode="${2:-clanwar}"
         id="${3:-main}"
