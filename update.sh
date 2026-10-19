@@ -124,11 +124,11 @@ chmod +x /usr/local/bin/svgl /usr/local/bin/SVGL 2>/dev/null || true
 
 # Refresh systemd service definitions
 if [ -f "${SCRIPT_DIR}/gameland@.service" ]; then
-    cp -f "${SCRIPT_DIR}/gameland@.service" /etc/systemd/system/gameland@.service 2>/dev/null || true
+    sed "s|/opt/gameland/server|${SCRIPT_DIR}|g" "${SCRIPT_DIR}/gameland@.service" > /etc/systemd/system/gameland@.service 2>/dev/null || cp -f "${SCRIPT_DIR}/gameland@.service" /etc/systemd/system/gameland@.service 2>/dev/null || true
     chmod 644 /etc/systemd/system/gameland@.service 2>/dev/null || true
 fi
 if [ -f "${SCRIPT_DIR}/gameland.service" ]; then
-    cp -f "${SCRIPT_DIR}/gameland.service" /etc/systemd/system/gameland.service 2>/dev/null || true
+    sed -e "s|\${PROJECT_ROOT}|${SCRIPT_DIR}|g" -e "s|/opt/gameland/server|${SCRIPT_DIR}|g" "${SCRIPT_DIR}/gameland.service" > /etc/systemd/system/gameland.service 2>/dev/null || cp -f "${SCRIPT_DIR}/gameland.service" /etc/systemd/system/gameland.service 2>/dev/null || true
     chmod 644 /etc/systemd/system/gameland.service 2>/dev/null || true
 fi
 systemctl daemon-reload 2>/dev/null || true
