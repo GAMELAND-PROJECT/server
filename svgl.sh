@@ -190,15 +190,20 @@ registry_append() {
         if (!isset($data["servers"]) || !is_array($data["servers"])) $data["servers"] = [];
         foreach ($data["servers"] as &$server) {
             if (($server["id"] ?? "") === $id) {
+                $server["name"] = $argv[3];
+                $server["hostname"] = $argv[3];
                 $server["mode"] = $argv[7] ?? "clanwar";
                 $server["slots"] = (int)($argv[8] ?? 10);
                 file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+                @mkdir("/opt/gameland/persistent", 0777, true);
+                @file_put_contents("/opt/gameland/persistent/servers.json", json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
                 exit(0);
             }
         }
         $data["servers"][] = [
             "id" => $id,
             "name" => $argv[3],
+            "hostname" => $argv[3],
             "ip" => "127.0.0.1",
             "port" => (int)$argv[4],
             "rcon_password" => $argv[5],
@@ -316,6 +321,8 @@ INSTANCE_ID="${id}"
 SERVER_DIR="${target}"
 SERVER_IP="0.0.0.0"
 SERVER_PORT="${port}"
+SERVER_NAME="${name}"
+HOSTNAME="${name}"
 MAX_PLAYERS="${slots}"
 MAP="de_dust2"
 TMUX_SESSION="gameland_${id}"
@@ -329,6 +336,14 @@ EOF
             echo "sv_visiblemaxplayers $slots" >> "$target/cstrike/server.cfg"
         fi
         sed -i -E "s/^[[:space:]]*hostname[[:space:]]+.*/hostname \"${name}\"/" "$target/cstrike/server.cfg" 2>/dev/null || true
+        sed -i -E "s/^[[:space:]]*cw_base_hostname[[:space:]]+.*/cw_base_hostname \"${name}\"/" "$target/cstrike/server.cfg" 2>/dev/null || true
+        if ! grep -q 'cw_base_hostname' "$target/cstrike/server.cfg"; then
+            echo "cw_base_hostname \"${name}\"" >> "$target/cstrike/server.cfg"
+        fi
+        sed -i -E "s/^[[:space:]]*mix_base_hostname[[:space:]]+.*/mix_base_hostname \"${name}\"/" "$target/cstrike/server.cfg" 2>/dev/null || true
+        if ! grep -q 'mix_base_hostname' "$target/cstrike/server.cfg"; then
+            echo "mix_base_hostname \"${name}\"" >> "$target/cstrike/server.cfg"
+        fi
     fi
 
     # Configure plugins.ini for the selected mode
@@ -597,14 +612,22 @@ edit_server_settings() {
         return
     fi
 
-    [[ -n "$new_hostname" ]] && set_cfg_value "${server_dir}/cstrike/server.cfg" "hostname" "$new_hostname"
+    local effective_host="${new_hostname:-$new_name}"
+    if [[ -n "$effective_host" ]]; then
+        set_cfg_value "${server_dir}/cstrike/server.cfg" "hostname" "$effective_host"
+        set_cfg_value "${server_dir}/cstrike/server.cfg" "cw_base_hostname" "$effective_host"
+        set_cfg_value "${server_dir}/cstrike/server.cfg" "mix_base_hostname" "$effective_host"
+    fi
 
     if [[ "$id" == "main" ]]; then
         [[ -n "$new_port" ]] && set_start_value "${server_dir}/start.sh" "SERVER_PORT" "$new_port"
         [[ -n "$new_slots" ]] && set_start_value "${server_dir}/start.sh" "MAX_PLAYERS" "$new_slots"
         [[ -n "$new_map" ]] && set_start_value "${server_dir}/start.sh" "MAP" "$new_map"
+        [[ -n "$new_name" ]] && set_start_value "${server_dir}/start.sh" "SERVER_NAME" "$new_name"
+        [[ -n "$effective_host" ]] && set_start_value "${server_dir}/start.sh" "HOSTNAME" "$effective_host"
     else
-        [[ -n "$new_name" ]] && update_registry_field "$id" "name" "$new_name"
+        [[ -n "$new_name" ]] && { update_registry_field "$id" "name" "$new_name"; set_env_value "$env_file" "SERVER_NAME" "$new_name"; }
+        [[ -n "$effective_host" ]] && { update_registry_field "$id" "hostname" "$effective_host"; set_env_value "$env_file" "HOSTNAME" "$effective_host"; }
         [[ -n "$new_port" ]] && { set_env_value "$env_file" "SERVER_PORT" "$new_port"; update_registry_field "$id" "port" "$new_port"; }
         [[ -n "$new_slots" ]] && set_env_value "$env_file" "MAX_PLAYERS" "$new_slots"
         [[ -n "$new_map" ]] && set_env_value "$env_file" "MAP" "$new_map"

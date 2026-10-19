@@ -193,21 +193,40 @@ class ServerCmd {
         $settings = [
             'slots' => $defaultSlots,
             'map' => 'de_dust2',
-            'hostname' => $server['name'] ?? '',
+            'hostname' => $server['hostname'] ?? $server['name'] ?? '',
         ];
 
         $cfg = rtrim($server['server_dir'], '/') . '/cstrike/server.cfg';
         $glCfg = rtrim($server['server_dir'], '/') . '/cstrike/gameland.cfg';
+        $foundHost = '';
         if (is_file($cfg)) {
             $content = (string)file_get_contents($cfg);
-            if (preg_match('/^\s*hostname\s+"?([^"\r\n]+)"?/mi', $content, $m)) {
-                $settings['hostname'] = trim($m[1]);
+            if (preg_match('/^\s*(?:cw|mix)_base_hostname\s+"?([^"\r\n]+)"?/mi', $content, $m)) {
+                $foundHost = trim($m[1]);
+            } elseif (preg_match('/^\s*hostname\s+"?([^"\r\n]+)"?/mi', $content, $m)) {
+                $foundHost = trim($m[1]);
             }
         }
-        if (empty($settings['hostname']) && is_file($glCfg)) {
+        if (empty($foundHost) && is_file($glCfg)) {
             $content = (string)file_get_contents($glCfg);
-            if (preg_match('/^\s*hostname\s+"?([^"\r\n]+)"?/mi', $content, $m)) {
-                $settings['hostname'] = trim($m[1]);
+            if (preg_match('/^\s*(?:cw|mix)_base_hostname\s+"?([^"\r\n]+)"?/mi', $content, $m)) {
+                $foundHost = trim($m[1]);
+            } elseif (preg_match('/^\s*hostname\s+"?([^"\r\n]+)"?/mi', $content, $m)) {
+                $foundHost = trim($m[1]);
+            }
+        }
+
+        if ($foundHost !== '') {
+            $cleanHost = preg_replace('/\s*(\[CW[^\]]*\]|\[WarmUp\]|\[Pick\]|\[Knife\]|\|\s*CT\s*\[.*).*$/i', '', $foundHost);
+            $cleanHost = trim((string)$cleanHost);
+            if ($cleanHost !== '' && !in_array(strtolower($cleanHost), ['gameland', 'counter-strike 1.6 server'])) {
+                $settings['hostname'] = $cleanHost;
+            } elseif (!empty($server['hostname'])) {
+                $settings['hostname'] = $server['hostname'];
+            } elseif (!empty($server['name'])) {
+                $settings['hostname'] = $server['name'];
+            } else {
+                $settings['hostname'] = $cleanHost ?: 'GAMELAND';
             }
         }
 
@@ -363,6 +382,7 @@ class ServerCmd {
             foreach ($registry['servers'] as &$entry) {
                 if (($entry['id'] ?? '') === $id) {
                     $entry['name'] = $name;
+                    $entry['hostname'] = $hostname;
                     $entry['port'] = $port;
                     $entry['mode'] = $mode;
                     $entry['slots'] = $slots;
@@ -373,11 +393,15 @@ class ServerCmd {
             }
             self::writeRegistry($registry);
             self::updateEnvFile($id, [
+                'SERVER_NAME' => $name,
+                'HOSTNAME'    => $hostname,
                 'SERVER_PORT' => $port,
                 'MAX_PLAYERS' => $slots,
-                'MAP' => 'de_dust2',
+                'MAP'         => 'de_dust2',
             ]);
             self::writeServerCfgValue($serverDir, 'hostname', $hostname);
+            self::writeServerCfgValue($serverDir, 'cw_base_hostname', $hostname);
+            self::writeServerCfgValue($serverDir, 'mix_base_hostname', $hostname);
             self::writeServerCfgValue($serverDir, 'sv_visiblemaxplayers', (string)$slots);
         }
 
@@ -450,11 +474,26 @@ class ServerCmd {
         }
         $serverDir = $server['server_dir'];
 
-        if ($hostname !== '') {
-            self::writeServerCfgValue($serverDir, 'hostname', $hostname);
+        $effectiveHost = $hostname !== '' ? $hostname : $name;
+        if ($effectiveHost !== '') {
+            self::writeServerCfgValue($serverDir, 'hostname', $effectiveHost);
+            self::writeServerCfgValue($serverDir, 'cw_base_hostname', $effectiveHost);
+            self::writeServerCfgValue($serverDir, 'mix_base_hostname', $effectiveHost);
         }
         if ($rcon !== '') {
             self::writeServerCfgValue($serverDir, 'rcon_password', $rcon);
+        }
+
+        // Live RCON update if server is running so the user sees the change INSTANTLY
+        if ($effectiveHost !== '') {
+            try {
+                $rconObj = self::getRcon($id);
+                if ($rconObj && $rconObj->connect()) {
+                    $rconObj->rconCommand('cw_base_hostname "' . addslashes($effectiveHost) . '"');
+                    $rconObj->rconCommand('mix_base_hostname "' . addslashes($effectiveHost) . '"');
+                    $rconObj->rconCommand('hostname "' . addslashes($effectiveHost) . '"');
+                }
+            } catch (\Throwable $e) {}
         }
 
         if ($id === 'main') {
@@ -467,11 +506,19 @@ class ServerCmd {
             if ($map !== '') {
                 self::updateStartShValue($serverDir, 'MAP', $map);
             }
+            if ($name !== '') {
+                self::updateStartShValue($serverDir, 'SERVER_NAME', $name);
+            }
+            if ($effectiveHost !== '') {
+                self::updateStartShValue($serverDir, 'HOSTNAME', $effectiveHost);
+            }
         } else {
             $env = [];
             if ($slots) $env['MAX_PLAYERS'] = $slots;
             if ($port) $env['SERVER_PORT'] = $port;
             if ($map !== '') $env['MAP'] = $map;
+            if ($name !== '') $env['SERVER_NAME'] = $name;
+            if ($effectiveHost !== '') $env['HOSTNAME'] = $effectiveHost;
             if (!empty($env)) {
                 self::updateEnvFile($id, $env);
             }
@@ -480,6 +527,7 @@ class ServerCmd {
             foreach ($registry['servers'] as &$entry) {
                 if (($entry['id'] ?? '') === $id) {
                     if ($name !== '') $entry['name'] = $name;
+                    if ($effectiveHost !== '') $entry['hostname'] = $effectiveHost;
                     if ($port) $entry['port'] = $port;
                     if ($rcon !== '') $entry['rcon_password'] = $rcon;
                     if ($slots) $entry['slots'] = $slots;

@@ -69,21 +69,47 @@ HLTV_SESSION="${HLTV_SESSION:-gameland_hltv_${INSTANCE_ID}}"
 COMPRESSOR_SESSION="${COMPRESSOR_SESSION:-demo_compressor_${INSTANCE_ID}}"
 STEAMCMD_LINUX32="${STEAMCMD_LINUX32:-/opt/steamcmd/linux32}"
 
-# Dynamic hostname resolution from servers.json if not explicit or generic
+# Dynamic hostname resolution from servers.json / server.cfg if not explicit or generic
 if [[ -z "${HOSTNAME:-}" || "${HOSTNAME:-}" == "GAMELAND" ]]; then
     resolved_name=$(python3 -c '
-import json, sys
+import json, sys, re, os
 iid = sys.argv[1]
+sdir = sys.argv[2]
+# 1. Check servers.json (local and persistent)
 for p in ["/opt/gameland/server/instances/servers.json", "/opt/gameland/persistent/servers.json"]:
     try:
         with open(p) as f:
             for s in json.load(f).get("servers", []):
                 if s.get("id") == iid:
-                    print(s.get("hostname") or s.get("name") or "")
-                    sys.exit(0)
+                    h = s.get("hostname") or s.get("name") or ""
+                    if h:
+                        print(h)
+                        sys.exit(0)
     except Exception: pass
+
+# 2. Check instance server.cfg
+cfg = os.path.join(sdir, "cstrike", "server.cfg")
+if os.path.isfile(cfg):
+    try:
+        with open(cfg, "r", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("cw_base_hostname") or line.startswith("mix_base_hostname"):
+                    m = re.search(r"(?:cw|mix)_base_hostname\s+\"([^\"]+)\"", line)
+                    if m and m.group(1).strip():
+                        print(m.group(1).strip())
+                        sys.exit(0)
+                elif line.startswith("hostname"):
+                    m = re.search(r"hostname\s+\"([^\"]+)\"", line)
+                    if m and m.group(1).strip():
+                        clean = re.sub(r"\s*\[(CW|Pick|Knife|Live|WarmUp|Overtime|Paused|Final)[^\]]*\]", "", m.group(1), flags=re.I).strip()
+                        if clean and clean.lower() not in ["gameland", "counter-strike 1.6 server"]:
+                            print(clean)
+                            sys.exit(0)
+    except Exception: pass
+
 sys.exit(1)
-' "$INSTANCE_ID" 2>/dev/null || true)
+' "$INSTANCE_ID" "$SERVER_DIR" 2>/dev/null || true)
     if [[ -n "$resolved_name" ]]; then
         HOSTNAME="$resolved_name"
         SERVER_NAME="$resolved_name"
@@ -102,16 +128,24 @@ echo " IP: ${SERVER_IP} | Port: ${SERVER_PORT} | Slots: ${MAX_PLAYERS}"
 echo " Dir: ${SERVER_DIR}"
 echo "================================================="
 
-# Ensure instance server.cfg has its own unique hostname
+# Ensure instance server.cfg has its own unique hostname and base hostnames
 if [[ -f "${SERVER_DIR}/cstrike/server.cfg" ]]; then
     sed -i -E "s/^[[:space:]]*hostname[[:space:]]+.*/hostname \"${HOSTNAME}\"/" "${SERVER_DIR}/cstrike/server.cfg" 2>/dev/null || true
     if ! grep -q '^[[:space:]]*hostname' "${SERVER_DIR}/cstrike/server.cfg"; then
         echo "hostname \"${HOSTNAME}\"" >> "${SERVER_DIR}/cstrike/server.cfg"
     fi
+    sed -i -E "s/^[[:space:]]*cw_base_hostname[[:space:]]+.*/cw_base_hostname \"${HOSTNAME}\"/" "${SERVER_DIR}/cstrike/server.cfg" 2>/dev/null || true
+    if ! grep -q '^[[:space:]]*cw_base_hostname' "${SERVER_DIR}/cstrike/server.cfg"; then
+        echo "cw_base_hostname \"${HOSTNAME}\"" >> "${SERVER_DIR}/cstrike/server.cfg"
+    fi
+    sed -i -E "s/^[[:space:]]*mix_base_hostname[[:space:]]+.*/mix_base_hostname \"${HOSTNAME}\"/" "${SERVER_DIR}/cstrike/server.cfg" 2>/dev/null || true
+    if ! grep -q '^[[:space:]]*mix_base_hostname' "${SERVER_DIR}/cstrike/server.cfg"; then
+        echo "mix_base_hostname \"${HOSTNAME}\"" >> "${SERVER_DIR}/cstrike/server.cfg"
+    fi
 fi
 # Strip any hardcoded hostname from gameland.cfg in instance folder
 if [[ -f "${SERVER_DIR}/cstrike/gameland.cfg" ]]; then
-    sed -i -E '/^[[:space:]]*hostname[[:space:]]+/d' "${SERVER_DIR}/cstrike/gameland.cfg" 2>/dev/null || true
+    sed -i -E '/^[[:space:]]*(hostname|cw_base_hostname|mix_base_hostname)[[:space:]]+/d' "${SERVER_DIR}/cstrike/gameland.cfg" 2>/dev/null || true
 fi
 
 # Clean any existing sessions for this instance
@@ -155,6 +189,8 @@ for attempt in 1 2 3; do
                 -ip ${SERVER_IP} \
                 +port ${SERVER_PORT} \
                 +hostname \"${HOSTNAME}\" \
+                +cw_base_hostname \"${HOSTNAME}\" \
+                +mix_base_hostname \"${HOSTNAME}\" \
                 +map ${MAP} \
                 +maxplayers ${MAX_PLAYERS} \
                 +sv_lan 0 \

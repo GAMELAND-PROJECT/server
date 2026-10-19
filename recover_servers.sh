@@ -48,10 +48,16 @@ def parse_server_cfg(cfg_path):
         with open(cfg_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 line = line.strip()
-                if line.startswith("hostname"):
-                    m = re.search(r'hostname\s+"?([^"]+)"?', line)
-                    if m:
+                if line.startswith("cw_base_hostname") or line.startswith("mix_base_hostname"):
+                    m = re.search(r'(?:cw|mix)_base_hostname\s+"?([^"]+)"?', line)
+                    if m and m.group(1).strip():
                         info["name"] = m.group(1).strip()
+                elif line.startswith("hostname") and not info.get("name"):
+                    m = re.search(r'hostname\s+"?([^"]+)"?', line)
+                    if m and m.group(1).strip():
+                        clean = re.sub(r'\s*\[(CW|Pick|Knife|Live|WarmUp|Overtime|Paused|Final)[^\]]*\]', '', m.group(1), flags=re.I).strip()
+                        if clean and clean.lower() not in ["gameland", "counter-strike 1.6 server"]:
+                            info["name"] = clean
                 elif line.startswith("rcon_password"):
                     m = re.search(r'rcon_password\s+"?([^"]+)"?', line)
                     if m:
@@ -102,12 +108,14 @@ for env_file in glob.glob(os.path.join(instances_dir, "*.env")):
         server_dir = env_data.get("SERVER_DIR", os.path.join(instance_root, inst_id))
         port = int(env_data.get("SERVER_PORT", 27016))
         cfg_info = parse_server_cfg(os.path.join(server_dir, "cstrike", "server.cfg"))
-        name = cfg_info["name"] or f"GameLand CS 1.6 {inst_id}"
+        name = env_data.get("SERVER_NAME") or env_data.get("HOSTNAME") or cfg_info["name"] or f"GameLand CS 1.6 {inst_id}"
+        hostname = env_data.get("HOSTNAME") or cfg_info["name"] or name
         rcon = cfg_info["rcon"]
         mode, slots = detect_mode_and_slots(server_dir, env_data)
         discovered[inst_id] = {
             "id": inst_id,
             "name": name,
+            "hostname": hostname,
             "ip": "127.0.0.1",
             "port": port,
             "rcon_password": rcon,
@@ -126,10 +134,13 @@ if os.path.isdir(instance_root):
             cfg_info = parse_server_cfg(os.path.join(inst_dir, "cstrike", "server.cfg"))
             env_data = parse_env_file(env_candidate) if os.path.isfile(env_candidate) else {}
             port = int(env_data.get("SERVER_PORT", 27016))
+            name = env_data.get("SERVER_NAME") or env_data.get("HOSTNAME") or cfg_info["name"] or f"GameLand CS 1.6 {entry}"
+            hostname = env_data.get("HOSTNAME") or cfg_info["name"] or name
             mode, slots = detect_mode_and_slots(inst_dir, env_data)
             discovered[entry] = {
                 "id": entry,
-                "name": cfg_info["name"] or f"GameLand CS 1.6 {entry}",
+                "name": name,
+                "hostname": hostname,
                 "ip": "127.0.0.1",
                 "port": port,
                 "rcon_password": cfg_info["rcon"],

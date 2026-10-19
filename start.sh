@@ -30,11 +30,30 @@ if [ -f "$PLUGINS_INI" ]; then
     fi
 fi
 
+# Dynamic hostname resolution
+HOSTNAME="${HOSTNAME:-${SERVER_NAME:-}}"
+if [ -z "$HOSTNAME" ] && [ -f "${SCRIPT_DIR}/cstrike/server.cfg" ]; then
+    HOSTNAME=$(grep -E '^[[:space:]]*(cw_base_hostname|mix_base_hostname|hostname)[[:space:]]+"' "${SCRIPT_DIR}/cstrike/server.cfg" | head -n 1 | sed -E 's/^[[:space:]]*[a-zA-Z0-9_]+[[:space:]]+"([^"]+)".*/\1/' || true)
+fi
+HOSTNAME="${HOSTNAME:-GameLand CS 1.6 #1 (Competitive)}"
+
+if [ -f "${SCRIPT_DIR}/cstrike/server.cfg" ]; then
+    sed -i -E "s/^[[:space:]]*cw_base_hostname[[:space:]]+.*/cw_base_hostname \"${HOSTNAME}\"/" "${SCRIPT_DIR}/cstrike/server.cfg" 2>/dev/null || true
+    if ! grep -q 'cw_base_hostname' "${SCRIPT_DIR}/cstrike/server.cfg"; then
+        echo "cw_base_hostname \"${HOSTNAME}\"" >> "${SCRIPT_DIR}/cstrike/server.cfg"
+    fi
+    sed -i -E "s/^[[:space:]]*mix_base_hostname[[:space:]]+.*/mix_base_hostname \"${HOSTNAME}\"/" "${SCRIPT_DIR}/cstrike/server.cfg" 2>/dev/null || true
+    if ! grep -q 'mix_base_hostname' "${SCRIPT_DIR}/cstrike/server.cfg"; then
+        echo "mix_base_hostname \"${HOSTNAME}\"" >> "${SCRIPT_DIR}/cstrike/server.cfg"
+    fi
+fi
+
 STEAMCMD_LINUX32="/opt/steamcmd/linux32"
 export LD_LIBRARY_PATH="${SCRIPT_DIR}:${STEAMCMD_LINUX32}:${LD_LIBRARY_PATH:-}"
 
 echo "================================================="
 echo " Starting GameLand CS 1.6 Server...              "
+echo " Hostname: $HOSTNAME"
 echo " IP: $SERVER_IP | Port: $SERVER_PORT | Slots: $MAX_PLAYERS"
 echo " Dir: $SCRIPT_DIR                                "
 echo " HLTV: Completely DISABLED                       "
@@ -101,6 +120,9 @@ tmux new-session -d -s gameland_server \
         ./hlds_linux -game cstrike -console \
             -ip ${SERVER_IP} \
             +port ${SERVER_PORT} \
+            +hostname "${HOSTNAME}" \
+            +cw_base_hostname "${HOSTNAME}" \
+            +mix_base_hostname "${HOSTNAME}" \
             +map ${MAP} \
             +maxplayers ${MAX_PLAYERS} \
             +sv_lan 0 \
