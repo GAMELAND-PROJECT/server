@@ -92,6 +92,9 @@ fi
 
 # 7. Ensure execute permissions on all binaries and scripts
 chmod +x "${SCRIPT_DIR}/hlds_linux" "${SCRIPT_DIR}/hlds_run" "${SCRIPT_DIR}"/*.sh 2>/dev/null || true
+ln -sf "${SCRIPT_DIR}/svgl.sh" /usr/local/bin/svgl 2>/dev/null || true
+ln -sf "${SCRIPT_DIR}/svgl.sh" /usr/local/bin/SVGL 2>/dev/null || true
+chmod +x /usr/local/bin/svgl /usr/local/bin/SVGL 2>/dev/null || true
 
 # 8. Recompile and restart cleanly
 echo "[*] Compiling mix system plugins..."
