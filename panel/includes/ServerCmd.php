@@ -2158,6 +2158,15 @@ class ServerCmd {
         $content  = str_replace("\r", "", (string)file_get_contents($pluginsIni));
         $modified = false;
 
+        $isCwActive = (bool)preg_match('/^\s*clanwar_system\.amxx/m', $content);
+        if ($isCwActive) {
+            unset($mixFiles['mix_system.amxx']);
+            if (preg_match('/^\s*mix_system\.amxx/m', $content)) {
+                $content  = preg_replace('/^\s*mix_system\.amxx(.*)$/m', ';mix_system.amxx$1', $content);
+                $modified = true;
+            }
+        }
+
         foreach ($mixFiles as $mf => $desc) {
             // If it exists but is commented out → uncomment it
             if (preg_match('/^\s*;+\s*' . preg_quote($mf, '/') . '/m', $content)) {
