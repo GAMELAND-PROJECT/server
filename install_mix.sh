@@ -21,10 +21,36 @@ chmod -R 777 "${CONFIGS_DIR}" 2>/dev/null || true
 chmod 666 "${CONFIGS_DIR}"/*.ini 2>/dev/null || true
 chown -R www-data:www-data "${CONFIGS_DIR}" 2>/dev/null || true
 
+# Auto-sanitize gameland.service if legacy dangerous directives exist
+if [ -f "/etc/systemd/system/gameland.service" ]; then
+    if grep -qE 'pkill -9 -f hlds_linux|killall -9 hlds_linux' "/etc/systemd/system/gameland.service" 2>/dev/null; then
+        sed -i -E 's/pkill -9 -f hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
+        sed -i -E 's/killall -9 hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+    fi
+fi
+
+# Parse operational mode flags
+DO_SYNC_ALL=false
+DO_RESTART=true
+TARGET_INSTANCE=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --sync-all) DO_SYNC_ALL=true ;;
+        --no-restart) DO_RESTART=false ;;
+        --instance=*) TARGET_INSTANCE="${arg#*=}" ;;
+    esac
+done
+
+if [ "${1:-}" = "--instance" ] && [ -n "${2:-}" ]; then
+    TARGET_INSTANCE="$2"
+fi
+
 # Install or refresh dynamic forwarder wrapper to /usr/local/sbin/gameland-panel-sudo
-cat > /usr/local/sbin/gameland-panel-sudo << 'EOF'
+cat > /usr/local/sbin/gameland-panel-sudo << EOF
 #!/bin/bash
-exec /bin/bash /opt/gameland/server/panel/gameland-panel-sudo.sh "$@"
+exec /bin/bash "${PROJECT_DIR}/panel/gameland-panel-sudo.sh" "\$@"
 EOF
 chmod 0755 /usr/local/sbin/gameland-panel-sudo 2>/dev/null || true
 
@@ -220,10 +246,164 @@ elif grep -Eq '^[[:space:]]*mix_system\.amxx' "${CONFIGS_DIR}/plugins.ini" 2>/de
     echo "  -> 5v5 Match active: set MAX_PLAYERS to 18"
 fi
 
-# Instances synchronization & automatic multi-server restart
-if [ "${1:-}" == "--sync-all" ]; then
-    echo "[*] Synchronizing updated plugins to all registered server instances..."
-    
+# Helper function to sync compiled plugins, dictionaries, and configs to a specific instance
+sync_instance_files() {
+    local s_id="$1"
+    local target_dir="/opt/gameland/instances/${s_id}"
+    if [ ! -d "$target_dir" ] && [ -d "${PROJECT_DIR}/instances/${s_id}" ]; then
+        target_dir="${PROJECT_DIR}/instances/${s_id}"
+    fi
+
+    if [ ! -d "${target_dir}/cstrike/addons/amxmodx/plugins" ]; then
+        echo "  [WARN] Instance '${s_id}' directory not found: ${target_dir}"
+        return 1
+    fi
+
+    # Sync all compiled plugins
+    cp -f "${PLUGINS_DIR}"/*.amxx "${target_dir}/cstrike/addons/amxmodx/plugins/" 2>/dev/null || true
+    chmod 666 "${target_dir}/cstrike/addons/amxmodx/plugins/"*.amxx 2>/dev/null || true
+
+    # Sync language dictionary files
+    mkdir -p "${target_dir}/cstrike/addons/amxmodx/data/lang" 2>/dev/null || true
+    cp -rf "${PROJECT_DIR}/cstrike/addons/amxmodx/data/lang"/* "${target_dir}/cstrike/addons/amxmodx/data/lang/" 2>/dev/null || true
+
+    # Sync match and rules configs (stop.cfg, start.cfg, clanwar.cfg, etc.)
+    for cfg_name in stop.cfg start.cfg clanwar.cfg warmup.cfg knife.cfg live.cfg game_init.cfg rehlds.cfg; do
+        if [ -f "${PROJECT_DIR}/cstrike/${cfg_name}" ]; then
+            cp -f "${PROJECT_DIR}/cstrike/${cfg_name}" "${target_dir}/cstrike/" 2>/dev/null || true
+        fi
+    done
+    if [ ! -f "${target_dir}/cstrike/server.cfg" ] && [ -f "${PROJECT_DIR}/cstrike/server.cfg" ]; then
+        cp -f "${PROJECT_DIR}/cstrike/server.cfg" "${target_dir}/cstrike/" 2>/dev/null || true
+    fi
+
+    # Hitbox fixer config
+    if [ -d "${target_dir}/cstrike/addons/hitbox_fixer" ]; then
+        mkdir -p "${target_dir}/cstrike/addons/hitbox_fixer/dlls" 2>/dev/null || true
+        if [ -f "${PROJECT_DIR}/cstrike/addons/hitbox_fixer/hbf.cfg" ]; then
+            cp -f "${PROJECT_DIR}/cstrike/addons/hitbox_fixer/hbf.cfg" "${target_dir}/cstrike/addons/hitbox_fixer/dlls/hbf.cfg" 2>/dev/null || true
+            cp -f "${PROJECT_DIR}/cstrike/addons/hitbox_fixer/hbf.cfg" "${target_dir}/cstrike/addons/hitbox_fixer/hbf.cfg" 2>/dev/null || true
+        fi
+    fi
+
+    mkdir -p "${target_dir}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
+    cp -f "${CONFIGS_DIR}"/ClanWarSettings.ini "${target_dir}/cstrike/addons/amxmodx/configs/" 2>/dev/null || true
+    cp -f "${CONFIGS_DIR}"/MixSettings.ini "${target_dir}/cstrike/addons/amxmodx/configs/" 2>/dev/null || true
+    for cfg_f in "${CONFIGS_DIR}"/*.cfg; do
+        if [ -f "$cfg_f" ]; then
+            fname="$(basename "$cfg_f")"
+            if [ "$fname" = "amxx.cfg" ] && [ -f "${target_dir}/cstrike/addons/amxmodx/configs/amxx.cfg" ]; then
+                continue
+            fi
+            cp -f "$cfg_f" "${target_dir}/cstrike/addons/amxmodx/configs/" 2>/dev/null || true
+        fi
+    done
+
+    # Resolve instance specific hostname from servers.json
+    inst_hostname=$(python3 -c '
+import json, sys
+iid = sys.argv[1]
+for p in ["'"${PROJECT_DIR}"'/instances/servers.json", "/opt/gameland/persistent/servers.json"]:
+    try:
+        with open(p) as f:
+            for s in json.load(f).get("servers", []):
+                if s.get("id") == iid:
+                    print(s.get("hostname") or s.get("name") or "")
+                    sys.exit(0)
+    except Exception: pass
+sys.exit(1)
+' "$s_id" 2>/dev/null || true)
+    if [ -n "$inst_hostname" ]; then
+        if [ -f "${target_dir}/cstrike/server.cfg" ]; then
+            sed -i -E "s/^[[:space:]]*hostname[[:space:]]+.*/hostname \"${inst_hostname}\"/" "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
+            if ! grep -q '^[[:space:]]*hostname' "${target_dir}/cstrike/server.cfg"; then
+                echo "hostname \"${inst_hostname}\"" >> "${target_dir}/cstrike/server.cfg"
+            fi
+            sed -i -E "s/^[[:space:]]*cw_base_hostname[[:space:]]+.*/cw_base_hostname \"${inst_hostname}\"/" "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
+            if ! grep -q '^[[:space:]]*cw_base_hostname' "${target_dir}/cstrike/server.cfg"; then
+                echo "cw_base_hostname \"${inst_hostname}\"" >> "${target_dir}/cstrike/server.cfg"
+            fi
+            sed -i -E "s/^[[:space:]]*mix_base_hostname[[:space:]]+.*/mix_base_hostname \"${inst_hostname}\"/" "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
+            if ! grep -q '^[[:space:]]*mix_base_hostname' "${target_dir}/cstrike/server.cfg"; then
+                echo "mix_base_hostname \"${inst_hostname}\"" >> "${target_dir}/cstrike/server.cfg"
+            fi
+        fi
+        if [ -f "${target_dir}/cstrike/gameland.cfg" ]; then
+            sed -i -E '/^[[:space:]]*(hostname|cw_base_hostname|mix_base_hostname)[[:space:]]+/d' "${target_dir}/cstrike/gameland.cfg" 2>/dev/null || true
+        fi
+        if [ -f "${PROJECT_DIR}/instances/${s_id}.env" ]; then
+            sed -i -E "s/^[[:space:]]*HOSTNAME=.*/HOSTNAME=\"${inst_hostname}\"/" "${PROJECT_DIR}/instances/${s_id}.env" 2>/dev/null || true
+            sed -i -E "s/^[[:space:]]*SERVER_NAME=.*/SERVER_NAME=\"${inst_hostname}\"/" "${PROJECT_DIR}/instances/${s_id}.env" 2>/dev/null || true
+            if ! grep -q '^HOSTNAME=' "${PROJECT_DIR}/instances/${s_id}.env"; then
+                echo "HOSTNAME=\"${inst_hostname}\"" >> "${PROJECT_DIR}/instances/${s_id}.env"
+            fi
+        fi
+        amxx_cfg="${target_dir}/cstrike/addons/amxmodx/configs/amxx.cfg"
+        if [ -f "$amxx_cfg" ]; then
+            sed -i -E '/^[[:space:]]*(cw_base_hostname|mix_base_hostname)[[:space:]]+/d' "$amxx_cfg" 2>/dev/null || true
+            echo "cw_base_hostname \"${inst_hostname}\"" >> "$amxx_cfg"
+            echo "mix_base_hostname \"${inst_hostname}\"" >> "$amxx_cfg"
+        fi
+    fi
+
+    # Ensure semiclip disabled (solid competitive collision)
+    if [ -f "${target_dir}/cstrike/server.cfg" ]; then
+        sed -i -E 's/^[[:space:]]*mp_semiclip[[:space:]]+.*/mp_semiclip 0/' "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
+        sed -i -E 's/^[[:space:]]*mp_semiclip_actions[[:space:]]+.*/mp_semiclip_actions 0/' "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
+    fi
+
+    # Enforce mutual exclusion in instance plugins.ini
+    inst_pini="${target_dir}/cstrike/addons/amxmodx/configs/plugins.ini"
+    if [ -f "$inst_pini" ]; then
+        if grep -qE '^[[:space:]]*clanwar_system\.amxx([[:space:]]|$)' "$inst_pini"; then
+            sed -i -E 's/^[[:space:]]*mix_system\.amxx([[:space:]].*)?$/;mix_system.amxx\t; GAMELAND 5v5 mix and match manager/' "$inst_pini" 2>/dev/null || true
+        elif grep -qE '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "$inst_pini"; then
+            sed -i -E 's/^[[:space:]]*clanwar_system\.amxx([[:space:]].*)?$/;clanwar_system.amxx\t; GAMELAND 10-slot Clan War Mode manager/' "$inst_pini" 2>/dev/null || true
+        fi
+    fi
+
+    chmod +x "${target_dir}/hlds_linux" "${target_dir}/hlds_run" "${target_dir}"/*.sh 2>/dev/null || true
+    chown -R www-data:www-data "${target_dir}/cstrike/addons/amxmodx" 2>/dev/null || true
+    return 0
+}
+
+# ─── CASE A: Target Single Isolated Instance ───────────────────
+if [ -n "$TARGET_INSTANCE" ] && [ "$TARGET_INSTANCE" != "main" ]; then
+    echo "[*] Exclusively compiling and synchronizing instance: '$TARGET_INSTANCE'..."
+    if sync_instance_files "$TARGET_INSTANCE"; then
+        echo "  -> Synced plugins and configs to instance '$TARGET_INSTANCE'."
+        if [ "$DO_RESTART" = true ]; then
+            svc="gameland@${TARGET_INSTANCE}.service"
+            if systemctl is-active --quiet "$svc" 2>/dev/null || systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+                echo "  -> Restarting instance '$TARGET_INSTANCE' ($svc)..."
+                systemctl restart "$svc" 2>/dev/null || true
+                sleep 2.0
+                if systemctl is-active --quiet "$svc" 2>/dev/null && tmux has-session -t "gameland_${TARGET_INSTANCE}" 2>/dev/null; then
+                    echo "     [✔ RUNNING] Instance '$TARGET_INSTANCE' is active and online!"
+                else
+                    echo "     [!] Retrying startup for '$TARGET_INSTANCE'..."
+                    systemctl restart "$svc" 2>/dev/null || true
+                    sleep 2.0
+                fi
+            fi
+        fi
+    fi
+    echo "[SUCCESS] Instance '$TARGET_INSTANCE' updated cleanly with zero impact on other servers!"
+    exit 0
+fi
+
+# ─── CASE B: Synchronize All Instances (Staggered Sequence) ───
+if [ "$DO_SYNC_ALL" = true ]; then
+    echo "[*] Synchronizing updated plugins to all registered server instances (Staggered)..."
+
+    # Restart main FIRST if active, so instances follow sequentially
+    if [ "$DO_RESTART" = true ] && systemctl is-active --quiet gameland.service 2>/dev/null; then
+        echo "  -> Restarting main server (gameland.service)..."
+        systemctl restart gameland.service 2>/dev/null || true
+        echo "     [*] Waiting 2.5s for main server startup stabilization..."
+        sleep 2.5
+    fi
+
     # 1. Collect all known instance IDs from servers.json and /opt/gameland/instances
     declare -A SEEN_INSTANCES
     INST_LIST=()
@@ -236,8 +416,7 @@ if [ "${1:-}" == "--sync-all" ]; then
                     SEEN_INSTANCES["$s_id"]=1
                     INST_LIST+=("$s_id")
                 fi
-            done < <(python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); print("
-".join([str(s.get("id","")) for s in d.get("servers",[]) if s.get("id")]))' "$reg_json" 2>/dev/null || true)
+            done < <(python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); print("\n".join([str(s.get("id","")) for s in d.get("servers",[]) if s.get("id")]))' "$reg_json" 2>/dev/null || true)
         fi
     done
 
@@ -252,136 +431,21 @@ if [ "${1:-}" == "--sync-all" ]; then
         fi
     done
 
-    # 2. Sync plugins and restart instances with clean status checking
+    # 2. Sync plugins and restart instances sequentially
     synced_count=0
     for s_id in "${INST_LIST[@]}"; do
-        # Determine instance directory
-        target_dir="/opt/gameland/instances/${s_id}"
-        if [ ! -d "$target_dir" ] && [ -d "${PROJECT_DIR}/instances/${s_id}" ]; then
-            target_dir="${PROJECT_DIR}/instances/${s_id}"
-        fi
-
-        if [ -d "${target_dir}/cstrike/addons/amxmodx/plugins" ]; then
-            # Sync all compiled plugins
-            cp -f "${PLUGINS_DIR}"/*.amxx "${target_dir}/cstrike/addons/amxmodx/plugins/" 2>/dev/null || true
-            chmod 666 "${target_dir}/cstrike/addons/amxmodx/plugins/"*.amxx 2>/dev/null || true
-
-            # Sync language dictionary files
-            mkdir -p "${target_dir}/cstrike/addons/amxmodx/data/lang" 2>/dev/null || true
-            cp -rf "${PROJECT_DIR}/cstrike/addons/amxmodx/data/lang"/* "${target_dir}/cstrike/addons/amxmodx/data/lang/" 2>/dev/null || true
-
-            # Sync match and rules configs (stop.cfg, start.cfg, clanwar.cfg, etc.)
-            for cfg_name in stop.cfg start.cfg clanwar.cfg warmup.cfg knife.cfg live.cfg game_init.cfg rehlds.cfg; do
-                if [ -f "${PROJECT_DIR}/cstrike/${cfg_name}" ]; then
-                    cp -f "${PROJECT_DIR}/cstrike/${cfg_name}" "${target_dir}/cstrike/" 2>/dev/null || true
-                fi
-            done
-            if [ ! -f "${target_dir}/cstrike/server.cfg" ] && [ -f "${PROJECT_DIR}/cstrike/server.cfg" ]; then
-                cp -f "${PROJECT_DIR}/cstrike/server.cfg" "${target_dir}/cstrike/" 2>/dev/null || true
-            fi
-
-            # Hitbox fixer config
-            if [ -d "${target_dir}/cstrike/addons/hitbox_fixer" ]; then
-                mkdir -p "${target_dir}/cstrike/addons/hitbox_fixer/dlls" 2>/dev/null || true
-                if [ -f "${PROJECT_DIR}/cstrike/addons/hitbox_fixer/hbf.cfg" ]; then
-                    cp -f "${PROJECT_DIR}/cstrike/addons/hitbox_fixer/hbf.cfg" "${target_dir}/cstrike/addons/hitbox_fixer/dlls/hbf.cfg" 2>/dev/null || true
-                    cp -f "${PROJECT_DIR}/cstrike/addons/hitbox_fixer/hbf.cfg" "${target_dir}/cstrike/addons/hitbox_fixer/hbf.cfg" 2>/dev/null || true
-                fi
-            fi
-
-            mkdir -p "${target_dir}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
-            cp -f "${CONFIGS_DIR}"/ClanWarSettings.ini "${target_dir}/cstrike/addons/amxmodx/configs/" 2>/dev/null || true
-            cp -f "${CONFIGS_DIR}"/MixSettings.ini "${target_dir}/cstrike/addons/amxmodx/configs/" 2>/dev/null || true
-            for cfg_f in "${CONFIGS_DIR}"/*.cfg; do
-                if [ -f "$cfg_f" ]; then
-                    fname="$(basename "$cfg_f")"
-                    if [ "$fname" = "amxx.cfg" ] && [ -f "${target_dir}/cstrike/addons/amxmodx/configs/amxx.cfg" ]; then
-                        continue
-                    fi
-                    cp -f "$cfg_f" "${target_dir}/cstrike/addons/amxmodx/configs/" 2>/dev/null || true
-                fi
-            done
-
-            # Resolve instance specific hostname from servers.json
-            inst_hostname=$(python3 -c '
-import json, sys
-iid = sys.argv[1]
-for p in ["'"${PROJECT_DIR}"'/instances/servers.json", "/opt/gameland/persistent/servers.json"]:
-    try:
-        with open(p) as f:
-            for s in json.load(f).get("servers", []):
-                if s.get("id") == iid:
-                    print(s.get("hostname") or s.get("name") or "")
-                    sys.exit(0)
-    except Exception: pass
-sys.exit(1)
-' "$s_id" 2>/dev/null || true)
-            if [ -n "$inst_hostname" ]; then
-                if [ -f "${target_dir}/cstrike/server.cfg" ]; then
-                    sed -i -E "s/^[[:space:]]*hostname[[:space:]]+.*/hostname \"${inst_hostname}\"/" "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
-                    if ! grep -q '^[[:space:]]*hostname' "${target_dir}/cstrike/server.cfg"; then
-                        echo "hostname \"${inst_hostname}\"" >> "${target_dir}/cstrike/server.cfg"
-                    fi
-                    sed -i -E "s/^[[:space:]]*cw_base_hostname[[:space:]]+.*/cw_base_hostname \"${inst_hostname}\"/" "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
-                    if ! grep -q '^[[:space:]]*cw_base_hostname' "${target_dir}/cstrike/server.cfg"; then
-                        echo "cw_base_hostname \"${inst_hostname}\"" >> "${target_dir}/cstrike/server.cfg"
-                    fi
-                    sed -i -E "s/^[[:space:]]*mix_base_hostname[[:space:]]+.*/mix_base_hostname \"${inst_hostname}\"/" "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
-                    if ! grep -q '^[[:space:]]*mix_base_hostname' "${target_dir}/cstrike/server.cfg"; then
-                        echo "mix_base_hostname \"${inst_hostname}\"" >> "${target_dir}/cstrike/server.cfg"
-                    fi
-                fi
-                if [ -f "${target_dir}/cstrike/gameland.cfg" ]; then
-                    sed -i -E '/^[[:space:]]*(hostname|cw_base_hostname|mix_base_hostname)[[:space:]]+/d' "${target_dir}/cstrike/gameland.cfg" 2>/dev/null || true
-                fi
-                if [ -f "${PROJECT_DIR}/instances/${s_id}.env" ]; then
-                    sed -i -E "s/^[[:space:]]*HOSTNAME=.*/HOSTNAME=\"${inst_hostname}\"/" "${PROJECT_DIR}/instances/${s_id}.env" 2>/dev/null || true
-                    sed -i -E "s/^[[:space:]]*SERVER_NAME=.*/SERVER_NAME=\"${inst_hostname}\"/" "${PROJECT_DIR}/instances/${s_id}.env" 2>/dev/null || true
-                    if ! grep -q '^HOSTNAME=' "${PROJECT_DIR}/instances/${s_id}.env"; then
-                        echo "HOSTNAME=\"${inst_hostname}\"" >> "${PROJECT_DIR}/instances/${s_id}.env"
-                    fi
-                fi
-                # Also set in amxx.cfg so match plugins have direct access
-                amxx_cfg="${target_dir}/cstrike/addons/amxmodx/configs/amxx.cfg"
-                if [ -f "$amxx_cfg" ]; then
-                    sed -i -E '/^[[:space:]]*(cw_base_hostname|mix_base_hostname)[[:space:]]+/d' "$amxx_cfg" 2>/dev/null || true
-                    echo "cw_base_hostname \"${inst_hostname}\"" >> "$amxx_cfg"
-                    echo "mix_base_hostname \"${inst_hostname}\"" >> "$amxx_cfg"
-                fi
-            fi
-
-            # Ensure instance server.cfg has semiclip disabled (solid collision)
-            if [ -f "${target_dir}/cstrike/server.cfg" ]; then
-                sed -i -E 's/^[[:space:]]*mp_semiclip[[:space:]]+.*/mp_semiclip 0/' "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
-                sed -i -E 's/^[[:space:]]*mp_semiclip_actions[[:space:]]+.*/mp_semiclip_actions 0/' "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
-            fi
-
-            # Ensure instance plugins.ini strictly enforces mutual exclusion
-            inst_pini="${target_dir}/cstrike/addons/amxmodx/configs/plugins.ini"
-            if [ -f "$inst_pini" ]; then
-                if grep -qE '^[[:space:]]*clanwar_system\.amxx([[:space:]]|$)' "$inst_pini"; then
-                    sed -i -E 's/^[[:space:]]*mix_system\.amxx([[:space:]].*)?$/;mix_system.amxx\t; GAMELAND 5v5 mix and match manager/' "$inst_pini" 2>/dev/null || true
-                elif grep -qE '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "$inst_pini"; then
-                    sed -i -E 's/^[[:space:]]*clanwar_system\.amxx([[:space:]].*)?$/;clanwar_system.amxx\t; GAMELAND 10-slot Clan War Mode manager/' "$inst_pini" 2>/dev/null || true
-                fi
-            fi
-
-            chmod +x "${target_dir}/hlds_linux" "${target_dir}/hlds_run" "${target_dir}"/*.sh 2>/dev/null || true
-            chown -R www-data:www-data "${target_dir}/cstrike/addons/amxmodx" 2>/dev/null || true
+        if sync_instance_files "$s_id"; then
             synced_count=$((synced_count + 1))
-
             svc="gameland@${s_id}.service"
-            # Check if active OR enabled in systemd
             was_active=false
-            if systemctl is-active --quiet "$svc" 2>/dev/null; then
-                was_active=true
-            elif systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+            if systemctl is-active --quiet "$svc" 2>/dev/null || systemctl is-enabled --quiet "$svc" 2>/dev/null; then
                 was_active=true
             fi
 
-            if [ "$was_active" = true ]; then
+            if [ "$was_active" = true ] && [ "$DO_RESTART" = true ]; then
                 echo "  -> Restarting instance '$s_id' ($svc)..."
                 systemctl restart "$svc" 2>/dev/null || true
+                echo "     [*] Waiting 2.5s before next instance..."
                 sleep 2.5
                 if systemctl is-active --quiet "$svc" 2>/dev/null && tmux has-session -t "gameland_${s_id}" 2>/dev/null; then
                     echo "     [✔ RUNNING] Instance '$s_id' is active and online!"
@@ -389,11 +453,6 @@ sys.exit(1)
                     echo "     [!] Retrying startup for '$s_id'..."
                     systemctl restart "$svc" 2>/dev/null || true
                     sleep 2.0
-                    if systemctl is-active --quiet "$svc" 2>/dev/null && tmux has-session -t "gameland_${s_id}" 2>/dev/null; then
-                        echo "     [✔ RUNNING] Instance '$s_id' is active!"
-                    else
-                        echo "     [✖ FAILED] Check logs: /opt/gameland/instances/${s_id}/logs/server_${s_id}.log"
-                    fi
                 fi
             else
                 echo "  -> Synced plugins to stopped instance '$s_id'."
@@ -401,6 +460,8 @@ sys.exit(1)
         fi
     done
     echo "[*] Total instances synchronized: $synced_count"
+    echo "[SUCCESS] Multi-server synchronized staggered successfully!"
+    exit 0
 else
     echo "[*] Server instances remain isolated and untouched (full independence)."
 fi
@@ -446,8 +507,10 @@ if [ -f "/etc/systemd/system/gameland.service" ] && grep -q '\${PROJECT_ROOT}' /
 fi
 systemctl daemon-reload 2>/dev/null || true
 
-echo " Restarting gameland.service to load plugins..."
-systemctl restart gameland.service 2>/dev/null || true
-sleep 2
-systemctl status gameland.service --no-pager 2>/dev/null || true
+if [ "$DO_RESTART" = true ]; then
+    echo " Restarting gameland.service to load plugins..."
+    systemctl restart gameland.service 2>/dev/null || true
+    sleep 2
+    systemctl status gameland.service --no-pager 2>/dev/null || true
+fi
 

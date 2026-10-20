@@ -640,37 +640,27 @@ class ServerCmd {
             $sudoOut = trim((string)@shell_exec("sudo -n {$cleanH} service is-active {$cleanSvc} 2>&1"));
             if ($sudoOut === 'active') {
                 return 'running';
-            } elseif ($sudoOut === 'inactive') {
-                return 'stopped';
             }
         }
 
-        // 2. Direct systemctl check
-        $cleanService = escapeshellarg($serviceName);
-        $output = @shell_exec("systemctl is-active {$cleanService} 2>&1");
-        $status = trim((string)$output);
-        if ($status !== 'active') {
-            return 'stopped';
-        }
-
-        // 3. Fast UDP A2S query check if port is known
+        // 2. Fast UDP A2S query or socket listener check if port is known (Absolute Ground Truth)
         if ($port > 0) {
             $portInt = (int)$port;
             try {
-                $rcon = new \GoldSourceRcon('127.0.0.1', $portInt, '', 0.3);
+                $rcon = new \GoldSourceRcon('127.0.0.1', $portInt, '', 0.25);
                 $info = $rcon->getInfo();
                 if ($info !== false && is_array($info)) {
                     return 'running';
                 }
             } catch (\Throwable $e) {}
 
-            $ssOut = @shell_exec("ss -lun '( sport = :{$portInt} )' 2>/dev/null");
-            if (!empty($ssOut) && stripos($ssOut, ":{$portInt}") !== false) {
+            $fuserOut = @shell_exec("fuser {$portInt}/udp 2>/dev/null");
+            if (!empty(trim((string)$fuserOut))) {
                 return 'running';
             }
 
-            $fuserOut = @shell_exec("fuser {$portInt}/udp 2>/dev/null");
-            if (!empty(trim((string)$fuserOut))) {
+            $ssOut = @shell_exec("ss -lun '( sport = :{$portInt} )' 2>/dev/null");
+            if (!empty($ssOut) && stripos($ssOut, ":{$portInt}") !== false) {
                 return 'running';
             }
 
@@ -680,14 +670,22 @@ class ServerCmd {
             }
         }
 
-        // 4. Check tmux session if serverId known
+        // 3. Direct tmux session check
         $tmuxName = ($serverId === 'main' || empty($serverId)) ? 'gameland_server' : ('gameland_' . $serverId);
         $tmuxCheck = @shell_exec('tmux has-session -t ' . escapeshellarg($tmuxName) . ' 2>&1');
         if ($tmuxCheck === null || trim((string)$tmuxCheck) === '') {
             return 'running';
         }
 
-        return 'running';
+        // 4. Direct systemctl fallback check
+        $cleanService = escapeshellarg($serviceName);
+        $output = @shell_exec("systemctl is-active {$cleanService} 2>&1");
+        $status = trim((string)$output);
+        if ($status === 'active') {
+            return 'running';
+        }
+
+        return 'stopped';
     }
 
     /**
@@ -723,6 +721,72 @@ class ServerCmd {
             'action' => $action,
             'status' => $newStatus,
             'output' => trim($output),
+            'exit_code' => $exitCode,
+        ];
+    }
+
+    /**
+     * Safe Staggered Restart of ALL servers (reboots 1-by-1 with 2.5s delay)
+     */
+    public static function restartAllServersStaggered() {
+        $helper = self::getPrivilegedHelperPath();
+        $lines = [];
+        $exitCode = 1;
+        if (is_file('/usr/local/sbin/gameland-panel-sudo') || is_file($helper)) {
+            $h = is_file('/usr/local/sbin/gameland-panel-sudo') ? '/usr/local/sbin/gameland-panel-sudo' : $helper;
+            @exec("sudo -n " . escapeshellarg($h) . " restart_all 2>&1", $lines, $exitCode);
+        } else {
+            @exec("bash " . escapeshellarg(self::getManagerRoot() . "/restart_all.sh") . " 2>&1", $lines, $exitCode);
+        }
+
+        return [
+            'success' => $exitCode === 0,
+            'message' => 'تمام سرورها با موفقیت و به صورت متوالی (با ۲.۵ ثانیه فاصله) ری‌استارت شدند.',
+            'output'  => implode("\n", $lines),
+            'exit_code' => $exitCode,
+        ];
+    }
+
+    /**
+     * Sequentially start any stopped servers (1-by-1 with 2.5s delay)
+     */
+    public static function startAllServersStaggered() {
+        $helper = self::getPrivilegedHelperPath();
+        $lines = [];
+        $exitCode = 1;
+        if (is_file('/usr/local/sbin/gameland-panel-sudo') || is_file($helper)) {
+            $h = is_file('/usr/local/sbin/gameland-panel-sudo') ? '/usr/local/sbin/gameland-panel-sudo' : $helper;
+            @exec("sudo -n " . escapeshellarg($h) . " start_all 2>&1", $lines, $exitCode);
+        } else {
+            @exec("bash " . escapeshellarg(self::getManagerRoot() . "/start_all.sh") . " 2>&1", $lines, $exitCode);
+        }
+
+        return [
+            'success' => $exitCode === 0,
+            'message' => 'سرورهای آفلاین با موفقیت و بدون تداخل یکی‌یکی روشن شدند.',
+            'output'  => implode("\n", $lines),
+            'exit_code' => $exitCode,
+        ];
+    }
+
+    /**
+     * Safely stop all servers cleanly
+     */
+    public static function stopAllServers() {
+        $helper = self::getPrivilegedHelperPath();
+        $lines = [];
+        $exitCode = 1;
+        if (is_file('/usr/local/sbin/gameland-panel-sudo') || is_file($helper)) {
+            $h = is_file('/usr/local/sbin/gameland-panel-sudo') ? '/usr/local/sbin/gameland-panel-sudo' : $helper;
+            @exec("sudo -n " . escapeshellarg($h) . " stop_all 2>&1", $lines, $exitCode);
+        } else {
+            @exec("bash " . escapeshellarg(self::getManagerRoot() . "/stop_all.sh") . " 2>&1", $lines, $exitCode);
+        }
+
+        return [
+            'success' => $exitCode === 0,
+            'message' => 'تمامی سرورها با موفقیت و به صورت ایزوله خاموش شدند.',
+            'output'  => implode("\n", $lines),
             'exit_code' => $exitCode,
         ];
     }
@@ -2028,12 +2092,17 @@ class ServerCmd {
         $targets = self::getManagedPluginTargets();
         $isWin = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN');
 
-        // Prefer running install_mix.sh via privileged helper if installed on Linux
+        // Prefer running compiler via privileged helper if installed on Linux
         if (!$isWin && is_file(self::getPrivilegedHelperPath())) {
             $helper = escapeshellarg(self::getPrivilegedHelperPath());
             $lines = [];
             $exitCode = 1;
-            @exec("sudo -n {$helper} compile 2>&1", $lines, $exitCode);
+            $sId = $serverInfo['id'] ?? 'main';
+            if ($sId === 'main') {
+                @exec("sudo -n {$helper} compile 2>&1", $lines, $exitCode);
+            } else {
+                @exec("sudo -n {$helper} compile_server " . escapeshellarg($sId) . " 2>&1", $lines, $exitCode);
+            }
             if ($exitCode === 0) {
                 self::ensureMixRegistered($serverInfo);
                 foreach ($targets as $src => $bin) {

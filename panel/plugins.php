@@ -40,7 +40,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['deploy_clanwar']) ||
         $compileOutput = $compRes['output'];
 
         if ($compRes['success']) {
-            ServerCmd::controlService($activeServer['service_name'], 'restart');
             $msg = '⚔️ Clan War Mode (10 Slots) compiled and deployed successfully! Server restarted.';
             $msgType = 'success';
         } else {
@@ -59,10 +58,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['switch_mode'])) {
         $res = ServerCmd::switchServerMode($activeServer, $mode);
         $msg = $res['message'];
         $msgType = $res['success'] ? 'success' : 'danger';
-        if ($res['success']) {
-            ServerCmd::controlService($activeServer['service_name'], 'restart');
-            $msg .= ' 🔄 Server restarted with new mode!';
-        }
     }
 }
 

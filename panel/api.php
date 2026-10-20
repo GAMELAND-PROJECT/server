@@ -85,6 +85,30 @@ switch ($action) {
         echo json_encode($res);
         break;
 
+    case 'restart_all_servers':
+        $res = ServerCmd::restartAllServersStaggered();
+        echo json_encode($res);
+        break;
+
+    case 'start_all_servers':
+        $res = ServerCmd::startAllServersStaggered();
+        echo json_encode($res);
+        break;
+
+    case 'stop_all_servers':
+        $res = ServerCmd::stopAllServers();
+        echo json_encode($res);
+        break;
+
+    case 'get_servers_list':
+        global $SERVERS;
+        $list = ServerCmd::getServerList($SERVERS);
+        echo json_encode([
+            'success' => true,
+            'servers' => $list
+        ]);
+        break;
+
     case 'create_server':
         $id = $_POST['server_id'] ?? '';
         $port = $_POST['port'] ?? '';

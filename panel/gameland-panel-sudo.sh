@@ -4,6 +4,15 @@ set -euo pipefail
 PROJECT_DIR="${GAMEland_PROJECT_DIR:-/opt/gameland/server}"
 SVGL="${PROJECT_DIR}/svgl.sh"
 
+# ── Auto-sanitize legacy systemd service files ────────────────
+if [ -f "/etc/systemd/system/gameland.service" ]; then
+    if grep -qE 'pkill -9 -f hlds_linux|killall -9 hlds_linux' "/etc/systemd/system/gameland.service" 2>/dev/null; then
+        sed -i -E 's/pkill -9 -f hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
+        sed -i -E 's/killall -9 hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+    fi
+fi
+
 action="${1:-}"
 case "$action" in
     add)
@@ -18,24 +27,41 @@ case "$action" in
         [[ -z "$mode" || "$mode" == "--purge" ]] || exit 2
         exec /bin/bash "$SVGL" remove "$id" "$mode"
         ;;
+    restart_all)
+        exec /bin/bash "${PROJECT_DIR}/restart_all.sh"
+        ;;
+    start_all)
+        exec /bin/bash "${PROJECT_DIR}/start_all.sh"
+        ;;
+    stop_all)
+        exec /bin/bash "${PROJECT_DIR}/stop_all.sh"
+        ;;
     service)
         operation="${2:-}"; service="${3:-}"
         [[ "$operation" =~ ^(start|stop|restart|is-active)$ ]] || exit 2
         [[ "$service" =~ ^gameland(\@[a-zA-Z0-9_-]{2,32})?\.service$ ]] || exit 2
 
+        inst_id="main"
+        if [[ "$service" =~ ^gameland\@([a-zA-Z0-9_-]+)\.service$ ]]; then
+            inst_id="${BASH_REMATCH[1]}"
+        fi
+        tmux_name="gameland_server"
+        [ "$inst_id" != "main" ] && tmux_name="gameland_${inst_id}"
+
         if [ "$operation" = "is-active" ]; then
+            # 1. Direct tmux verification (if tmux session is alive, server is running)
+            if tmux has-session -t "$tmux_name" 2>/dev/null; then
+                echo "active"
+                exit 0
+            fi
+
+            # 2. Check systemd status
             if ! /usr/bin/systemctl is-active --quiet "$service" 2>/dev/null; then
                 echo "inactive"
                 exit 3
             fi
-            inst_id="main"
-            if [[ "$service" =~ ^gameland\@([a-zA-Z0-9_-]+)\.service$ ]]; then
-                inst_id="${BASH_REMATCH[1]}"
-            fi
-            tmux_name="gameland_server"
-            [ "$inst_id" != "main" ] && tmux_name="gameland_${inst_id}"
 
-            # Verify that the tmux session is genuinely alive
+            # 3. Systemd says active, but verify tmux isn't a zombie
             if ! tmux has-session -t "$tmux_name" 2>/dev/null; then
                 echo "inactive"
                 exit 3
@@ -45,20 +71,25 @@ case "$action" in
         fi
 
         if [ "$operation" = "start" ]; then
-            # If systemd considers it active (exited) but tmux or port died,
-            # systemctl start is a no-op! We must restart to force ExecStart to run!
+            /usr/bin/systemctl reset-failed "$service" 2>/dev/null || true
+            if [ "$inst_id" != "main" ]; then
+                /usr/bin/systemctl enable "$service" 2>/dev/null || true
+            fi
+            # If systemd considers it active (exited) but tmux died, restart it
             if /usr/bin/systemctl is-active --quiet "$service" 2>/dev/null; then
-                inst_id="main"
-                if [[ "$service" =~ ^gameland\@([a-zA-Z0-9_-]+)\.service$ ]]; then
-                    inst_id="${BASH_REMATCH[1]}"
-                fi
-                tmux_name="gameland_server"
-                [ "$inst_id" != "main" ] && tmux_name="gameland_${inst_id}"
                 if ! tmux has-session -t "$tmux_name" 2>/dev/null; then
                     exec /usr/bin/systemctl restart "$service"
                 fi
             fi
             exec /usr/bin/systemctl start "$service"
+        fi
+
+        if [ "$operation" = "restart" ]; then
+            /usr/bin/systemctl reset-failed "$service" 2>/dev/null || true
+            if [ "$inst_id" != "main" ]; then
+                /usr/bin/systemctl enable "$service" 2>/dev/null || true
+            fi
+            exec /usr/bin/systemctl restart "$service"
         fi
 
         exec /usr/bin/systemctl "$operation" "$service"
@@ -94,6 +125,21 @@ case "$action" in
             port=""
             if [ -f "$env_file" ]; then
                 port="$(grep -E '^SERVER_PORT=' "$env_file" | head -n 1 | cut -d'=' -f2 | tr -d '\"' || true)"
+            fi
+            if [ -z "$port" ]; then
+                port="$(python3 -c '
+import json, sys
+iid = sys.argv[1]
+for p in ["'"${PROJECT_DIR}"'/instances/servers.json", "/opt/gameland/persistent/servers.json"]:
+    try:
+        with open(p) as f:
+            for s in json.load(f).get("servers", []):
+                if s.get("id") == iid:
+                    print(s.get("port", ""))
+                    sys.exit(0)
+    except Exception: pass
+sys.exit(1)
+' "$id" 2>/dev/null || true)"
             fi
         fi
 

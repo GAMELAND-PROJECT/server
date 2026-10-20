@@ -6,6 +6,22 @@
 # =========================================================
 set -e
 
+# ─── 0. Mutex Lock to guarantee staggered boot & prevent stampede ──
+LOCK_FILE="/tmp/gameland_server_boot.lock"
+exec 200>"$LOCK_FILE" 2>/dev/null || true
+if command -v flock >/dev/null 2>&1; then
+    flock -x -w 40 200 2>/dev/null || echo "[WARN] Boot lock wait timed out; continuing..."
+fi
+
+# Auto-sanitize gameland.service if old global pkill exists
+if [ -f "/etc/systemd/system/gameland.service" ]; then
+    if grep -qE 'pkill -9 -f hlds_linux|killall -9 hlds_linux' "/etc/systemd/system/gameland.service" 2>/dev/null; then
+        sed -i -E 's/pkill -9 -f hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
+        sed -i -E 's/killall -9 hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+    fi
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -123,9 +139,9 @@ tmux new-session -d -s gameland_server \
             -ip ${SERVER_IP} \
             +port ${SERVER_PORT} \
             +clientport ${CLIENT_PORT} \
-            +hostname "${HOSTNAME}" \
-            +cw_base_hostname "${HOSTNAME}" \
-            +mix_base_hostname "${HOSTNAME}" \
+            +hostname \"${HOSTNAME}\" \
+            +cw_base_hostname \"${HOSTNAME}\" \
+            +mix_base_hostname \"${HOSTNAME}\" \
             +map ${MAP} \
             +maxplayers ${MAX_PLAYERS} \
             +sv_lan 0 \
@@ -138,6 +154,12 @@ tmux_pid=$(tmux display-message -t gameland_server -p '#{pane_pid}' 2>/dev/null 
 if [ -n "$tmux_pid" ]; then
     echo "$tmux_pid" > "${SCRIPT_DIR}/gameland.pid"
     echo "[*] Pane PID $tmux_pid saved to gameland.pid"
+fi
+
+# Staggered stabilization delay before releasing boot lock
+sleep 2.0
+if command -v flock >/dev/null 2>&1; then
+    flock -u 200 2>/dev/null || true
 fi
 
 echo "[SUCCESS] GameLand Server (${MAX_PLAYERS} Slots) started in tmux session 'gameland_server'!"

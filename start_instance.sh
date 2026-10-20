@@ -3,13 +3,21 @@
 # GameLand CS 1.6 - Multi-instance startup
 # Starts one isolated server instance described in instances/<id>.env
 # =========================================================
-set -euo pipefail
+set -uo pipefail
+
+# ─── 0. Mutex Lock to guarantee staggered boot & prevent stampede ──
+LOCK_FILE="/tmp/gameland_server_boot.lock"
+exec 200>"$LOCK_FILE" 2>/dev/null || true
+if command -v flock >/dev/null 2>&1; then
+    flock -x -w 40 200 2>/dev/null || echo "[WARN] Boot lock wait timed out; continuing..."
+fi
 
 INSTANCE_ID="${1:-}"
 MANAGER_ROOT="${MANAGER_ROOT:-$(cd "$(dirname "$(readlink -f "$0")")" && pwd)}"
 
 if [[ -z "$INSTANCE_ID" || ! "$INSTANCE_ID" =~ ^[a-zA-Z0-9_-]+$ ]]; then
     echo "[ERROR] Usage: start_instance.sh <instance_id>"
+    if command -v flock >/dev/null 2>&1; then flock -u 200 2>/dev/null || true; fi
     exit 1
 fi
 
@@ -226,6 +234,12 @@ if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
     echo "[SUCCESS] Instance '${INSTANCE_ID}' started in tmux session '${TMUX_SESSION}' on port ${SERVER_PORT}."
 else
     echo "[WARN] Instance '${INSTANCE_ID}' session exited prematurely. Check logs at: ${LOG_FILE}"
+fi
+
+# Staggered stabilization delay before releasing boot lock to next queued server
+sleep 2.0
+if command -v flock >/dev/null 2>&1; then
+    flock -u 200 2>/dev/null || true
 fi
 
 

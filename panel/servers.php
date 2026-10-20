@@ -6,28 +6,58 @@ require_once __DIR__ . '/includes/header.php';
 $servers = ServerCmd::getServerList($SERVERS);
 ?>
 
-<div class="card">
-    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
-        <div style="display:flex; align-items:center; gap:0.6rem;">
-            <span>Server Instances</span>
-            <span class="badge" style="background:rgba(59,130,246,0.15); color:#60a5fa;"><?php echo count($servers); ?> Active</span>
+<!-- Cluster Header and Management Toolbar -->
+<div class="card" style="margin-bottom:1.25rem;">
+    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+        <div style="display:flex; align-items:center; gap:0.75rem;">
+            <span style="font-size:1.15rem; font-weight:800; letter-spacing:0.3px;">Server Instances</span>
+            <span class="badge" style="background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); font-weight:700;">
+                <?php echo count($servers); ?> Configured
+            </span>
         </div>
         <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+            <!-- Cluster Actions -->
+            <button onclick="clusterAction('restart_all_servers', 'آیا مطمئن هستید که می‌خواهید تمامی سرورها به صورت متوالی و بدون تداخل (staggered با ۲.۵ ثانیه فاصله) ری‌استارت شوند؟')" 
+                    class="btn btn-sm"
+                    style="background:linear-gradient(135deg,#0284c7,#2563eb); color:#fff; font-weight:700; border:none; box-shadow:0 2px 10px rgba(37,99,235,0.35);"
+                    title="ری‌استارت متوالی و امن تمام سرورها با ۲.۵ ثانیه فاصله زمانی جهت جلوگیری از تداخل پورت و مصرف پردازنده">
+                ⚡ Restart All (Safe Staggered)
+            </button>
+            <button onclick="clusterAction('start_all_servers', 'آیا مایلید تمام سرورهای خاموش یکی‌یکی و بدون تداخل روشن شوند؟')"
+                    class="btn btn-sm btn-success"
+                    style="font-weight:700;"
+                    title="روشن کردن تمامی سرورهای خاموش به ترتیب">
+                ▶ Start All
+            </button>
+            <button onclick="clusterAction('stop_all_servers', '⚠️ آیا مطمئن هستید که می‌خواهید تمام سرورها را خاموش کنید؟')"
+                    class="btn btn-sm btn-danger"
+                    style="font-weight:700;"
+                    title="خاموش کردن کامل تمام سرورها">
+                ⏹ Stop All
+            </button>
             <button onclick="createGlobalCheckpoint()" class="btn btn-sm"
                     style="background:linear-gradient(135deg,#f59e0b,#ea580c); color:#fff; font-weight:700; border:none; box-shadow:0 2px 8px rgba(245,158,11,0.3);"
                     title="ثبت چک‌پوینت سرتاسری از تمام ادمین‌ها و سرورها">
-                💾 Take Checkpoint
+                💾 Checkpoint
             </button>
             <button onclick="restoreLatestGlobalCheckpoint()" class="btn btn-sm btn-secondary"
                     style="border:1px solid #f59e0b; color:#fbbf24; font-weight:600;"
                     title="بازگردانی تمام ادمین‌ها و سرورها به آخرین چک‌پوینت">
                 ↺ Restore Latest
             </button>
-            <button onclick="refreshServers()" class="btn btn-secondary btn-sm">⟳ Refresh</button>
+            <button onclick="refreshServers()" class="btn btn-secondary btn-sm" title="بروزرسانی وضعیت سرورها">⟳ Refresh</button>
         </div>
     </div>
 
-    <div style="overflow-x:auto;">
+    <!-- Live Action Notification Banner -->
+    <div id="clusterProgressBanner" style="display:none; margin-top:0.75rem; padding:0.75rem 1rem; border-radius:8px; background:rgba(37,99,235,0.15); border:1px solid rgba(59,130,246,0.4); color:#93c5fd; font-size:0.88rem;">
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+            <span class="status-dot" style="background:#60a5fa; animation:pulse 1s infinite;"></span>
+            <span id="clusterProgressText">در حال اجرای عملیات متوالی بر روی سرورها... لطفاً شکیبا باشید.</span>
+        </div>
+    </div>
+
+    <div style="overflow-x:auto; margin-top:0.5rem;">
         <table id="serversTable">
             <thead>
                 <tr>
@@ -67,7 +97,8 @@ $servers = ServerCmd::getServerList($SERVERS);
                                     </span>
                                 <?php endif; ?>
 
-                                <select class="input-field" style="padding:0.2rem 0.35rem; font-size:0.72rem; height:auto; min-width:120px; background:rgba(0,0,0,0.35); border-color:rgba(255,255,255,0.15); color:#fff;"
+                                <select id="modeSelect_<?php echo htmlspecialchars($server['id']); ?>" class="input-field" 
+                                        style="padding:0.25rem 0.4rem; font-size:0.75rem; height:auto; min-width:130px; background:rgba(0,0,0,0.4); border-color:rgba(255,255,255,0.18); color:#fff;"
                                         onchange="quickChangeServerMode('<?php echo htmlspecialchars($server['id']); ?>', this.value, '<?php echo htmlspecialchars(addslashes($server['name'])); ?>')">
                                     <option value="" disabled selected>⚡ Change Mode</option>
                                     <option value="clanwar" <?php echo (($server['mode'] ?? '') === 'clanwar') ? 'disabled' : ''; ?>>⚔️ Clan War (10s)</option>
@@ -93,7 +124,8 @@ $servers = ServerCmd::getServerList($SERVERS);
                                     </span>
                                 <?php endif; ?>
 
-                                <select class="input-field" style="padding:0.2rem 0.35rem; font-size:0.72rem; height:auto; min-width:125px; background:rgba(0,0,0,0.35); border-color:rgba(255,255,255,0.15); color:#fff;"
+                                <select id="afkSelect_<?php echo htmlspecialchars($server['id']); ?>" class="input-field" 
+                                        style="padding:0.25rem 0.4rem; font-size:0.75rem; height:auto; min-width:130px; background:rgba(0,0,0,0.4); border-color:rgba(255,255,255,0.18); color:#fff;"
                                         onchange="quickChangeServerAfkGuard('<?php echo htmlspecialchars($server['id']); ?>', this.value, '<?php echo htmlspecialchars(addslashes($server['name'])); ?>')">
                                     <option value="" disabled selected>⚡ AFK Guard</option>
                                     <option value="0" <?php echo ($afkVal === 0) ? 'disabled' : ''; ?>>🧪 Disabled (Test Mode)</option>
@@ -104,7 +136,7 @@ $servers = ServerCmd::getServerList($SERVERS);
                         </td>
                         <td><?php echo (int)$server['slots']; ?></td>
                         <td><code><?php echo htmlspecialchars($server['map']); ?></code></td>
-                        <td>
+                        <td id="statusCell_<?php echo htmlspecialchars($server['id']); ?>">
                             <?php if ($server['status'] === 'running'): ?>
                                 <span class="status-pill status-running"><span class="status-dot"></span> RUNNING</span>
                             <?php else: ?>
@@ -113,9 +145,12 @@ $servers = ServerCmd::getServerList($SERVERS);
                         </td>
                         <td>
                             <div class="action-bar" style="margin:0; gap:0.35rem; flex-wrap:wrap;">
-                                <button class="btn btn-success btn-sm" onclick="serverService('<?php echo htmlspecialchars($server['id']); ?>','start')">Start</button>
-                                <button class="btn btn-warning btn-sm" onclick="serverService('<?php echo htmlspecialchars($server['id']); ?>','restart')">Restart</button>
-                                <button class="btn btn-danger btn-sm" onclick="serverService('<?php echo htmlspecialchars($server['id']); ?>','stop')">Stop</button>
+                                <button class="btn btn-success btn-sm" id="btnStart_<?php echo htmlspecialchars($server['id']); ?>" 
+                                        onclick="serverService('<?php echo htmlspecialchars($server['id']); ?>','start')">Start</button>
+                                <button class="btn btn-warning btn-sm" id="btnRestart_<?php echo htmlspecialchars($server['id']); ?>" 
+                                        onclick="serverService('<?php echo htmlspecialchars($server['id']); ?>','restart')">Restart</button>
+                                <button class="btn btn-danger btn-sm" id="btnStop_<?php echo htmlspecialchars($server['id']); ?>" 
+                                        onclick="serverService('<?php echo htmlspecialchars($server['id']); ?>','stop')">Stop</button>
                                 <button class="btn btn-secondary btn-sm" onclick='editServer(<?php echo json_encode($server, JSON_HEX_APOS | JSON_HEX_QUOT); ?>)'>Edit</button>
                                 <button class="btn btn-sm" style="border:1px solid #f59e0b; color:#fbbf24; background:rgba(245,158,11,0.1); font-weight:600;"
                                         onclick="restoreServerToLatestCheckpoint('<?php echo htmlspecialchars($server['id']); ?>', '<?php echo htmlspecialchars(addslashes($server['name'])); ?>')"
@@ -208,6 +243,42 @@ function refreshServers() {
     location.reload();
 }
 
+function showProgressBanner(text) {
+    const banner = document.getElementById('clusterProgressBanner');
+    const pText = document.getElementById('clusterProgressText');
+    if (banner && pText) {
+        pText.textContent = text;
+        banner.style.display = 'block';
+    }
+}
+
+function hideProgressBanner() {
+    const banner = document.getElementById('clusterProgressBanner');
+    if (banner) banner.style.display = 'none';
+}
+
+function clusterAction(action, confirmMsg) {
+    if (!confirm(confirmMsg)) return;
+
+    showProgressBanner('در حال اجرای عملیات متوالی بر روی سرورها با رعایت فواصل ۲.۵ ثانیه‌ای... لطفاً صبر کنید.');
+
+    postServerApi(action)
+        .then(d => {
+            hideProgressBanner();
+            if (d.success) {
+                alert('✅ ' + (d.message || 'عملیات با موفقیت انجام شد.'));
+                location.reload();
+            } else {
+                alert('⚠️ نتیجه عملیات:\n' + (d.output || d.message || 'خطا در اجرا'));
+                location.reload();
+            }
+        })
+        .catch(e => {
+            hideProgressBanner();
+            alert('❌ خطای ارتباط: ' + e.message);
+        });
+}
+
 function onNewServerModeChange(mode) {
     const slotsInput = document.getElementById('newServerSlots');
     if (mode === 'clanwar') slotsInput.value = '10';
@@ -227,16 +298,28 @@ function quickChangeServerMode(id, targetMode, name) {
         location.reload();
         return;
     }
+
+    const selectEl = document.getElementById('modeSelect_' + id);
+    if (selectEl) selectEl.disabled = true;
+
+    showProgressBanner('در حال تغییر مود سرور «' + name + '» به ' + label + ' و ری‌استارت ایزوله...');
+
     postServerApi('switch_server_mode', { server_id: id, target_mode: targetMode })
         .then(d => {
+            hideProgressBanner();
             if (d.success) {
                 alert('✅ ' + (d.message || 'حالت سرور با موفقیت تغییر کرد و سرور ری‌استارت شد.'));
                 location.reload();
             } else {
+                if (selectEl) selectEl.disabled = false;
                 alert('❌ خطا: ' + (d.message || 'عملیات ناموفق بود.'));
             }
         })
-        .catch(e => alert('❌ خطای ارتباط: ' + e.message));
+        .catch(e => {
+            hideProgressBanner();
+            if (selectEl) selectEl.disabled = false;
+            alert('❌ خطای ارتباط: ' + e.message);
+        });
 }
 
 function quickChangeServerAfkGuard(id, mode, name) {
@@ -251,8 +334,13 @@ function quickChangeServerAfkGuard(id, mode, name) {
         location.reload();
         return;
     }
+
+    const selectEl = document.getElementById('afkSelect_' + id);
+    if (selectEl) selectEl.disabled = true;
+
     postServerApi('set_afk_guard', { server_id: id, afk_guard: mode })
         .then(d => {
+            if (selectEl) selectEl.disabled = false;
             if (d.success) {
                 alert('✅ ' + (d.message || 'وضعیت AFK با موفقیت تغییر کرد.'));
                 location.reload();
@@ -260,7 +348,10 @@ function quickChangeServerAfkGuard(id, mode, name) {
                 alert('❌ خطا: ' + (d.message || 'عملیات ناموفق بود.'));
             }
         })
-        .catch(e => alert('❌ خطای ارتباط: ' + e.message));
+        .catch(e => {
+            if (selectEl) selectEl.disabled = false;
+            alert('❌ خطای ارتباط: ' + e.message);
+        });
 }
 
 function createServer() {
@@ -313,13 +404,21 @@ function saveServerSettings() {
 
 function serverService(id, action) {
     if (!confirm(action + ' server ' + id + '?')) return;
+    
+    // Visually indicate action on row
+    const cell = document.getElementById('statusCell_' + id);
+    if (cell) cell.innerHTML = '<span class="status-pill" style="background:rgba(59,130,246,0.2); color:#60a5fa;"><span class="status-dot"></span> ' + action.toUpperCase() + 'ING...</span>';
+
     postServerApi('switch_server', { server_id: id })
         .then(() => postServerApi('service_control', { server_id: id, service_action: action }))
         .then(d => {
             alert((d.output ? d.output + '\n' : '') + 'Status: ' + (d.status || 'unknown'));
             location.reload();
         })
-        .catch(e => alert('Error: ' + e.message));
+        .catch(e => {
+            alert('Error: ' + e.message);
+            location.reload();
+        });
 }
 
 function removeServer(id, purge) {

@@ -41,6 +41,9 @@ Usage:
   svgl start [id|main]         Start server
   svgl stop [id|main]          Stop server
   svgl restart [id|main]       Restart server
+  svgl restart-all             Safe staggered restart of ALL servers (2.5s delay)
+  svgl start-all               Sequentially start any stopped servers
+  svgl stop-all                Safely stop all servers cleanly
   svgl status [id|main]        Show service status
   svgl console [id|main]       Attach to tmux console
   svgl logs [id|main]          Follow systemd logs
@@ -707,132 +710,24 @@ sync_plugins_to_instance() {
         return 1
     fi
     if [[ "$id" == "all" ]]; then
-        local count=0
-        declare -A SEEN_INST
-        local inst_targets=()
-
-        # Discover from servers.json
-        for reg_f in "${REGISTRY_FILE}" "/opt/gameland/persistent/servers.json"; do
-            if [[ -f "$reg_f" ]]; then
-                while read -r s_id; do
-                    if [[ -n "$s_id" && "$s_id" != "main" && -z "${SEEN_INST[$s_id]:-}" ]]; then
-                        SEEN_INST["$s_id"]=1
-                        inst_targets+=("$s_id")
-                    fi
-                done < <(python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); print("
-".join([str(s.get("id","")) for s in d.get("servers",[]) if s.get("id")]))' "$reg_f" 2>/dev/null || true)
-            fi
-        done
-
-        # Also discover from filesystem
-        for inst_d in "${INSTANCE_ROOT_DEFAULT}"/*; do
-            if [[ -d "$inst_d" ]]; then
-                local s_id
-                s_id="$(basename "$inst_d")"
-                if [[ -n "$s_id" && "$s_id" != "*" && "$s_id" != "main" && -z "${SEEN_INST[$s_id]:-}" ]]; then
-                    SEEN_INST["$s_id"]=1
-                    inst_targets+=("$s_id")
-                fi
-            fi
-        done
-
-        for s_id in "${inst_targets[@]}"; do
-            local target="${INSTANCE_ROOT_DEFAULT}/${s_id}"
-            if [[ ! -d "$target" && -d "${PROJECT_DIR}/instances/${s_id}" ]]; then
-                target="${PROJECT_DIR}/instances/${s_id}"
-            fi
-
-            if [[ -d "$target/cstrike/addons/amxmodx/plugins" ]]; then
-                cp -f "${PROJECT_DIR}/cstrike/addons/amxmodx/plugins/"*.amxx "$target/cstrike/addons/amxmodx/plugins/"
-                chmod 666 "$target/cstrike/addons/amxmodx/plugins/"*.amxx 2>/dev/null || true
-                chown -R www-data:www-data "$target/cstrike/addons/amxmodx" 2>/dev/null || true
-                count=$((count + 1))
-
-                local svc="gameland@${s_id}.service"
-                if systemctl is-active --quiet "$svc" 2>/dev/null || systemctl is-enabled --quiet "$svc" 2>/dev/null; then
-                    systemctl restart "$svc" 2>/dev/null || true
-                    sleep 1.5
-                    if systemctl is-active --quiet "$svc" 2>/dev/null; then
-                        echo -e "  ${GREEN}✔ [RUNNING]${NC} Synced & restarted instance: ${BOLD}${s_id}${NC}"
-                    else
-                        systemctl start "$svc" 2>/dev/null || true
-                        echo -e "  ${YELLOW}⚡ [RESTARTED]${NC} Started instance: ${BOLD}${s_id}${NC}"
-                    fi
-                else
-                    echo -e "  ${GREEN}✔${NC} Synced to instance: ${s_id}"
-                fi
-            fi
-        done
-        echo -e "${GREEN}[OK] Synced updated .amxx plugins to ${count} instances!${NC}"
+        bash "${PROJECT_DIR}/install_mix.sh" --sync-all
         return 0
     fi
-
-    local target="${INSTANCE_ROOT_DEFAULT}/${id}"
-    if [[ ! -d "$target/cstrike/addons/amxmodx/plugins" ]]; then
-        target="${PROJECT_DIR}/instances/${id}"
-    fi
-    if [[ ! -d "$target/cstrike/addons/amxmodx/plugins" ]]; then
-        echo -e "${RED}[ERROR] Instance '${id}' plugins directory not found.${NC}"
-        return 1
-    fi
-    cp -f "${PROJECT_DIR}/cstrike/addons/amxmodx/plugins/"*.amxx "$target/cstrike/addons/amxmodx/plugins/"
-    if systemctl is-active --quiet "gameland@${id}.service" 2>/dev/null; then
-        systemctl restart "gameland@${id}.service" 2>/dev/null || true
-        echo -e "${GREEN}[OK] Synced updated .amxx plugins to '${id}' & restarted service!${NC}"
-    else
-        echo -e "${GREEN}[OK] Synced updated .amxx plugins to instance '${id}' without touching configs or users.ini!${NC}"
-    fi
+    bash "${PROJECT_DIR}/install_mix.sh" --instance "$id"
 }
 
 build_server_plugins() {
     local id="${1:-main}"
-    local target_dir="$PROJECT_DIR"
-    local svc="gameland.service"
-    if [[ "$id" != "main" ]]; then
-        local env_file="${INSTANCES_DIR}/${id}.env"
-        target_dir="${INSTANCE_ROOT_DEFAULT}/${id}"
-        if [[ -f "$env_file" ]]; then
-            # shellcheck disable=SC1090
-            source "$env_file"
-            target_dir="${SERVER_DIR:-$target_dir}"
-        fi
-        svc="gameland@${id}.service"
-    fi
-
-    if [[ ! -d "$target_dir/cstrike/addons/amxmodx/plugins" ]]; then
-        echo -e "${RED}[ERROR] Server directory not found: $target_dir${NC}"
-        return 1
-    fi
-
     echo -e "${CYAN}==========================================${NC}"
     echo -e "${BOLD}${GREEN}  Compiling Plugins Exclusively for: ${id}  ${NC}"
-    echo -e "  Target: $target_dir/cstrike/addons/amxmodx/plugins/"
     echo -e "${CYAN}==========================================${NC}"
 
-    local compiler="${PROJECT_DIR}/cstrike/addons/amxmodx/scripting/amxxpc"
-    local scripting_dir="${PROJECT_DIR}/cstrike/addons/amxmodx/scripting"
-    if [[ ! -x "$compiler" ]]; then
-        chmod +x "$compiler" "${scripting_dir}"/amxxpc* 2>/dev/null || true
+    if [[ "$id" == "main" || -z "$id" ]]; then
+        bash "${PROJECT_DIR}/install_mix.sh"
+    else
+        bash "${PROJECT_DIR}/install_mix.sh" --instance "$id"
     fi
-
-    local compiled_count=0
-    for sma in "${scripting_dir}"/*.sma; do
-        if [[ -f "$sma" ]]; then
-            local base
-            base="$(basename "$sma" .sma)"
-            local out_bin="${target_dir}/cstrike/addons/amxmodx/plugins/${base}.amxx"
-            if "$compiler" "$sma" -o"$out_bin" -i"${scripting_dir}/include" >/dev/null 2>&1; then
-                chmod 666 "$out_bin" 2>/dev/null || true
-                echo -e "  ${GREEN}✔${NC} Compiled: ${base}.amxx"
-                compiled_count=$((compiled_count + 1))
-            fi
-        fi
-    done
-
-    echo -e "${GREEN}[OK] Successfully compiled ${compiled_count} plugins for server '${id}'!${NC}"
-    echo -e "${YELLOW}[*] Restarting service ${svc}...${NC}"
-    systemctl restart "$svc" 2>/dev/null || true
-    echo -e "${GREEN}[DONE] Server '${id}' updated cleanly with zero impact on other servers!${NC}"
+    echo -e "${GREEN}[DONE] Server '${id}' compiled and updated with zero impact on other servers!${NC}"
 }
 
 check_server_capacity() {
@@ -893,7 +788,9 @@ show_menu() {
     echo -e "  5) ${CYAN}Recover Admin Accounts${NC} (Smart Filter)"
     echo -e "  6) ${CYAN}Recover / Sync Server Instances${NC} (Rebuild servers.json)"
     echo -e "  7) ${PURPLE}Check Server Capacity & Hardware Specs${NC}"
-    echo -e "  8) ${YELLOW}💾 VPS Checkpoints / Backups${NC}"
+    echo -e "  8) ${YELLOW}⚡ Restart All Servers (Safe Staggered)${NC}"
+    echo -e "  9) ${GREEN}▶ Start All Offline Servers${NC}"
+    echo -e "  10) ${YELLOW}💾 VPS Checkpoints / Backups${NC}"
     echo -e "  0) Exit"
     echo -e "${CYAN}==========================================${NC}"
 }
@@ -901,7 +798,7 @@ show_menu() {
 interactive_loop() {
     while true; do
         show_menu
-        read -r -p "  Select [0-8]: " choice
+        read -r -p "  Select [0-10]: " choice
         case "$choice" in
             1) servers_browser_menu ;;
             2)
@@ -916,7 +813,9 @@ interactive_loop() {
             5) bash "${PROJECT_DIR}/recover_admins.sh"; pause_menu ;;
             6) bash "${PROJECT_DIR}/recover_servers.sh"; pause_menu ;;
             7) check_server_capacity; pause_menu ;;
-            8)
+            8) bash "${PROJECT_DIR}/restart_all.sh"; pause_menu ;;
+            9) bash "${PROJECT_DIR}/start_all.sh"; pause_menu ;;
+            10)
                 echo -e "\n  1) Create New Checkpoint"
                 echo -e "  2) List Checkpoints"
                 echo -e "  3) Restore Latest Checkpoint"
@@ -941,10 +840,21 @@ case "$cmd" in
     list) list_servers ;;
     add) shift; create_instance "$@" ;;
     remove|rm) shift; remove_instance "$@" ;;
+    restart-all|restart_all) bash "${PROJECT_DIR}/restart_all.sh" ;;
+    start-all|start_all) bash "${PROJECT_DIR}/start_all.sh" ;;
+    stop-all|stop_all) bash "${PROJECT_DIR}/stop_all.sh" ;;
     start|stop|restart|status)
         action="$cmd"
         id="${2:-main}"
-        if [[ "$action" == "status" ]]; then
+        if [[ "$id" == "all" ]]; then
+            if [[ "$action" == "restart" ]]; then
+                bash "${PROJECT_DIR}/restart_all.sh"
+            elif [[ "$action" == "start" ]]; then
+                bash "${PROJECT_DIR}/start_all.sh"
+            elif [[ "$action" == "stop" ]]; then
+                bash "${PROJECT_DIR}/stop_all.sh"
+            fi
+        elif [[ "$action" == "status" ]]; then
             systemctl status "$(service_name_for "$id")" --no-pager
         else
             control_server "$action" "$id"

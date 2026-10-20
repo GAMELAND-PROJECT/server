@@ -1,0 +1,8 @@
+# Ensure all shell scripts and systemd services always use LF line endings
+*.sh text eol=lf
+*.service text eol=lf
+*.php text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.json text eol=lf
+*.sma text eol=lf
