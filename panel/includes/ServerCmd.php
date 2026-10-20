@@ -1476,9 +1476,34 @@ class ServerCmd {
      * Detect current active server mode ('clanwar', 'mix5v5', or 'public')
      */
     public static function getCurrentServerMode($serverInfo) {
+        $serverId = $serverInfo['id'] ?? 'main';
+
+        // 1. Check in-memory serverInfo mode
+        if (!empty($serverInfo['mode']) && in_array($serverInfo['mode'], ['clanwar', 'mix5v5', 'public'], true)) {
+            return $serverInfo['mode'];
+        }
+
+        // 2. Check persistent/modes.json
+        $modesFile = '/opt/gameland/persistent/modes.json';
+        if (is_file($modesFile)) {
+            $m = @json_decode((string)@file_get_contents($modesFile), true);
+            if (is_array($m) && !empty($m[$serverId]['mode']) && in_array($m[$serverId]['mode'], ['clanwar', 'mix5v5', 'public'], true)) {
+                return $m[$serverId]['mode'];
+            }
+        }
+
+        // 3. For main server, check persistent/main_mode.txt
+        if ($serverId === 'main' && is_file('/opt/gameland/persistent/main_mode.txt')) {
+            $mm = trim((string)@file_get_contents('/opt/gameland/persistent/main_mode.txt'));
+            if (in_array($mm, ['clanwar', 'mix5v5', 'public'], true)) {
+                return $mm;
+            }
+        }
+
+        // 4. Fallback: inspect live plugins.ini
         $pluginsIni = $serverInfo['cstrike_dir'] . '/addons/amxmodx/configs/plugins.ini';
         if (!file_exists($pluginsIni)) {
-            return 'public';
+            return 'clanwar';
         }
         $raw = (string)file_get_contents($pluginsIni);
         $raw = str_replace("\r", "", $raw);
@@ -2296,18 +2321,27 @@ class ServerCmd {
             return;
         }
 
-        // Candidates to ensure are active in plugins.ini
+        $serverMode = self::getCurrentServerMode($serverInfo);
+        $serverId = $serverInfo['id'] ?? 'main';
+        $slots = ($serverMode === 'clanwar') ? 10 : (($serverMode === 'public') ? 24 : 18);
+
+        // Core helper candidates that remain enabled for all modes
         $candidates = [
             'gameland_only_enforcer.amxx'   => 'GameLand exclusive AllClient security enforcer',
             'gameland_lan_optimizer.amxx'   => 'GameLand network latency & fps optimizer',
             'gameland_sound_optimizer.amxx' => 'GameLand spatial sound & footsteps enhancer',
             'gameland_fastduck_fix.amxx'    => 'GameLand fast duck / silent run enforcer',
             'gameland_admin_tools.amxx'     => 'GameLand admin tools (/map, /j0-/j2, /ff0-/ff1)',
-            'mix_system.amxx'               => 'Match Server 5v5 System (main)',
             'mix_system_voice_chat.amxx'    => 'Match Server Voice Chat',
             'player_drop.amxx'              => 'Match Server player drop/substitute',
             'backweapons.amxx'              => 'GameLand Back Weapons display',
         ];
+
+        if ($serverMode === 'mix5v5') {
+            $candidates['mix_system.amxx'] = 'Match Server 5v5 System (main)';
+        } elseif ($serverMode === 'clanwar') {
+            $candidates['clanwar_system.amxx'] = 'Clan War 10-slot System';
+        }
 
         $mixFiles = [];
         foreach ($candidates as $f => $desc) {
@@ -2316,16 +2350,27 @@ class ServerCmd {
             }
         }
 
-        if (empty($mixFiles)) return;
-
         $content  = str_replace("\r", "", (string)file_get_contents($pluginsIni));
         $modified = false;
 
-        $isCwActive = (bool)preg_match('/^\s*clanwar_system\.amxx/m', $content);
-        if ($isCwActive) {
-            unset($mixFiles['mix_system.amxx']);
-            if (preg_match('/^\s*mix_system\.amxx/m', $content)) {
-                $content  = preg_replace('/^\s*mix_system\.amxx(.*)$/m', ';mix_system.amxx$1', $content);
+        // Strictly enforce mutual exclusion between mix_system and clanwar_system
+        if ($serverMode === 'mix5v5') {
+            if (preg_match('/^\s*(?!;)\s*clanwar_system\.amxx/m', $content)) {
+                $content  = preg_replace('/^\s*(?!;)\s*clanwar_system\.amxx(.*)$/m', ';clanwar_system.amxx$1', $content);
+                $modified = true;
+            }
+        } elseif ($serverMode === 'clanwar') {
+            if (preg_match('/^\s*(?!;)\s*mix_system\.amxx/m', $content)) {
+                $content  = preg_replace('/^\s*(?!;)\s*mix_system\.amxx(.*)$/m', ';mix_system.amxx$1', $content);
+                $modified = true;
+            }
+        } else { // public
+            if (preg_match('/^\s*(?!;)\s*clanwar_system\.amxx/m', $content)) {
+                $content  = preg_replace('/^\s*(?!;)\s*clanwar_system\.amxx(.*)$/m', ';clanwar_system.amxx$1', $content);
+                $modified = true;
+            }
+            if (preg_match('/^\s*(?!;)\s*mix_system\.amxx/m', $content)) {
+                $content  = preg_replace('/^\s*(?!;)\s*mix_system\.amxx(.*)$/m', ';mix_system.amxx$1', $content);
                 $modified = true;
             }
         }
@@ -2337,7 +2382,6 @@ class ServerCmd {
                 $modified = true;
             } elseif (!preg_match('/^\s*' . preg_quote($mf, '/') . '/m', $content)) {
                 // Not present at all → add it
-                // Ensure we have a section header
                 if (!str_contains($content, '; GameLand & Match Server System')) {
                     $content .= "\n; GameLand & Match Server System\n";
                 }
@@ -2349,6 +2393,30 @@ class ServerCmd {
         if ($modified) {
             @file_put_contents($pluginsIni, $content);
         }
+
+        // Auto-heal sv_visiblemaxplayers in server.cfg to strictly match mode slots
+        $cfg = $serverInfo['cstrike_dir'] . '/server.cfg';
+        if (is_file($cfg)) {
+            $cfgContent = (string)@file_get_contents($cfg);
+            if (preg_match('/^\s*sv_visiblemaxplayers\s+[0-9]+/m', $cfgContent)) {
+                $newCfg = preg_replace('/^\s*sv_visiblemaxplayers\s+[0-9]+/m', "sv_visiblemaxplayers {$slots}", $cfgContent);
+            } else {
+                $newCfg = rtrim($cfgContent) . "\nsv_visiblemaxplayers {$slots}\n";
+            }
+            if ($newCfg !== $cfgContent) {
+                @file_put_contents($cfg, $newCfg);
+            }
+        }
+
+        // Persist mode & slots in persistent storage
+        if ($serverId === 'main') {
+            @file_put_contents('/opt/gameland/persistent/main_mode.txt', $serverMode . "\n");
+        }
+        $modesFile = '/opt/gameland/persistent/modes.json';
+        $m = is_file($modesFile) ? @json_decode((string)@file_get_contents($modesFile), true) : [];
+        if (!is_array($m)) $m = [];
+        $m[$serverId] = ['mode' => $serverMode, 'slots' => $slots];
+        @file_put_contents($modesFile, json_encode($m, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
     }
 
     /**

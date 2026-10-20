@@ -13,7 +13,11 @@ RemainAfterExit=yes
 User=root
 WorkingDirectory=/opt/gameland/server
 
-# راه‌اندازی: اجرای سرور 18 اسلاته
+# ایزولاسیون کامل cgroup: عدم بستن پروسه‌های سایر سرویس‌ها یا دیمون‌های مشترک
+KillMode=process
+TimeoutSec=30
+
+# راه‌اندازی: اجرای سرور
 ExecStart=/bin/bash /opt/gameland/server/start.sh
 
 # استاپ: بستن کامل نشست و پورت همین سرور (بدون دست زدن به سایر سرورها)

@@ -71,7 +71,7 @@ define('GITHUB_BRANCH', 'main');
 $detectedServerDir = is_dir('/opt/gameland/server') ? '/opt/gameland/server' : dirname(__DIR__);
 $detectedPublicIp = $_SERVER['SERVER_ADDR'] ?? '127.0.0.1';
 
-$mainMode = 'clanwar';
+$mainMode = 'mix5v5';
 if (is_file('/opt/gameland/persistent/main_mode.txt')) {
     $m = trim((string)@file_get_contents('/opt/gameland/persistent/main_mode.txt'));
     if (in_array($m, ['clanwar', 'mix5v5', 'public'], true)) $mainMode = $m;
@@ -79,15 +79,22 @@ if (is_file('/opt/gameland/persistent/main_mode.txt')) {
     $m = trim((string)@file_get_contents($detectedServerDir . '/instances/main_mode.txt'));
     if (in_array($m, ['clanwar', 'mix5v5', 'public'], true)) $mainMode = $m;
 } else {
+    foreach (['/opt/gameland/persistent/modes.json', $detectedServerDir . '/instances/modes.json'] as $mjPath) {
+        if (is_file($mjPath)) {
+            $mj = @json_decode((string)@file_get_contents($mjPath), true);
+            if (!empty($mj['main']['mode']) && in_array($mj['main']['mode'], ['clanwar', 'mix5v5', 'public'], true)) {
+                $mainMode = $mj['main']['mode'];
+                break;
+            }
+        }
+    }
     $mainPini = $detectedServerDir . '/cstrike/addons/amxmodx/configs/plugins.ini';
     if (is_file($mainPini)) {
         $rawPini = (string)@file_get_contents($mainPini);
-        if (preg_match('/^[ \t]*mix_system\.amxx/m', $rawPini)) {
+        if (preg_match('/^[ \t]*(?!;)[ \t]*mix_system\.amxx/m', $rawPini)) {
             $mainMode = 'mix5v5';
-        } elseif (preg_match('/^[ \t]*clanwar_system\.amxx/m', $rawPini)) {
+        } elseif (preg_match('/^[ \t]*(?!;)[ \t]*clanwar_system\.amxx/m', $rawPini)) {
             $mainMode = 'clanwar';
-        } else {
-            $mainMode = 'public';
         }
     }
 }

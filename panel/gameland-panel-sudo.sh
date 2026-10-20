@@ -113,8 +113,42 @@ case "$action" in
             /usr/bin/systemctl reset-failed "$service" 2>/dev/null || true
             if [ "$inst_id" != "main" ]; then
                 /usr/bin/systemctl enable "$service" 2>/dev/null || true
+                exec /usr/bin/systemctl restart "$service"
             fi
-            exec /usr/bin/systemctl restart "$service"
+
+            # ── MAIN SERVER RESTART: Protected Watchdog ──────────────────
+            # Snapshot all currently-live instances BEFORE touching main so
+            # we can revive any that a systemd cascade accidentally kills.
+            _live_instances=()
+            for _inst_dir in /opt/gameland/instances/* "${PROJECT_DIR}/instances"/*; do
+                if [ -d "$_inst_dir" ]; then
+                    _s_id="$(basename "$_inst_dir")"
+                    if [[ "$_s_id" =~ ^[a-zA-Z0-9_-]{2,32}$ ]] && \
+                       [ "$_s_id" != "main" ] && \
+                       [ "$_s_id" != "instances_env" ] && \
+                       [ "$_s_id" != "instances_plugins" ]; then
+                        if systemctl is-active --quiet "gameland@${_s_id}.service" 2>/dev/null || \
+                           tmux has-session -t "gameland_${_s_id}" 2>/dev/null; then
+                            _live_instances+=("$_s_id")
+                        fi
+                    fi
+                fi
+            done
+
+            /usr/bin/systemctl restart "$service" 2>/dev/null || true
+
+            # Revival pass: bring back any instance that was collateral damage
+            if [ "${#_live_instances[@]}" -gt 0 ]; then
+                sleep 1.2
+                for _s_id in "${_live_instances[@]}"; do
+                    if ! systemctl is-active --quiet "gameland@${_s_id}.service" 2>/dev/null || \
+                       ! tmux has-session -t "gameland_${_s_id}" 2>/dev/null; then
+                        echo "[WATCHDOG] Reviving instance '${_s_id}' after main restart..."
+                        /usr/bin/systemctl restart "gameland@${_s_id}.service" 2>/dev/null || true
+                    fi
+                done
+            fi
+            exit 0
         fi
 
         exec /usr/bin/systemctl "$operation" "$service"
@@ -424,7 +458,94 @@ for p in ["/opt/gameland/persistent/modes.json", "'"${PROJECT_DIR}"'/instances/m
         exit 0
         ;;
     compile)
-        exec /bin/bash "${PROJECT_DIR}/install_mix.sh" "${2:-}"
+        # ── Safe Compile: preserve active mode before invoking installer ──
+        # Read authoritative mode from every persistence source.
+        # NEVER fall back to clanwar as default; default to 'read from plugins.ini'.
+        _compile_mode=""
+
+        # Source 1: /opt/gameland/persistent/main_mode.txt
+        if [ -f "/opt/gameland/persistent/main_mode.txt" ]; then
+            _m="$(cat /opt/gameland/persistent/main_mode.txt | tr -d '[:space:]')"
+            [[ "$_m" =~ ^(clanwar|mix5v5|public)$ ]] && _compile_mode="$_m"
+        fi
+
+        # Source 2: PROJECT_DIR local copy
+        if [ -z "$_compile_mode" ] && [ -f "${PROJECT_DIR}/instances/main_mode.txt" ]; then
+            _m="$(cat "${PROJECT_DIR}/instances/main_mode.txt" | tr -d '[:space:]')"
+            [[ "$_m" =~ ^(clanwar|mix5v5|public)$ ]] && _compile_mode="$_m"
+        fi
+
+        # Source 3: modes.json
+        if [ -z "$_compile_mode" ]; then
+            for _mj in "/opt/gameland/persistent/modes.json" "${PROJECT_DIR}/instances/modes.json"; do
+                if [ -f "$_mj" ]; then
+                    _m="$(python3 -c '
+import json,sys
+try:
+    d=json.load(open(sys.argv[1]))
+    print(d.get("main",{}).get("mode",""))
+except: print("")
+' "$_mj" 2>/dev/null || true)"
+                    [[ "$_m" =~ ^(clanwar|mix5v5|public)$ ]] && { _compile_mode="$_m"; break; }
+                fi
+            done
+        fi
+
+        # Source 4: plugins.ini - read live state
+        if [ -z "$_compile_mode" ]; then
+            _pini="${PROJECT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini"
+            if [ -f "$_pini" ]; then
+                if grep -qE '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "$_pini" 2>/dev/null; then
+                    _compile_mode="mix5v5"
+                elif grep -qE '^[[:space:]]*clanwar_system\.amxx([[:space:]]|$)' "$_pini" 2>/dev/null; then
+                    _compile_mode="clanwar"
+                else
+                    _compile_mode="public"
+                fi
+            fi
+        fi
+
+        # Ensure persistence is written so install_mix.sh reads it correctly
+        mkdir -p /opt/gameland/persistent "${PROJECT_DIR}/instances" 2>/dev/null || true
+        if [ -n "$_compile_mode" ]; then
+            echo "$_compile_mode" > /opt/gameland/persistent/main_mode.txt
+            echo "$_compile_mode" > "${PROJECT_DIR}/instances/main_mode.txt"
+            echo "[compile] Active mode locked as '${_compile_mode}' before compile"
+        fi
+
+        # Snapshot live instances so compile+restart doesn't kill them
+        _compile_live=()
+        for _inst_dir in /opt/gameland/instances/* "${PROJECT_DIR}/instances"/*; do
+            if [ -d "$_inst_dir" ]; then
+                _s_id="$(basename "$_inst_dir")"
+                if [[ "$_s_id" =~ ^[a-zA-Z0-9_-]{2,32}$ ]] && \
+                   [ "$_s_id" != "main" ] && \
+                   [ "$_s_id" != "instances_env" ] && \
+                   [ "$_s_id" != "instances_plugins" ]; then
+                    if systemctl is-active --quiet "gameland@${_s_id}.service" 2>/dev/null || \
+                       tmux has-session -t "gameland_${_s_id}" 2>/dev/null; then
+                        _compile_live+=("$_s_id")
+                    fi
+                fi
+            fi
+        done
+
+        # Run the installer (compile only, no restart unless explicitly allowed)
+        /bin/bash "${PROJECT_DIR}/install_mix.sh" --no-restart
+        _compile_exit=$?
+
+        # Revival pass after compile
+        if [ "${#_compile_live[@]}" -gt 0 ]; then
+            sleep 0.5
+            for _s_id in "${_compile_live[@]}"; do
+                if ! systemctl is-active --quiet "gameland@${_s_id}.service" 2>/dev/null || \
+                   ! tmux has-session -t "gameland_${_s_id}" 2>/dev/null; then
+                    echo "[WATCHDOG/compile] Reviving instance '${_s_id}'..."
+                    /usr/bin/systemctl restart "gameland@${_s_id}.service" 2>/dev/null || true
+                fi
+            done
+        fi
+        exit $_compile_exit
         ;;
     compile_server)
         id="${2:-main}"

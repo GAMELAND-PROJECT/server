@@ -8,7 +8,8 @@ Type=oneshot
 RemainAfterExit=yes
 User=root
 Environment="MANAGER_ROOT=/opt/gameland/server"
-WorkingDirectory=/opt/gameland/server
+KillMode=process
+TimeoutSec=30
 
 ExecStart=/bin/bash /opt/gameland/server/start_instance.sh %i
 ExecStop=/bin/bash /opt/gameland/server/stop_instance.sh %i

@@ -49,11 +49,19 @@ if [ -f "${SCRIPT_DIR}/.env" ]; then
     source "${SCRIPT_DIR}/.env"
 fi
 
-# تشخیص هوشمند اسلات بر اساس مد فعال
+# تشخیص هوشمند اسلات و مد فعال (بررسی دقیق plugins.ini، main_mode.txt و modes.json)
+PLUGINS_INI="${SCRIPT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini"
 SAVED_MAIN_MODE=""
-if [ -f "/opt/gameland/persistent/main_mode.txt" ]; then
+
+# اگر در plugins.ini پلاگین میکس فعال باشد، مد قطعاً mix5v5 و ۱۸ اسلات است
+if [ -f "$PLUGINS_INI" ] && grep -Eq '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "$PLUGINS_INI"; then
+    SAVED_MAIN_MODE="mix5v5"
+elif [ -f "$PLUGINS_INI" ] && grep -Eq '^[[:space:]]*clanwar_system\.amxx([[:space:]]|$)' "$PLUGINS_INI"; then
+    SAVED_MAIN_MODE="clanwar"
+elif [ -f "/opt/gameland/persistent/main_mode.txt" ]; then
     SAVED_MAIN_MODE=$(cat "/opt/gameland/persistent/main_mode.txt" 2>/dev/null | tr -d '[:space:]')
 fi
+
 if [ "$SAVED_MAIN_MODE" = "mix5v5" ]; then
     MAX_PLAYERS="18"
 elif [ "$SAVED_MAIN_MODE" = "public" ]; then
@@ -61,17 +69,13 @@ elif [ "$SAVED_MAIN_MODE" = "public" ]; then
 elif [ "$SAVED_MAIN_MODE" = "clanwar" ]; then
     MAX_PLAYERS="10"
 else
-    PLUGINS_INI="${SCRIPT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini"
-    if [ -f "$PLUGINS_INI" ]; then
-        if grep -Eq '^[[:space:]]*clanwar_system\.amxx' "$PLUGINS_INI"; then
-            MAX_PLAYERS="10"
-        elif grep -Eq '^[[:space:]]*mix_system\.amxx' "$PLUGINS_INI"; then
-            MAX_PLAYERS="18"
-        else
-            MAX_PLAYERS="24"
-        fi
-    fi
+    MAX_PLAYERS="18"
 fi
+
+# بروزرسانی دائمی اسلات در main_mode.txt
+mkdir -p /opt/gameland/persistent "${SCRIPT_DIR}/instances" 2>/dev/null || true
+echo "${SAVED_MAIN_MODE:-mix5v5}" > "/opt/gameland/persistent/main_mode.txt" 2>/dev/null || true
+echo "${SAVED_MAIN_MODE:-mix5v5}" > "${SCRIPT_DIR}/instances/main_mode.txt" 2>/dev/null || true
 
 # Dynamic hostname resolution
 HOSTNAME="${HOSTNAME:-${SERVER_NAME:-}}"
@@ -88,6 +92,11 @@ if [ -f "${SCRIPT_DIR}/cstrike/server.cfg" ]; then
     sed -i -E "s/^[[:space:]]*mix_base_hostname[[:space:]]+.*/mix_base_hostname \"${HOSTNAME}\"/" "${SCRIPT_DIR}/cstrike/server.cfg" 2>/dev/null || true
     if ! grep -q 'mix_base_hostname' "${SCRIPT_DIR}/cstrike/server.cfg"; then
         echo "mix_base_hostname \"${HOSTNAME}\"" >> "${SCRIPT_DIR}/cstrike/server.cfg"
+    fi
+    # همگام‌سازی sv_visiblemaxplayers با اسلات واقعی در server.cfg
+    sed -i -E "s/^[[:space:]]*sv_visiblemaxplayers[[:space:]]+[0-9]+/sv_visiblemaxplayers ${MAX_PLAYERS}/" "${SCRIPT_DIR}/cstrike/server.cfg" 2>/dev/null || true
+    if ! grep -q '^[[:space:]]*sv_visiblemaxplayers' "${SCRIPT_DIR}/cstrike/server.cfg"; then
+        echo "sv_visiblemaxplayers ${MAX_PLAYERS}" >> "${SCRIPT_DIR}/cstrike/server.cfg"
     fi
 fi
 

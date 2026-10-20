@@ -156,18 +156,52 @@ if ! grep -qE '^[[:space:]]*nextclientapi([[:space:]]|$)' "${MODULES_INI}"; then
 fi
 
 # Detect and preserve active game mode for main server
-MAIN_MODE="clanwar"
-if [ -f "/opt/gameland/persistent/main_mode.txt" ] && grep -qE '^(clanwar|mix5v5|public)$' "/opt/gameland/persistent/main_mode.txt" 2>/dev/null; then
-    MAIN_MODE=$(cat "/opt/gameland/persistent/main_mode.txt" | tr -d '[:space:]')
-elif [ -f "${PLUGINS_INI}" ]; then
-    if grep -qE '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
+# Priority chain: persistent/main_mode.txt -> instances/main_mode.txt -> modes.json -> plugins.ini -> last-resort
+MAIN_MODE=""
+
+# Source 1: /opt/gameland/persistent/main_mode.txt  (written by panel + switch_mode + compile)
+if [ -f "/opt/gameland/persistent/main_mode.txt" ]; then
+    _m="$(cat /opt/gameland/persistent/main_mode.txt | tr -d '[:space:]')"
+    [[ "$_m" =~ ^(clanwar|mix5v5|public)$ ]] && MAIN_MODE="$_m"
+fi
+
+# Source 2: local copy beside PROJECT_DIR
+if [ -z "$MAIN_MODE" ] && [ -f "${PROJECT_DIR}/instances/main_mode.txt" ]; then
+    _m="$(cat "${PROJECT_DIR}/instances/main_mode.txt" | tr -d '[:space:]')"
+    [[ "$_m" =~ ^(clanwar|mix5v5|public)$ ]] && MAIN_MODE="$_m"
+fi
+
+# Source 3: modes.json
+if [ -z "$MAIN_MODE" ]; then
+    for _mj in "/opt/gameland/persistent/modes.json" "${PROJECT_DIR}/instances/modes.json"; do
+        if [ -f "$_mj" ]; then
+            _m="$(python3 -c '
+import json,sys
+try:
+    d=json.load(open(sys.argv[1]))
+    print(d.get("main",{}).get("mode",""))
+except: print("")
+' "$_mj" 2>/dev/null || true)"
+            [[ "$_m" =~ ^(clanwar|mix5v5|public)$ ]] && { MAIN_MODE="$_m"; break; }
+        fi
+    done
+fi
+
+# Source 4: live plugins.ini (read what's actually active right now)
+if [ -z "$MAIN_MODE" ] && [ -f "${PLUGINS_INI}" ]; then
+    if grep -qE '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "${PLUGINS_INI}" 2>/dev/null; then
         MAIN_MODE="mix5v5"
-    elif grep -qE '^[[:space:]]*clanwar_system\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
+    elif grep -qE '^[[:space:]]*clanwar_system\.amxx([[:space:]]|$)' "${PLUGINS_INI}" 2>/dev/null; then
         MAIN_MODE="clanwar"
     else
         MAIN_MODE="public"
     fi
 fi
+
+# Source 5: absolute last resort - only if every source above failed
+[ -z "$MAIN_MODE" ] && MAIN_MODE="clanwar"
+
+echo "  -> Detected active mode: ${MAIN_MODE}"
 mkdir -p /opt/gameland/persistent "${PROJECT_DIR}/instances" 2>/dev/null || true
 echo "$MAIN_MODE" > "/opt/gameland/persistent/main_mode.txt" 2>/dev/null || true
 echo "$MAIN_MODE" > "${PROJECT_DIR}/instances/main_mode.txt" 2>/dev/null || true
@@ -262,14 +296,23 @@ echo "  -> Wrote deploy record: ${CONFIGS_DIR}/.mix_last_build.json (${COMPILED_
 
 echo "[5/5] Optimizing server config for active game mode..."
 if [ "$MAIN_MODE" = "mix5v5" ]; then
-    sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="18"/' "${PROJECT_DIR}/start.sh"
-    echo "  -> 5v5 Match active: set MAX_PLAYERS to 18"
+    main_slots="18"
+    echo "  -> 5v5 Match active: set MAX_PLAYERS and sv_visiblemaxplayers to 18"
 elif [ "$MAIN_MODE" = "public" ]; then
-    sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="24"/' "${PROJECT_DIR}/start.sh"
-    echo "  -> Public active: set MAX_PLAYERS to 24"
+    main_slots="24"
+    echo "  -> Public active: set MAX_PLAYERS and sv_visiblemaxplayers to 24"
 else
-    sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="10"/' "${PROJECT_DIR}/start.sh"
-    echo "  -> Clan War active: set MAX_PLAYERS to 10"
+    main_slots="10"
+    echo "  -> Clan War active: set MAX_PLAYERS and sv_visiblemaxplayers to 10"
+fi
+
+sed -i -E "s/MAX_PLAYERS=\".*\"/MAX_PLAYERS=\"${main_slots}\"/" "${PROJECT_DIR}/start.sh" 2>/dev/null || true
+[ -f "${PROJECT_DIR}/.env" ] && sed -i -E "s/MAX_PLAYERS=\".*\"/MAX_PLAYERS=\"${main_slots}\"/" "${PROJECT_DIR}/.env" 2>/dev/null || true
+if [ -f "${PROJECT_DIR}/cstrike/server.cfg" ]; then
+    sed -i -E "s/^[[:space:]]*sv_visiblemaxplayers[[:space:]]+[0-9]+/sv_visiblemaxplayers ${main_slots}/" "${PROJECT_DIR}/cstrike/server.cfg" 2>/dev/null || true
+    if ! grep -q '^[[:space:]]*sv_visiblemaxplayers' "${PROJECT_DIR}/cstrike/server.cfg"; then
+        echo "sv_visiblemaxplayers ${main_slots}" >> "${PROJECT_DIR}/cstrike/server.cfg"
+    fi
 fi
 
 # Helper function to sync compiled plugins, dictionaries, and configs to a specific instance
