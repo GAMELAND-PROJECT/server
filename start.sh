@@ -15,16 +15,18 @@ fi
 
 # Auto-sanitize systemd service files to guarantee 100% decoupling
 needs_reload=0
-if [ -f "/etc/systemd/system/gameland.service" ]; then
-    if grep -qE 'pkill -9 -f hlds_linux|killall -9 hlds_linux' "/etc/systemd/system/gameland.service" 2>/dev/null; then
-        sed -i -E 's/pkill -9 -f hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
-        sed -i -E 's/killall -9 hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
+rm -rf /etc/systemd/system/gameland*.service.d 2>/dev/null || true
+if [ -f "/etc/systemd/system/gameland.service" ] && [ -f "${SCRIPT_DIR:-/opt/gameland/server}/gameland.service" ]; then
+    if ! cmp -s "${SCRIPT_DIR:-/opt/gameland/server}/gameland.service" "/etc/systemd/system/gameland.service" 2>/dev/null; then
+        cp -f "${SCRIPT_DIR:-/opt/gameland/server}/gameland.service" "/etc/systemd/system/gameland.service" 2>/dev/null || true
+        chmod 644 "/etc/systemd/system/gameland.service" 2>/dev/null || true
         needs_reload=1
     fi
 fi
-if [ -f "/etc/systemd/system/gameland@.service" ]; then
-    if grep -q 'gameland.service' "/etc/systemd/system/gameland@.service" 2>/dev/null; then
-        sed -i -E 's/[[:space:]]*gameland\.service//g' "/etc/systemd/system/gameland@.service" 2>/dev/null || true
+if [ -f "/etc/systemd/system/gameland@.service" ] && [ -f "${SCRIPT_DIR:-/opt/gameland/server}/gameland@.service" ]; then
+    if ! cmp -s "${SCRIPT_DIR:-/opt/gameland/server}/gameland@.service" "/etc/systemd/system/gameland@.service" 2>/dev/null; then
+        cp -f "${SCRIPT_DIR:-/opt/gameland/server}/gameland@.service" "/etc/systemd/system/gameland@.service" 2>/dev/null || true
+        chmod 644 "/etc/systemd/system/gameland@.service" 2>/dev/null || true
         needs_reload=1
     fi
 fi
@@ -48,12 +50,26 @@ if [ -f "${SCRIPT_DIR}/.env" ]; then
 fi
 
 # تشخیص هوشمند اسلات بر اساس مد فعال
-PLUGINS_INI="${SCRIPT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini"
-if [ -f "$PLUGINS_INI" ]; then
-    if grep -Eq '^[[:space:]]*clanwar_system\.amxx' "$PLUGINS_INI"; then
-        MAX_PLAYERS="10"
-    elif grep -Eq '^[[:space:]]*mix_system\.amxx' "$PLUGINS_INI"; then
-        [ "${MAX_PLAYERS}" = "10" ] && MAX_PLAYERS="18"
+SAVED_MAIN_MODE=""
+if [ -f "/opt/gameland/persistent/main_mode.txt" ]; then
+    SAVED_MAIN_MODE=$(cat "/opt/gameland/persistent/main_mode.txt" 2>/dev/null | tr -d '[:space:]')
+fi
+if [ "$SAVED_MAIN_MODE" = "mix5v5" ]; then
+    MAX_PLAYERS="18"
+elif [ "$SAVED_MAIN_MODE" = "public" ]; then
+    MAX_PLAYERS="24"
+elif [ "$SAVED_MAIN_MODE" = "clanwar" ]; then
+    MAX_PLAYERS="10"
+else
+    PLUGINS_INI="${SCRIPT_DIR}/cstrike/addons/amxmodx/configs/plugins.ini"
+    if [ -f "$PLUGINS_INI" ]; then
+        if grep -Eq '^[[:space:]]*clanwar_system\.amxx' "$PLUGINS_INI"; then
+            MAX_PLAYERS="10"
+        elif grep -Eq '^[[:space:]]*mix_system\.amxx' "$PLUGINS_INI"; then
+            MAX_PLAYERS="18"
+        else
+            MAX_PLAYERS="24"
+        fi
     fi
 fi
 

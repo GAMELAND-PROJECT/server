@@ -17,7 +17,7 @@ WorkingDirectory=/opt/gameland/server
 ExecStart=/bin/bash /opt/gameland/server/start.sh
 
 # استاپ: بستن کامل نشست و پورت همین سرور (بدون دست زدن به سایر سرورها)
-ExecStop=/bin/bash -c 'fuser -k 27015/udp 2>/dev/null; fuser -k 27015/tcp 2>/dev/null; fuser -k 27005/udp 2>/dev/null; tmux kill-session -t gameland_server 2>/dev/null; pkill -9 -f hltv 2>/dev/null; rm -f /opt/gameland/server/gameland.pid; true'
+ExecStop=/bin/bash -c 'fuser -k 27015/udp 2>/dev/null; fuser -k 27015/tcp 2>/dev/null; fuser -k 27005/udp 2>/dev/null; tmux kill-session -t gameland_server 2>/dev/null; rm -f /opt/gameland/server/gameland.pid; true'
 
 # ریستارت دستی (systemctl restart)
 ExecReload=/bin/bash -c 'fuser -k 27015/udp 2>/dev/null; fuser -k 27015/tcp 2>/dev/null; fuser -k 27005/udp 2>/dev/null; tmux kill-session -t gameland_server 2>/dev/null; sleep 1; /bin/bash /opt/gameland/server/start.sh'

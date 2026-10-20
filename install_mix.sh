@@ -23,21 +23,16 @@ chown -R www-data:www-data "${CONFIGS_DIR}" 2>/dev/null || true
 
 # Auto-sanitize gameland.service and gameland@.service to guarantee 100% decoupling
 needs_reload=0
-if [ -f "/etc/systemd/system/gameland.service" ]; then
-    if grep -qE 'pkill -9 -f hlds_linux|killall -9 hlds_linux' "/etc/systemd/system/gameland.service" 2>/dev/null; then
-        sed -i -E 's/pkill -9 -f hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
-        sed -i -E 's/killall -9 hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
-        needs_reload=1
-    fi
-fi
-if [ -f "/etc/systemd/system/gameland@.service" ]; then
-    if grep -q 'gameland.service' "/etc/systemd/system/gameland@.service" 2>/dev/null; then
-        sed -i -E 's/[[:space:]]*gameland\.service//g' "/etc/systemd/system/gameland@.service" 2>/dev/null || true
+rm -rf /etc/systemd/system/gameland*.service.d 2>/dev/null || true
+if [ -f "${PROJECT_DIR}/gameland.service" ]; then
+    if [ ! -f "/etc/systemd/system/gameland.service" ] || ! cmp -s "${PROJECT_DIR}/gameland.service" "/etc/systemd/system/gameland.service" 2>/dev/null; then
+        cp -f "${PROJECT_DIR}/gameland.service" "/etc/systemd/system/gameland.service" 2>/dev/null || true
+        chmod 644 "/etc/systemd/system/gameland.service" 2>/dev/null || true
         needs_reload=1
     fi
 fi
 if [ -f "${PROJECT_DIR}/gameland@.service" ]; then
-    if [ ! -f "/etc/systemd/system/gameland@.service" ] || grep -q 'gameland.service' "/etc/systemd/system/gameland@.service" 2>/dev/null; then
+    if [ ! -f "/etc/systemd/system/gameland@.service" ] || ! cmp -s "${PROJECT_DIR}/gameland@.service" "/etc/systemd/system/gameland@.service" 2>/dev/null; then
         cp -f "${PROJECT_DIR}/gameland@.service" "/etc/systemd/system/gameland@.service" 2>/dev/null || true
         chmod 644 "/etc/systemd/system/gameland@.service" 2>/dev/null || true
         needs_reload=1
@@ -160,11 +155,22 @@ if ! grep -qE '^[[:space:]]*nextclientapi([[:space:]]|$)' "${MODULES_INI}"; then
     echo "  -> Ensured nextclientapi in modules.ini"
 fi
 
-# Detect active game mode in plugins.ini: Clan War vs Mix 5v5
-IS_CW_ACTIVE=false
-if grep -qE '^[[:space:]]*clanwar_system\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
-    IS_CW_ACTIVE=true
+# Detect and preserve active game mode for main server
+MAIN_MODE="clanwar"
+if [ -f "/opt/gameland/persistent/main_mode.txt" ] && grep -qE '^(clanwar|mix5v5|public)$' "/opt/gameland/persistent/main_mode.txt" 2>/dev/null; then
+    MAIN_MODE=$(cat "/opt/gameland/persistent/main_mode.txt" | tr -d '[:space:]')
+elif [ -f "${PLUGINS_INI}" ]; then
+    if grep -qE '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
+        MAIN_MODE="mix5v5"
+    elif grep -qE '^[[:space:]]*clanwar_system\.amxx([[:space:]]|$)' "${PLUGINS_INI}"; then
+        MAIN_MODE="clanwar"
+    else
+        MAIN_MODE="public"
+    fi
 fi
+mkdir -p /opt/gameland/persistent "${PROJECT_DIR}/instances" 2>/dev/null || true
+echo "$MAIN_MODE" > "/opt/gameland/persistent/main_mode.txt" 2>/dev/null || true
+echo "$MAIN_MODE" > "${PROJECT_DIR}/instances/main_mode.txt" 2>/dev/null || true
 
 # Ensure all 8 GameLand helper plugins are registered and active in plugins.ini
 for plugin_entry in \
@@ -191,27 +197,27 @@ for plugin_entry in \
     fi
 done
 
-# Ensure Clan War and Mix mode are strictly MUTUALLY EXCLUSIVE in plugins.ini
-if [ "$IS_CW_ACTIVE" = true ]; then
-    echo "  -> Clan War Mode is active: ensuring mix_system.amxx is commented out!"
-    sed -i -E 's/^[[:space:]]*mix_system\.amxx([[:space:]].*)?$/;mix_system.amxx\t; GAMELAND 5v5 mix and match manager/' "${PLUGINS_INI}"
-    if ! grep -qE "mix_system\.amxx" "${PLUGINS_INI}"; then
-        printf ';mix_system.amxx\t; GAMELAND 5v5 mix and match manager\n' >> "${PLUGINS_INI}"
-    fi
-else
-    # 5v5 Mix is active: ensure mix_system.amxx is active and clanwar_system.amxx is commented out
-    echo "  -> 5v5 Mix Mode is active: ensuring clanwar_system.amxx is commented out!"
+# Enforce MAIN_MODE cleanly in plugins.ini without overwriting user mode
+if [ "$MAIN_MODE" = "mix5v5" ]; then
+    echo "  -> 5v5 Mix Mode is active for main: ensuring mix_system.amxx is active!"
     if grep -qE "^[[:space:]]*;+[[:space:]]*mix_system\.amxx([[:space:]]|$)" "${PLUGINS_INI}"; then
         sed -i -E "s/^[[:space:]]*;+[[:space:]]*(mix_system\.amxx.*)$/\1/" "${PLUGINS_INI}"
-        echo "  -> Uncommented mix_system.amxx in plugins.ini"
     elif ! grep -qE "^[[:space:]]*mix_system\.amxx([[:space:]]|$)" "${PLUGINS_INI}"; then
         printf 'mix_system.amxx\t; GAMELAND 5v5 mix and match manager\n' >> "${PLUGINS_INI}"
-        echo "  -> Added mix_system.amxx to plugins.ini"
     fi
     sed -i -E 's/^[[:space:]]*clanwar_system\.amxx([[:space:]].*)?$/;clanwar_system.amxx\t; GAMELAND 10-slot Clan War Mode manager/' "${PLUGINS_INI}"
-    if ! grep -qE "clanwar_system\.amxx" "${PLUGINS_INI}"; then
-        printf ';clanwar_system.amxx\t; GAMELAND 10-slot Clan War Mode manager\n' >> "${PLUGINS_INI}"
+elif [ "$MAIN_MODE" = "public" ]; then
+    echo "  -> Public Mode is active for main: disabling clanwar and mix managers!"
+    sed -i -E 's/^[[:space:]]*clanwar_system\.amxx([[:space:]].*)?$/;clanwar_system.amxx\t; GAMELAND 10-slot Clan War Mode manager/' "${PLUGINS_INI}"
+    sed -i -E 's/^[[:space:]]*mix_system\.amxx([[:space:]].*)?$/;mix_system.amxx\t; GAMELAND 5v5 mix and match manager/' "${PLUGINS_INI}"
+else
+    echo "  -> Clan War Mode is active for main: ensuring clanwar_system.amxx is active!"
+    if grep -qE "^[[:space:]]*;+[[:space:]]*clanwar_system\.amxx([[:space:]]|$)" "${PLUGINS_INI}"; then
+        sed -i -E "s/^[[:space:]]*;+[[:space:]]*(clanwar_system\.amxx.*)$/\1/" "${PLUGINS_INI}"
+    elif ! grep -qE "^[[:space:]]*clanwar_system\.amxx([[:space:]]|$)" "${PLUGINS_INI}"; then
+        printf 'clanwar_system.amxx\t; GAMELAND 10-slot Clan War Mode manager\n' >> "${PLUGINS_INI}"
     fi
+    sed -i -E 's/^[[:space:]]*mix_system\.amxx([[:space:]].*)?$/;mix_system.amxx\t; GAMELAND 5v5 mix and match manager/' "${PLUGINS_INI}"
 fi
 
 # ─── 5. Adjust start.sh for 5v5 Match (12 Slots) ───────
@@ -255,12 +261,15 @@ EOF
 echo "  -> Wrote deploy record: ${CONFIGS_DIR}/.mix_last_build.json (${COMPILED_COUNT} managed plugins)"
 
 echo "[5/5] Optimizing server config for active game mode..."
-if grep -Eq '^[[:space:]]*clanwar_system\.amxx' "${CONFIGS_DIR}/plugins.ini" 2>/dev/null; then
-    sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="10"/' "${PROJECT_DIR}/start.sh"
-    echo "  -> Clan War active: set MAX_PLAYERS to 10"
-elif grep -Eq '^[[:space:]]*mix_system\.amxx' "${CONFIGS_DIR}/plugins.ini" 2>/dev/null; then
+if [ "$MAIN_MODE" = "mix5v5" ]; then
     sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="18"/' "${PROJECT_DIR}/start.sh"
     echo "  -> 5v5 Match active: set MAX_PLAYERS to 18"
+elif [ "$MAIN_MODE" = "public" ]; then
+    sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="24"/' "${PROJECT_DIR}/start.sh"
+    echo "  -> Public active: set MAX_PLAYERS to 24"
+else
+    sed -i 's/MAX_PLAYERS=".*"/MAX_PLAYERS="10"/' "${PROJECT_DIR}/start.sh"
+    echo "  -> Clan War active: set MAX_PLAYERS to 10"
 fi
 
 # Helper function to sync compiled plugins, dictionaries, and configs to a specific instance
@@ -369,14 +378,76 @@ sys.exit(1)
         sed -i -E 's/^[[:space:]]*mp_semiclip_actions[[:space:]]+.*/mp_semiclip_actions 0/' "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
     fi
 
-    # Enforce mutual exclusion in instance plugins.ini
+    # Enforce preserved mode and slots in instance plugins.ini and env
     inst_pini="${target_dir}/cstrike/addons/amxmodx/configs/plugins.ini"
-    if [ -f "$inst_pini" ]; then
-        if grep -qE '^[[:space:]]*clanwar_system\.amxx([[:space:]]|$)' "$inst_pini"; then
-            sed -i -E 's/^[[:space:]]*mix_system\.amxx([[:space:]].*)?$/;mix_system.amxx\t; GAMELAND 5v5 mix and match manager/' "$inst_pini" 2>/dev/null || true
-        elif grep -qE '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "$inst_pini"; then
-            sed -i -E 's/^[[:space:]]*clanwar_system\.amxx([[:space:]].*)?$/;clanwar_system.amxx\t; GAMELAND 10-slot Clan War Mode manager/' "$inst_pini" 2>/dev/null || true
+    inst_mode_info=$(python3 -c '
+import json, sys
+iid = sys.argv[1]
+for p in ["/opt/gameland/persistent/modes.json", "'"${PROJECT_DIR}"'/instances/modes.json"]:
+    try:
+        with open(p) as f:
+            d = json.load(f)
+            if iid in d:
+                print(f"{d[iid].get(\"mode\",\"clanwar\")}|{d[iid].get(\"slots\",10)}")
+                sys.exit(0)
+    except Exception: pass
+for p in ["'"${PROJECT_DIR}"'/instances/servers.json", "/opt/gameland/persistent/servers.json"]:
+    try:
+        with open(p) as f:
+            d = json.load(f)
+            for s in d.get("servers", []):
+                if s.get("id") == iid:
+                    print(f"{s.get(\"mode\",\"clanwar\")}|{s.get(\"slots\",10)}")
+                    sys.exit(0)
+    except Exception: pass
+sys.exit(1)
+' "$s_id" 2>/dev/null || true)
+
+    inst_mode="clanwar"
+    inst_slots=10
+    if [ -n "$inst_mode_info" ]; then
+        inst_mode="${inst_mode_info%%|*}"
+        inst_slots="${inst_mode_info##*|}"
+    elif [ -f "$inst_pini" ]; then
+        if grep -qE '^[[:space:]]*mix_system\.amxx([[:space:]]|$)' "$inst_pini"; then
+            inst_mode="mix5v5"
+            inst_slots=18
+        elif grep -qE '^[[:space:]]*clanwar_system\.amxx([[:space:]]|$)' "$inst_pini"; then
+            inst_mode="clanwar"
+            inst_slots=10
+        else
+            inst_mode="public"
+            inst_slots=24
         fi
+    fi
+
+    if [ -f "$inst_pini" ]; then
+        if [ "$inst_mode" = "mix5v5" ]; then
+            sed -i -E 's/^[[:space:]]*;?[[:space:]]*mix_system\.amxx([[:space:]].*)?$/mix_system.amxx/' "$inst_pini" 2>/dev/null || true
+            sed -i -E 's/^[[:space:]]*clanwar_system\.amxx/;\0/' "$inst_pini" 2>/dev/null || true
+            inst_slots=18
+        elif [ "$inst_mode" = "public" ]; then
+            sed -i -E 's/^[[:space:]]*clanwar_system\.amxx/;\0/' "$inst_pini" 2>/dev/null || true
+            sed -i -E 's/^[[:space:]]*mix_system\.amxx/;\0/' "$inst_pini" 2>/dev/null || true
+            inst_slots=24
+        else
+            sed -i -E 's/^[[:space:]]*;?[[:space:]]*clanwar_system\.amxx([[:space:]].*)?$/clanwar_system.amxx/' "$inst_pini" 2>/dev/null || true
+            sed -i -E 's/^[[:space:]]*mix_system\.amxx/;\0/' "$inst_pini" 2>/dev/null || true
+            inst_slots=10
+        fi
+        chmod 666 "$inst_pini" 2>/dev/null || true
+    fi
+
+    for env_f in "${PROJECT_DIR}/instances/${s_id}.env" "${target_dir}/.env"; do
+        if [ -f "$env_f" ]; then
+            sed -i -E "s/MAX_PLAYERS=\".*\"/MAX_PLAYERS=\"${inst_slots}\"/" "$env_f" 2>/dev/null || true
+        fi
+    done
+    if [ -f "${target_dir}/start.sh" ]; then
+        sed -i -E "s/MAX_PLAYERS=\".*\"/MAX_PLAYERS=\"${inst_slots}\"/" "${target_dir}/start.sh" 2>/dev/null || true
+    fi
+    if [ -f "${target_dir}/cstrike/server.cfg" ]; then
+        sed -i -E "s/^[[:space:]]*sv_visiblemaxplayers[[:space:]]+[0-9]+/sv_visiblemaxplayers ${inst_slots}/" "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
     fi
 
     chmod +x "${target_dir}/hlds_linux" "${target_dir}/hlds_run" "${target_dir}"/*.sh 2>/dev/null || true
@@ -413,8 +484,22 @@ fi
 if [ "$DO_SYNC_ALL" = true ]; then
     echo "[*] Synchronizing updated plugins to all registered server instances (Staggered)..."
 
+    # 0. Snapshot active status of ALL instances BEFORE restarting main
+    declare -A WAS_ACTIVE_MAP
+    for inst_dir in /opt/gameland/instances/* "${PROJECT_DIR}/instances"/*; do
+        if [ -d "$inst_dir" ]; then
+            s_id="$(basename "$inst_dir")"
+            if [ "$s_id" != "*" ] && [ "$s_id" != "main" ] && [ "$s_id" != "instances_env" ] && [ "$s_id" != "instances_plugins" ]; then
+                svc="gameland@${s_id}.service"
+                if systemctl is-active --quiet "$svc" 2>/dev/null || tmux has-session -t "gameland_${s_id}" 2>/dev/null; then
+                    WAS_ACTIVE_MAP["$s_id"]=1
+                fi
+            fi
+        fi
+    done
+
     # Restart main FIRST if active, so instances follow sequentially
-    if [ "$DO_RESTART" = true ] && systemctl is-active --quiet gameland.service 2>/dev/null; then
+    if [ "$DO_RESTART" = true ] && (systemctl is-active --quiet gameland.service 2>/dev/null || tmux has-session -t gameland_server 2>/dev/null); then
         echo "  -> Restarting main server (gameland.service)..."
         systemctl restart gameland.service 2>/dev/null || true
         echo "     [*] Waiting 2.5s for main server startup stabilization..."
@@ -455,7 +540,7 @@ if [ "$DO_SYNC_ALL" = true ]; then
             synced_count=$((synced_count + 1))
             svc="gameland@${s_id}.service"
             was_active=false
-            if systemctl is-active --quiet "$svc" 2>/dev/null || systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+            if [ "${WAS_ACTIVE_MAP[$s_id]:-0}" = "1" ] || systemctl is-active --quiet "$svc" 2>/dev/null || tmux has-session -t "gameland_${s_id}" 2>/dev/null; then
                 was_active=true
             fi
 

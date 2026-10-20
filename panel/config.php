@@ -71,6 +71,28 @@ define('GITHUB_BRANCH', 'main');
 $detectedServerDir = is_dir('/opt/gameland/server') ? '/opt/gameland/server' : dirname(__DIR__);
 $detectedPublicIp = $_SERVER['SERVER_ADDR'] ?? '127.0.0.1';
 
+$mainMode = 'clanwar';
+if (is_file('/opt/gameland/persistent/main_mode.txt')) {
+    $m = trim((string)@file_get_contents('/opt/gameland/persistent/main_mode.txt'));
+    if (in_array($m, ['clanwar', 'mix5v5', 'public'], true)) $mainMode = $m;
+} elseif (is_file($detectedServerDir . '/instances/main_mode.txt')) {
+    $m = trim((string)@file_get_contents($detectedServerDir . '/instances/main_mode.txt'));
+    if (in_array($m, ['clanwar', 'mix5v5', 'public'], true)) $mainMode = $m;
+} else {
+    $mainPini = $detectedServerDir . '/cstrike/addons/amxmodx/configs/plugins.ini';
+    if (is_file($mainPini)) {
+        $rawPini = (string)@file_get_contents($mainPini);
+        if (preg_match('/^[ \t]*mix_system\.amxx/m', $rawPini)) {
+            $mainMode = 'mix5v5';
+        } elseif (preg_match('/^[ \t]*clanwar_system\.amxx/m', $rawPini)) {
+            $mainMode = 'clanwar';
+        } else {
+            $mainMode = 'public';
+        }
+    }
+}
+$mainSlots = ($mainMode === 'clanwar') ? 10 : (($mainMode === 'mix5v5') ? 18 : 24);
+
 $SERVERS = [
     'main' => [
         'id'            => 'main',
@@ -85,6 +107,8 @@ $SERVERS = [
         'users_ini'     => $detectedServerDir . '/cstrike/addons/amxmodx/configs/users.ini',
         'maps_ini'      => $detectedServerDir . '/cstrike/addons/amxmodx/configs/maps.ini',
         'log_file'      => $detectedServerDir . '/logs/server.log',
+        'mode'          => $mainMode,
+        'slots'         => $mainSlots,
     ],
 ];
 
@@ -103,6 +127,34 @@ function gameland_normalize_server(array $server, string $fallbackIp): array {
     $name = (string)($server['name'] ?? ('GameLand ' . $id));
     $hostname = (string)($server['hostname'] ?? $name);
 
+    $mode = (string)($server['mode'] ?? '');
+    $slots = (int)($server['slots'] ?? 0);
+    if (is_file('/opt/gameland/persistent/modes.json')) {
+        $modesJson = @json_decode((string)file_get_contents('/opt/gameland/persistent/modes.json'), true);
+        if (isset($modesJson[$id]['mode'])) {
+            $mode = (string)$modesJson[$id]['mode'];
+            if ($slots <= 0) $slots = (int)($modesJson[$id]['slots'] ?? 0);
+        }
+    }
+    if ($mode === '' || !in_array($mode, ['clanwar', 'mix5v5', 'public'], true)) {
+        $instPini = $serverDir . '/cstrike/addons/amxmodx/configs/plugins.ini';
+        if (is_file($instPini)) {
+            $rawPini = (string)@file_get_contents($instPini);
+            if (preg_match('/^[ \t]*mix_system\.amxx/m', $rawPini)) {
+                $mode = 'mix5v5';
+            } elseif (preg_match('/^[ \t]*clanwar_system\.amxx/m', $rawPini)) {
+                $mode = 'clanwar';
+            } else {
+                $mode = 'public';
+            }
+        } else {
+            $mode = 'clanwar';
+        }
+    }
+    if ($slots <= 0) {
+        $slots = ($mode === 'clanwar') ? 10 : (($mode === 'mix5v5') ? 18 : 24);
+    }
+
     return [
         'id'            => $id,
         'name'          => $name,
@@ -116,8 +168,8 @@ function gameland_normalize_server(array $server, string $fallbackIp): array {
         'users_ini'     => $serverDir . '/cstrike/addons/amxmodx/configs/users.ini',
         'maps_ini'      => $serverDir . '/cstrike/addons/amxmodx/configs/maps.ini',
         'log_file'      => $serverDir . '/logs/server_' . $id . '.log',
-        'mode'          => (string)($server['mode'] ?? 'clanwar'),
-        'slots'         => (int)($server['slots'] ?? 10),
+        'mode'          => $mode,
+        'slots'         => $slots,
     ];
 }
 

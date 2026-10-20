@@ -72,6 +72,16 @@ SERVER_PORT="${SERVER_PORT:?SERVER_PORT is required}"
 CLIENT_PORT="${CLIENT_PORT:-$((SERVER_PORT == 27015 ? 27005 : SERVER_PORT + 100))}"
 SERVER_IP="${SERVER_IP:-0.0.0.0}"
 MAX_PLAYERS="${MAX_PLAYERS:-10}"
+inst_pini="${SERVER_DIR}/cstrike/addons/amxmodx/configs/plugins.ini"
+if [ -f "$inst_pini" ]; then
+    if grep -Eq '^[[:space:]]*clanwar_system\.amxx' "$inst_pini"; then
+        MAX_PLAYERS="10"
+    elif grep -Eq '^[[:space:]]*mix_system\.amxx' "$inst_pini"; then
+        MAX_PLAYERS="18"
+    else
+        [ "$MAX_PLAYERS" = "10" ] && MAX_PLAYERS="24"
+    fi
+fi
 MAP="${MAP:-de_dust2}"
 TMUX_SESSION="${TMUX_SESSION:-gameland_${INSTANCE_ID}}"
 HLTV_SESSION="${HLTV_SESSION:-gameland_hltv_${INSTANCE_ID}}"

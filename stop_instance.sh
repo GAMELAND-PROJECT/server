@@ -38,13 +38,18 @@ TMUX_SESSION="${TMUX_SESSION:-gameland_${INSTANCE_ID}}"
 HLTV_SESSION="${HLTV_SESSION:-gameland_hltv_${INSTANCE_ID}}"
 COMPRESSOR_SESSION="${COMPRESSOR_SESSION:-demo_compressor_${INSTANCE_ID}}"
 
-CLIENT_PORT="${CLIENT_PORT:-$((SERVER_PORT == 27015 ? 27005 : SERVER_PORT + 100))}"
+CLIENT_PORT=""
+if [[ -n "${SERVER_PORT:-}" ]]; then
+    CLIENT_PORT="$((SERVER_PORT == 27015 ? 27005 : SERVER_PORT + 100))"
+fi
 
 tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
 if [[ -n "${SERVER_PORT:-}" ]] && command -v fuser >/dev/null 2>&1; then
     fuser -k -9 "${SERVER_PORT}/udp" 2>/dev/null || true
     fuser -k -9 "${SERVER_PORT}/tcp" 2>/dev/null || true
-    fuser -k -9 "${CLIENT_PORT}/udp" 2>/dev/null || true
+    if [[ -n "${CLIENT_PORT}" ]]; then
+        fuser -k -9 "${CLIENT_PORT}/udp" 2>/dev/null || true
+    fi
 fi
 sleep 1.0
 if [[ -n "${SERVER_PORT:-}" ]] && command -v fuser >/dev/null 2>&1; then

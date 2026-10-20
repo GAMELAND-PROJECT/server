@@ -1619,7 +1619,18 @@ class ServerCmd {
             // If PHP direct write failed, privileged helper already took care of it
         }
 
-        // 3. Update registry servers.json with mode and slots
+        // 3. Update registry servers.json, main_mode.txt, and modes.json with mode and slots
+        if ($serverId === 'main') {
+            @file_put_contents('/opt/gameland/persistent/main_mode.txt', $targetMode . "\n");
+            @file_put_contents(self::getManagerRoot() . '/instances/main_mode.txt', $targetMode . "\n");
+        }
+        $modesFile = '/opt/gameland/persistent/modes.json';
+        $modesData = is_file($modesFile) ? json_decode((string)@file_get_contents($modesFile), true) : [];
+        if (!is_array($modesData)) $modesData = [];
+        $modesData[$serverId] = ['mode' => $targetMode, 'slots' => $newSlots];
+        @file_put_contents($modesFile, json_encode($modesData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        @file_put_contents(self::getManagerRoot() . '/instances/modes.json', json_encode($modesData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+
         $registry = self::readRegistry();
         if (isset($registry['servers']) && is_array($registry['servers'])) {
             foreach ($registry['servers'] as &$entry) {

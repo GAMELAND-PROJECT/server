@@ -15,24 +15,21 @@ if [ -f "$REPO_SCRIPT" ] && [ "$0" = "/usr/local/sbin/gameland-panel-sudo" ]; th
 fi
 
 # ── Auto-sanitize legacy or coupled systemd service files ────────────────
+# ── Auto-sanitize legacy or coupled systemd service files ────────────────
 needs_reload=0
-if [ -f "/etc/systemd/system/gameland.service" ]; then
-    if grep -qE 'pkill -9 -f hlds_linux|killall -9 hlds_linux' "/etc/systemd/system/gameland.service" 2>/dev/null; then
-        sed -i -E 's/pkill -9 -f hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
-        sed -i -E 's/killall -9 hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
+if [ -f "${PROJECT_DIR}/gameland.service" ]; then
+    if [ ! -f "/etc/systemd/system/gameland.service" ] || ! cmp -s "${PROJECT_DIR}/gameland.service" "/etc/systemd/system/gameland.service" 2>/dev/null; then
+        cp -f "${PROJECT_DIR}/gameland.service" "/etc/systemd/system/gameland.service" 2>/dev/null || true
+        chmod 644 "/etc/systemd/system/gameland.service" 2>/dev/null || true
         needs_reload=1
     fi
 fi
-if [ -f "/etc/systemd/system/gameland@.service" ]; then
-    if grep -q 'gameland.service' "/etc/systemd/system/gameland@.service" 2>/dev/null; then
-        sed -i -E 's/[[:space:]]*gameland\.service//g' "/etc/systemd/system/gameland@.service" 2>/dev/null || true
+if [ -f "${PROJECT_DIR}/gameland@.service" ]; then
+    if [ ! -f "/etc/systemd/system/gameland@.service" ] || ! cmp -s "${PROJECT_DIR}/gameland@.service" "/etc/systemd/system/gameland@.service" 2>/dev/null; then
+        cp -f "${PROJECT_DIR}/gameland@.service" "/etc/systemd/system/gameland@.service" 2>/dev/null || true
+        chmod 644 "/etc/systemd/system/gameland@.service" 2>/dev/null || true
         needs_reload=1
     fi
-fi
-if [ -f "${PROJECT_DIR}/gameland@.service" ] && [ ! -f "/etc/systemd/system/gameland@.service" ]; then
-    cp -f "${PROJECT_DIR}/gameland@.service" "/etc/systemd/system/gameland@.service" 2>/dev/null || true
-    chmod 644 "/etc/systemd/system/gameland@.service" 2>/dev/null || true
-    needs_reload=1
 fi
 if [ "$needs_reload" -eq 1 ]; then
     systemctl daemon-reload 2>/dev/null || true
@@ -126,8 +123,18 @@ case "$action" in
         exec /bin/bash "${PROJECT_DIR}/install_mix.sh" --sync-all
         ;;
     switch_mode)
-        mode="${2:-clanwar}"
-        id="${3:-main}"
+        arg_a="${2:-}"
+        arg_b="${3:-}"
+        if [[ "$arg_a" =~ ^(clanwar|mix5v5|public)$ ]]; then
+            mode="$arg_a"
+            id="${arg_b:-main}"
+        elif [[ "$arg_b" =~ ^(clanwar|mix5v5|public)$ ]]; then
+            id="${arg_a:-main}"
+            mode="$arg_b"
+        else
+            mode="clanwar"
+            id="${arg_a:-main}"
+        fi
 
         # Resolve paths for this specific instance
         if [ "$id" = "main" ] || [ -z "$id" ]; then
@@ -248,7 +255,29 @@ sys.exit(1)
             chmod 666 "$server_cfg" 2>/dev/null || true
         fi
 
-        # 4. Update mode and slots in registry
+        # 4. Update mode and slots in registry and modes.json
+        mkdir -p /opt/gameland/persistent "${PROJECT_DIR}/instances" 2>/dev/null || true
+        if [ "$id" = "main" ]; then
+            echo "$mode" > /opt/gameland/persistent/main_mode.txt 2>/dev/null || true
+            echo "$mode" > "${PROJECT_DIR}/instances/main_mode.txt" 2>/dev/null || true
+        fi
+
+        # Persist mode into modes.json for all servers
+        python3 -c '
+import json, os, sys
+mid = sys.argv[1]
+mmode = sys.argv[2]
+mslots = int(sys.argv[3])
+for p in ["/opt/gameland/persistent/modes.json", "'"${PROJECT_DIR}"'/instances/modes.json"]:
+    try:
+        d = {}
+        if os.path.isfile(p):
+            with open(p, "r") as f: d = json.load(f)
+        d[mid] = {"mode": mmode, "slots": mslots}
+        with open(p, "w") as f: json.dump(d, f, indent=2)
+    except Exception: pass
+' "$id" "$mode" "$slots" 2>/dev/null || true
+
         for reg_file in "${PROJECT_DIR}/instances/servers.json" "/opt/gameland/persistent/servers.json"; do
             if [ -f "$reg_file" ]; then
                 php -r '
@@ -269,6 +298,21 @@ sys.exit(1)
         done
 
         # 5. ISOLATED RESTART: Only terminate this instance's tmux session and port!
+        # Snapshot currently running instances before restarting main
+        running_instances=()
+        if [ "$id" = "main" ]; then
+            for inst_dir in /opt/gameland/instances/* "${PROJECT_DIR}/instances"/*; do
+                if [ -d "$inst_dir" ]; then
+                    s_id="$(basename "$inst_dir")"
+                    if [ "$s_id" != "*" ] && [ "$s_id" != "main" ] && [ "$s_id" != "instances_env" ] && [ "$s_id" != "instances_plugins" ]; then
+                        if systemctl is-active --quiet "gameland@${s_id}.service" 2>/dev/null || tmux has-session -t "gameland_${s_id}" 2>/dev/null; then
+                            running_instances+=("$s_id")
+                        fi
+                    fi
+                fi
+            done
+        fi
+
         tmux kill-session -t "$tmux_session" 2>/dev/null || true
         if [ -n "$port" ] && command -v fuser >/dev/null 2>&1; then
             fuser -k "${port}/udp" 2>/dev/null || true
@@ -277,6 +321,17 @@ sys.exit(1)
         fi
         sleep 0.5
         /usr/bin/systemctl restart "$svc" 2>/dev/null || true
+
+        # Active Safety Net: ensure no running instances were knocked offline
+        if [ "$id" = "main" ] && [ "${#running_instances[@]}" -gt 0 ]; then
+            sleep 1.0
+            for s_id in "${running_instances[@]}"; do
+                if ! systemctl is-active --quiet "gameland@${s_id}.service" 2>/dev/null || ! tmux has-session -t "gameland_${s_id}" 2>/dev/null; then
+                    echo "[WARN] Instance '${s_id}' was affected by systemd cascade; bringing back online..."
+                    /usr/bin/systemctl restart "gameland@${s_id}.service" 2>/dev/null || true
+                fi
+            done
+        fi
         exit 0
         ;;
     set_afk_guard)
