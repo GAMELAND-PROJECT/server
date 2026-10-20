@@ -2429,4 +2429,38 @@ class ServerCmd {
         }
         return ['success' => true, 'message' => 'Checkpoint deleted.'];
     }
+
+    /**
+     * One-click safe update from GitHub repository directly from web panel.
+     * Runs update.sh with root privileges via gameland-panel-sudo.
+     */
+    public static function updateVpsFromRepo() {
+        $helper = self::getPrivilegedHelperPath();
+        $output = [];
+        $exitCode = 1;
+
+        if (is_file($helper) || is_file('/usr/local/sbin/gameland-panel-sudo')) {
+            $h = is_file('/usr/local/sbin/gameland-panel-sudo') ? '/usr/local/sbin/gameland-panel-sudo' : $helper;
+            // 1. Try update_all
+            $cmd = 'sudo -n ' . escapeshellarg($h) . ' update_all 2>&1';
+            @exec($cmd, $output, $exitCode);
+            if ($exitCode === 2) {
+                // Legacy helper might not recognize update_all, fallback to git_sync
+                $output = [];
+                $cmd = 'sudo -n ' . escapeshellarg($h) . ' git_sync 2>&1';
+                @exec($cmd, $output, $exitCode);
+            }
+        } else {
+            $root = self::getManagerRoot();
+            $cmd = 'cd ' . escapeshellarg($root) . ' && git fetch origin main 2>&1 && git reset --hard origin/main 2>&1';
+            @exec($cmd, $output, $exitCode);
+        }
+
+        return [
+            'success' => ($exitCode === 0),
+            'exit_code' => $exitCode,
+            'output' => implode("\n", $output),
+            'message' => ($exitCode === 0) ? 'سیستم با موفقیت از گیت‌هاب به‌روزرسانی شد.' : 'خطا در به‌روزرسانی از گیت‌هاب.'
+        ];
+    }
 }

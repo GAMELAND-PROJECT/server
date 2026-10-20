@@ -3,14 +3,39 @@ set -euo pipefail
 
 PROJECT_DIR="${GAMEland_PROJECT_DIR:-/opt/gameland/server}"
 SVGL="${PROJECT_DIR}/svgl.sh"
+REPO_SCRIPT="${PROJECT_DIR}/panel/gameland-panel-sudo.sh"
 
-# ── Auto-sanitize legacy systemd service files ────────────────
+# ── Self-healing: keep /usr/local/sbin/gameland-panel-sudo identical to repo ──
+if [ -f "$REPO_SCRIPT" ] && [ "$0" = "/usr/local/sbin/gameland-panel-sudo" ]; then
+    if ! cmp -s "$0" "$REPO_SCRIPT" 2>/dev/null; then
+        cp -f "$REPO_SCRIPT" "/usr/local/sbin/gameland-panel-sudo" 2>/dev/null || true
+        chmod 0755 "/usr/local/sbin/gameland-panel-sudo" 2>/dev/null || true
+        exec /usr/local/sbin/gameland-panel-sudo "$@"
+    fi
+fi
+
+# ── Auto-sanitize legacy or coupled systemd service files ────────────────
+needs_reload=0
 if [ -f "/etc/systemd/system/gameland.service" ]; then
     if grep -qE 'pkill -9 -f hlds_linux|killall -9 hlds_linux' "/etc/systemd/system/gameland.service" 2>/dev/null; then
         sed -i -E 's/pkill -9 -f hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
         sed -i -E 's/killall -9 hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
-        systemctl daemon-reload 2>/dev/null || true
+        needs_reload=1
     fi
+fi
+if [ -f "/etc/systemd/system/gameland@.service" ]; then
+    if grep -q 'gameland.service' "/etc/systemd/system/gameland@.service" 2>/dev/null; then
+        sed -i -E 's/[[:space:]]*gameland\.service//g' "/etc/systemd/system/gameland@.service" 2>/dev/null || true
+        needs_reload=1
+    fi
+fi
+if [ -f "${PROJECT_DIR}/gameland@.service" ] && [ ! -f "/etc/systemd/system/gameland@.service" ]; then
+    cp -f "${PROJECT_DIR}/gameland@.service" "/etc/systemd/system/gameland@.service" 2>/dev/null || true
+    chmod 644 "/etc/systemd/system/gameland@.service" 2>/dev/null || true
+    needs_reload=1
+fi
+if [ "$needs_reload" -eq 1 ]; then
+    systemctl daemon-reload 2>/dev/null || true
 fi
 
 action="${1:-}"
@@ -35,6 +60,9 @@ case "$action" in
         ;;
     stop_all)
         exec /bin/bash "${PROJECT_DIR}/stop_all.sh"
+        ;;
+    update_all|update_vps)
+        exec /bin/bash "${PROJECT_DIR}/update.sh"
         ;;
     service)
         operation="${2:-}"; service="${3:-}"
@@ -304,6 +332,19 @@ sys.exit(1)
             cd "${PROJECT_DIR}"
             git fetch origin main 2>/dev/null || true
             git reset --hard origin/main 2>/dev/null || true
+            if [ -f "${PROJECT_DIR}/panel/gameland-panel-sudo.sh" ]; then
+                cp -f "${PROJECT_DIR}/panel/gameland-panel-sudo.sh" "/usr/local/sbin/gameland-panel-sudo" 2>/dev/null || true
+                chmod 0755 "/usr/local/sbin/gameland-panel-sudo" 2>/dev/null || true
+            fi
+            if [ -f "${PROJECT_DIR}/gameland@.service" ]; then
+                cp -f "${PROJECT_DIR}/gameland@.service" /etc/systemd/system/gameland@.service 2>/dev/null || true
+                chmod 644 /etc/systemd/system/gameland@.service 2>/dev/null || true
+            fi
+            if [ -f "${PROJECT_DIR}/gameland.service" ]; then
+                cp -f "${PROJECT_DIR}/gameland.service" /etc/systemd/system/gameland.service 2>/dev/null || true
+                chmod 644 /etc/systemd/system/gameland.service 2>/dev/null || true
+            fi
+            systemctl daemon-reload 2>/dev/null || true
         fi
         exit 0
         ;;

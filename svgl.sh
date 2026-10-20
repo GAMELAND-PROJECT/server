@@ -377,6 +377,10 @@ EOF
         chown -R www-data:www-data "$target" 2>/dev/null || true
         chown -R www-data:www-data "$INSTANCES_DIR" 2>/dev/null || true
     fi
+    if [[ -f "$TEMPLATE_SERVICE_SRC" ]]; then
+        cp -f "$TEMPLATE_SERVICE_SRC" "$TEMPLATE_SERVICE_DEST" 2>/dev/null || true
+        chmod 644 "$TEMPLATE_SERVICE_DEST" 2>/dev/null || true
+    fi
     systemctl daemon-reload
     systemctl enable "gameland@${id}.service"
 

@@ -45,6 +45,11 @@ $servers = ServerCmd::getServerList($SERVERS);
                     title="بازگردانی تمام ادمین‌ها و سرورها به آخرین چک‌پوینت">
                 ↺ Restore Latest
             </button>
+            <button onclick="updateVpsFromGithub()" class="btn btn-sm"
+                    style="background:linear-gradient(135deg,#059669,#10b981); color:#fff; font-weight:700; border:none; box-shadow:0 2px 8px rgba(16,185,129,0.3);"
+                    title="به‌روزرسانی امن کل سیستم از گیت‌هاب بدون از دست رفتن هیچ ادمین یا سروری">
+                ⬇️ Safe Update
+            </button>
             <button onclick="refreshServers()" class="btn btn-secondary btn-sm" title="بروزرسانی وضعیت سرورها">⟳ Refresh</button>
         </div>
     </div>
@@ -276,6 +281,28 @@ function clusterAction(action, confirmMsg) {
         .catch(e => {
             hideProgressBanner();
             alert('❌ خطای ارتباط: ' + e.message);
+        });
+}
+
+function updateVpsFromGithub() {
+    if (!confirm('آیا مایلید تمام اسکریپت‌ها، پلاگین‌ها و سرویس‌های سرور با حفظ ۱۰۰٪ ادمین‌ها و سرورها از گیت‌هاب به‌روزرسانی شوند؟\n\nتمام وابستگی‌های سیستمی ایزوله و ناهماهنگی‌های سرویس‌ها برطرف خواهند شد.')) {
+        return;
+    }
+    showProgressBanner('در حال دریافت آخرین آپدیت امن از گیت‌هاب و ایزوله‌سازی سرویس‌ها... لطفاً چند ثانیه شکیبا باشید...');
+    postServerApi('update_vps')
+        .then(d => {
+            hideProgressBanner();
+            if (d.success) {
+                alert('✅ ' + (d.message || 'سیستم با موفقیت به‌روزرسانی شد!'));
+            } else {
+                alert('⚠️ نتیجه به‌روزرسانی:\n' + (d.output || d.message || 'خطا در اجرا'));
+            }
+            location.reload();
+        })
+        .catch(e => {
+            hideProgressBanner();
+            alert('❌ خطای ارتباط: ' + e.message);
+            location.reload();
         });
 }
 

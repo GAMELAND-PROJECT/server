@@ -1,6 +1,6 @@
 [Unit]
 Description=GameLand CS 1.6 Dedicated Server Instance %i
-After=network-online.target gameland.service
+After=network-online.target
 Wants=network-online.target
 
 [Service]

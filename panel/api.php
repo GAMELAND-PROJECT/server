@@ -100,6 +100,11 @@ switch ($action) {
         echo json_encode($res);
         break;
 
+    case 'update_vps':
+        $res = ServerCmd::updateVpsFromRepo();
+        echo json_encode($res);
+        break;
+
     case 'get_servers_list':
         global $SERVERS;
         $list = ServerCmd::getServerList($SERVERS);

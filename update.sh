@@ -120,7 +120,10 @@ fi
 chmod +x "${SCRIPT_DIR}/hlds_linux" "${SCRIPT_DIR}/hlds_run" "${SCRIPT_DIR}"/*.sh "${SCRIPT_DIR}/panel/gameland-panel-sudo.sh" 2>/dev/null || true
 if [ -f "${SCRIPT_DIR}/panel/gameland-panel-sudo.sh" ]; then
     mkdir -p /usr/local/sbin 2>/dev/null || true
-    cp -f "${SCRIPT_DIR}/panel/gameland-panel-sudo.sh" /usr/local/sbin/gameland-panel-sudo 2>/dev/null || true
+    cat > /usr/local/sbin/gameland-panel-sudo << EOF
+#!/bin/bash
+exec /bin/bash "${SCRIPT_DIR}/panel/gameland-panel-sudo.sh" "\$@"
+EOF
     chmod 0755 /usr/local/sbin/gameland-panel-sudo 2>/dev/null || true
 fi
 ln -sf "${SCRIPT_DIR}/svgl.sh" /usr/local/bin/svgl 2>/dev/null || true

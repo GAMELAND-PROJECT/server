@@ -21,13 +21,30 @@ chmod -R 777 "${CONFIGS_DIR}" 2>/dev/null || true
 chmod 666 "${CONFIGS_DIR}"/*.ini 2>/dev/null || true
 chown -R www-data:www-data "${CONFIGS_DIR}" 2>/dev/null || true
 
-# Auto-sanitize gameland.service if legacy dangerous directives exist
+# Auto-sanitize gameland.service and gameland@.service to guarantee 100% decoupling
+needs_reload=0
 if [ -f "/etc/systemd/system/gameland.service" ]; then
     if grep -qE 'pkill -9 -f hlds_linux|killall -9 hlds_linux' "/etc/systemd/system/gameland.service" 2>/dev/null; then
         sed -i -E 's/pkill -9 -f hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
         sed -i -E 's/killall -9 hlds_linux 2>\/dev\/null;//g' "/etc/systemd/system/gameland.service" 2>/dev/null || true
-        systemctl daemon-reload 2>/dev/null || true
+        needs_reload=1
     fi
+fi
+if [ -f "/etc/systemd/system/gameland@.service" ]; then
+    if grep -q 'gameland.service' "/etc/systemd/system/gameland@.service" 2>/dev/null; then
+        sed -i -E 's/[[:space:]]*gameland\.service//g' "/etc/systemd/system/gameland@.service" 2>/dev/null || true
+        needs_reload=1
+    fi
+fi
+if [ -f "${PROJECT_DIR}/gameland@.service" ]; then
+    if [ ! -f "/etc/systemd/system/gameland@.service" ] || grep -q 'gameland.service' "/etc/systemd/system/gameland@.service" 2>/dev/null; then
+        cp -f "${PROJECT_DIR}/gameland@.service" "/etc/systemd/system/gameland@.service" 2>/dev/null || true
+        chmod 644 "/etc/systemd/system/gameland@.service" 2>/dev/null || true
+        needs_reload=1
+    fi
+fi
+if [ "$needs_reload" -eq 1 ]; then
+    systemctl daemon-reload 2>/dev/null || true
 fi
 
 # Parse operational mode flags

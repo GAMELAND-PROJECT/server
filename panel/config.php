@@ -91,6 +91,15 @@ $SERVERS = [
 function gameland_normalize_server(array $server, string $fallbackIp): array {
     $id = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)($server['id'] ?? ''));
     $serverDir = rtrim((string)($server['server_dir'] ?? ''), '/');
+    if ($serverDir === '' && $id !== '' && $id !== 'main') {
+        if (is_dir('/opt/gameland/instances/' . $id)) {
+            $serverDir = '/opt/gameland/instances/' . $id;
+        } elseif (is_dir(dirname(__DIR__) . '/instances/' . $id)) {
+            $serverDir = dirname(__DIR__) . '/instances/' . $id;
+        } else {
+            $serverDir = '/opt/gameland/instances/' . $id;
+        }
+    }
     $name = (string)($server['name'] ?? ('GameLand ' . $id));
     $hostname = (string)($server['hostname'] ?? $name);
 
@@ -101,7 +110,7 @@ function gameland_normalize_server(array $server, string $fallbackIp): array {
         'ip'            => (string)($server['ip'] ?? $fallbackIp),
         'port'          => (int)($server['port'] ?? 27015),
         'rcon_password' => (string)($server['rcon_password'] ?? 'GameLand@Rcon2026'),
-        'service_name'  => (string)($server['service_name'] ?? ('gameland@' . $id . '.service')),
+        'service_name'  => (string)($server['service_name'] ?? ($id === 'main' ? 'gameland.service' : 'gameland@' . $id . '.service')),
         'server_dir'    => $serverDir,
         'cstrike_dir'   => $serverDir . '/cstrike',
         'users_ini'     => $serverDir . '/cstrike/addons/amxmodx/configs/users.ini',
