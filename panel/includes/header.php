@@ -97,6 +97,7 @@ $serverStatus = ServerCmd::getServiceStatus($activeServer['service_name'], (int)
         <a href="dashboard.php" class="nav-link <?php echo ($activeNav ?? '') === 'dashboard' ? 'active' : ''; ?>">Dashboard</a>
         <a href="servers.php" class="nav-link <?php echo ($activeNav ?? '') === 'servers' ? 'active' : ''; ?>">Servers</a>
         <a href="plugins.php" class="nav-link <?php echo ($activeNav ?? '') === 'plugins' ? 'active' : ''; ?>" style="color: var(--accent);">Plugins & Modes</a>
+        <a href="editor.php" class="nav-link <?php echo ($activeNav ?? '') === 'editor' ? 'active' : ''; ?>" style="color: #38bdf8; font-weight: 700; text-shadow: 0 0 10px rgba(56, 189, 248, 0.4);">⚡ Web IDE</a>
         <a href="console.php" class="nav-link <?php echo ($activeNav ?? '') === 'console' ? 'active' : ''; ?>">RCON Console</a>
         <a href="maps.php" class="nav-link <?php echo ($activeNav ?? '') === 'maps' ? 'active' : ''; ?>">Maps & Players</a>
         <a href="bans.php" class="nav-link <?php echo ($activeNav ?? '') === 'bans' ? 'active' : ''; ?>">Bans</a>

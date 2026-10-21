@@ -2542,4 +2542,448 @@ class ServerCmd {
             'message' => ($exitCode === 0) ? 'سیستم با موفقیت از گیت‌هاب به‌روزرسانی شد.' : 'خطا در به‌روزرسانی از گیت‌هاب.'
         ];
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Web IDE & 1-Click Cloud Compiler Subsystem
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Resolves a safe, canonical path within the active server's cstrike or addons directory.
+     * Prevents directory traversal attacks.
+     */
+    public static function getIdeSafeFilePath($serverInfo, $relPath) {
+        $relPath = str_replace('\\', '/', trim((string)$relPath));
+        if (str_contains($relPath, '..') || str_starts_with($relPath, '/')) {
+            return null;
+        }
+
+        $baseDir = realpath($serverInfo['cstrike_dir']);
+        if (!$baseDir) {
+            $baseDir = $serverInfo['cstrike_dir'];
+        }
+
+        $target = $baseDir . '/' . ltrim($relPath, '/');
+        $realTarget = realpath($target);
+
+        // If file already exists, verify realpath is inside baseDir
+        if ($realTarget) {
+            $realBase = realpath($baseDir);
+            if ($realBase && !str_starts_with($realTarget, $realBase)) {
+                return null;
+            }
+            return $realTarget;
+        }
+
+        // For new files or files that will be created
+        $realDir = realpath(dirname($target));
+        $realBase = realpath($baseDir);
+        if ($realDir && $realBase && str_starts_with($realDir, $realBase)) {
+            return $target;
+        }
+
+        return null;
+    }
+
+    /**
+     * Returns structured list of all editable files for the server instance.
+     */
+    public static function getIdeFileList($serverInfo) {
+        $cstrikeDir = $serverInfo['cstrike_dir'];
+        $scriptingDir = $cstrikeDir . '/addons/amxmodx/scripting';
+        $langDir = $cstrikeDir . '/addons/amxmodx/data/lang';
+        $configsDir = $cstrikeDir . '/addons/amxmodx/configs';
+
+        $files = [];
+
+        // 1. Scripting Files (*.sma)
+        if (is_dir($scriptingDir)) {
+            $smaFiles = glob($scriptingDir . '/*.sma') ?: [];
+            foreach ($smaFiles as $f) {
+                $base = basename($f);
+                $isMatch = ($base === 'clanwar_system.sma' || $base === 'mix_system.sma' || $base === 'mix_system_voice_chat.sma');
+                $files[] = [
+                    'name' => $base,
+                    'rel_path' => 'addons/amxmodx/scripting/' . $base,
+                    'group' => $isMatch ? '⚔️ Match & ClanWar Plugins' : '🛠️ Server Plugins',
+                    'type' => 'sma',
+                    'can_compile' => true,
+                    'size' => filesize($f),
+                    'mtime' => filemtime($f),
+                    'mtime_str' => date('Y-m-d H:i', filemtime($f)),
+                ];
+            }
+
+            // Scripting includes (*.inc)
+            $incFiles = glob($scriptingDir . '/include/*.inc') ?: [];
+            foreach ($incFiles as $f) {
+                $base = basename($f);
+                $files[] = [
+                    'name' => $base,
+                    'rel_path' => 'addons/amxmodx/scripting/include/' . $base,
+                    'group' => '📚 Includes (.inc)',
+                    'type' => 'inc',
+                    'can_compile' => false,
+                    'size' => filesize($f),
+                    'mtime' => filemtime($f),
+                    'mtime_str' => date('Y-m-d H:i', filemtime($f)),
+                ];
+            }
+        }
+
+        // 2. Language & Translations (*.txt)
+        if (is_dir($langDir)) {
+            $langFiles = glob($langDir . '/*.txt') ?: [];
+            foreach ($langFiles as $f) {
+                $base = basename($f);
+                $files[] = [
+                    'name' => $base,
+                    'rel_path' => 'addons/amxmodx/data/lang/' . $base,
+                    'group' => '💬 Language & Messages',
+                    'type' => 'txt',
+                    'can_compile' => false,
+                    'size' => filesize($f),
+                    'mtime' => filemtime($f),
+                    'mtime_str' => date('Y-m-d H:i', filemtime($f)),
+                ];
+            }
+        }
+
+        // 3. Configurations (*.ini, *.cfg)
+        if (is_dir($configsDir)) {
+            foreach (['plugins.ini', 'amxx.cfg', 'cvars.ini', 'users.ini', 'maps.ini'] as $cfg) {
+                $f = $configsDir . '/' . $cfg;
+                if (file_exists($f)) {
+                    $files[] = [
+                        'name' => $cfg,
+                        'rel_path' => 'addons/amxmodx/configs/' . $cfg,
+                        'group' => '⚙️ Configs & Settings',
+                        'type' => 'ini',
+                        'can_compile' => false,
+                        'size' => filesize($f),
+                        'mtime' => filemtime($f),
+                        'mtime_str' => date('Y-m-d H:i', filemtime($f)),
+                    ];
+                }
+            }
+        }
+
+        // server.cfg
+        $serverCfg = $cstrikeDir . '/server.cfg';
+        if (file_exists($serverCfg)) {
+            $files[] = [
+                'name' => 'server.cfg',
+                'rel_path' => 'server.cfg',
+                'group' => '⚙️ Configs & Settings',
+                'type' => 'cfg',
+                'can_compile' => false,
+                'size' => filesize($serverCfg),
+                'mtime' => filemtime($serverCfg),
+                'mtime_str' => date('Y-m-d H:i', filemtime($serverCfg)),
+            ];
+        }
+
+        return $files;
+    }
+
+    /**
+     * Reads a source file safely and lists its backups.
+     */
+    public static function readIdeFile($serverInfo, $relPath) {
+        $path = self::getIdeSafeFilePath($serverInfo, $relPath);
+        if (!$path || !file_exists($path)) {
+            return ['success' => false, 'message' => 'File not found or access denied: ' . htmlspecialchars($relPath)];
+        }
+
+        $content = @file_get_contents($path);
+        if ($content === false) {
+            return ['success' => false, 'message' => 'Failed to read file content. Check file permissions.'];
+        }
+
+        $baseName = basename($path);
+        $backups = self::listIdeBackups($serverInfo, $relPath);
+
+        return [
+            'success' => true,
+            'rel_path' => $relPath,
+            'name' => $baseName,
+            'content' => $content,
+            'size' => filesize($path),
+            'mtime' => filemtime($path),
+            'mtime_str' => date('Y-m-d H:i:s', filemtime($path)),
+            'backups' => $backups,
+        ];
+    }
+
+    /**
+     * Saves a source file safely with automatic backup and LF normalization.
+     */
+    public static function saveIdeFile($serverInfo, $relPath, $content, $createBackup = true) {
+        $path = self::getIdeSafeFilePath($serverInfo, $relPath);
+        if (!$path) {
+            return ['success' => false, 'message' => 'Invalid file path. Path traversal is blocked.'];
+        }
+
+        // Create backup before writing if file exists
+        $backupCreated = null;
+        if ($createBackup && file_exists($path)) {
+            $backupDir = dirname($path) . '/backups';
+            if (!is_dir($backupDir)) {
+                @mkdir($backupDir, 0775, true);
+            }
+            if (is_dir($backupDir)) {
+                $baseName = basename($path);
+                $backupFile = $backupDir . '/' . $baseName . '.' . date('Ymd_His') . '.bak';
+                if (@copy($path, $backupFile)) {
+                    $backupCreated = basename($backupFile);
+                    // Keep at most 20 recent backups
+                    $allBackups = glob($backupDir . '/' . $baseName . '.*.bak') ?: [];
+                    if (count($allBackups) > 20) {
+                        usort($allBackups, fn($a, $b) => filemtime($a) <=> filemtime($b));
+                        $toDelete = array_slice($allBackups, 0, count($allBackups) - 20);
+                        foreach ($toDelete as $old) {
+                            @unlink($old);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Normalize line endings to LF (\n) to prevent pawn compiler issues
+        $cleanContent = str_replace(["\r\n", "\r"], "\n", $content);
+
+        $written = @file_put_contents($path, $cleanContent);
+        if ($written === false) {
+            return ['success' => false, 'message' => 'Failed to write to file. Check filesystem permissions on ' . htmlspecialchars($path)];
+        }
+
+        return [
+            'success' => true,
+            'message' => 'File saved successfully (' . number_format($written) . ' bytes).',
+            'backup' => $backupCreated,
+            'size' => $written,
+            'mtime' => filemtime($path),
+            'mtime_str' => date('Y-m-d H:i:s'),
+        ];
+    }
+
+    /**
+     * Lists backups for a specific file.
+     */
+    public static function listIdeBackups($serverInfo, $relPath) {
+        $path = self::getIdeSafeFilePath($serverInfo, $relPath);
+        if (!$path) return [];
+
+        $backupDir = dirname($path) . '/backups';
+        if (!is_dir($backupDir)) return [];
+
+        $baseName = basename($path);
+        $files = glob($backupDir . '/' . $baseName . '.*.bak') ?: [];
+        usort($files, fn($a, $b) => filemtime($b) <=> filemtime($a));
+
+        $backups = [];
+        foreach ($files as $f) {
+            $backups[] = [
+                'filename' => basename($f),
+                'size' => filesize($f),
+                'mtime' => filemtime($f),
+                'date_str' => date('Y-m-d H:i:s', filemtime($f)),
+            ];
+        }
+        return $backups;
+    }
+
+    /**
+     * Restores a backup file safely.
+     */
+    public static function restoreIdeBackup($serverInfo, $relPath, $backupName) {
+        $path = self::getIdeSafeFilePath($serverInfo, $relPath);
+        if (!$path) return ['success' => false, 'message' => 'Invalid file path.'];
+
+        $backupName = basename(trim((string)$backupName));
+        $backupDir = dirname($path) . '/backups';
+        $backupPath = $backupDir . '/' . $backupName;
+
+        if (!file_exists($backupPath)) {
+            return ['success' => false, 'message' => 'Backup file not found: ' . htmlspecialchars($backupName)];
+        }
+
+        // Create safety backup of current before reverting
+        $safety = $backupDir . '/' . basename($path) . '.before_revert_' . date('Ymd_His') . '.bak';
+        if (file_exists($path)) {
+            @copy($path, $safety);
+        }
+
+        if (!@copy($backupPath, $path)) {
+            return ['success' => false, 'message' => 'Failed to restore backup file.'];
+        }
+
+        $content = @file_get_contents($path);
+        return [
+            'success' => true,
+            'message' => 'Backup restored successfully from ' . htmlspecialchars($backupName),
+            'content' => $content,
+            'size' => filesize($path),
+            'mtime' => filemtime($path),
+            'mtime_str' => date('Y-m-d H:i:s', filemtime($path)),
+        ];
+    }
+
+    /**
+     * Compiles a single .sma plugin with amxxpc directly or via privileged helper,
+     * with live terminal output capture, optional restart, and optional multi-server sync.
+     */
+    public static function compileIdePlugin($serverInfo, $smaFile, $propagateToAll = false, $restartAfter = false) {
+        $smaFile = basename(trim((string)$smaFile));
+        if (!str_ends_with($smaFile, '.sma')) {
+            return ['success' => false, 'message' => 'Target file must be a .sma Pawn source file.', 'output' => ''];
+        }
+
+        $scriptingDir = $serverInfo['cstrike_dir'] . '/addons/amxmodx/scripting';
+        $pluginsDir = $serverInfo['cstrike_dir'] . '/addons/amxmodx/plugins';
+        $srcPath = $scriptingDir . '/' . $smaFile;
+        $amxxName = substr($smaFile, 0, -4) . '.amxx';
+        $binPath = $pluginsDir . '/' . $amxxName;
+
+        if (!file_exists($srcPath)) {
+            return ['success' => false, 'message' => 'Source file not found: ' . $smaFile, 'output' => ''];
+        }
+
+        if (!is_dir($pluginsDir)) {
+            @mkdir($pluginsDir, 0775, true);
+        }
+
+        $isWin = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN');
+        $lines = [];
+        $exitCode = 1;
+
+        if ($isWin) {
+            $compiler = $scriptingDir . '/amxxpc.exe';
+            if (!file_exists($compiler) && file_exists($scriptingDir . '/amxxpc')) {
+                $compiler = $scriptingDir . '/amxxpc';
+            }
+            if (!file_exists($compiler)) {
+                return ['success' => false, 'message' => 'amxxpc.exe not found in scripting dir.', 'output' => ''];
+            }
+
+            // Execute amxxpc on Windows
+            $cmd = 'cd /d "' . $scriptingDir . '" && "' . $compiler . '" "' . $smaFile . '" 2>&1';
+            @exec($cmd, $lines, $exitCode);
+
+            // Copy generated .amxx to plugins dir if generated in scripting dir
+            $scriptingAmxx = $scriptingDir . '/' . $amxxName;
+            if (file_exists($scriptingAmxx)) {
+                @copy($scriptingAmxx, $binPath);
+                @touch($binPath, time() + 5);
+            }
+        } else {
+            // Linux execution
+            $helper = self::getPrivilegedHelperPath();
+            $sId = $serverInfo['id'] ?? 'main';
+
+            // Check if compiler binary exists
+            $compiler = $scriptingDir . '/amxxpc';
+            if (!file_exists($compiler) && file_exists($scriptingDir . '/amxxpc32')) {
+                $compiler = $scriptingDir . '/amxxpc32';
+            }
+            if (file_exists($compiler)) {
+                @chmod($compiler, 0755);
+            }
+            foreach (['amxxpc32.so', 'amxxpc64.so'] as $lib) {
+                $libPath = $scriptingDir . '/' . $lib;
+                if (file_exists($libPath)) @chmod($libPath, 0755);
+            }
+
+            // Direct compilation with amxxpc inside instance scripting directory
+            if (file_exists($compiler)) {
+                $cleanScripting = escapeshellarg($scriptingDir);
+                $cleanCompiler = escapeshellarg($compiler);
+                $cleanSma = escapeshellarg($smaFile);
+                $cmd = "cd {$cleanScripting} && LD_LIBRARY_PATH={$cleanScripting}:\${LD_LIBRARY_PATH:-} {$cleanCompiler} {$cleanSma} 2>&1";
+                @exec($cmd, $lines, $exitCode);
+
+                $scriptingAmxx = $scriptingDir . '/' . $amxxName;
+                if (file_exists($scriptingAmxx)) {
+                    @copy($scriptingAmxx, $binPath);
+                    @chmod($binPath, 0664);
+                    @touch($binPath, time() + 5);
+                }
+            } elseif (is_file($helper) || is_file('/usr/local/sbin/gameland-panel-sudo')) {
+                $h = is_file('/usr/local/sbin/gameland-panel-sudo') ? '/usr/local/sbin/gameland-panel-sudo' : $helper;
+                $cmd = 'sudo -n ' . escapeshellarg($h) . ' compile_server ' . escapeshellarg($sId) . ' 2>&1';
+                @exec($cmd, $lines, $exitCode);
+            }
+        }
+
+        $output = implode("\n", $lines);
+        $compiledOk = (file_exists($binPath) && (time() - filemtime($binPath) <= 20) && !str_contains($output, 'fatal error') && !str_contains($output, 'Compilation aborted'));
+
+        // If compile output specifically has Done.
+        if (str_contains($output, 'Done.') || str_contains($output, 'Total requirements:')) {
+            $compiledOk = true;
+        }
+
+        if ($compiledOk) {
+            // Touch binary
+            if (file_exists($binPath)) {
+                @touch($binPath, time() + 5);
+            }
+
+            // Multi-server synchronization if requested
+            $syncedCount = 0;
+            if ($propagateToAll) {
+                $allServers = self::getManagedServers();
+                foreach ($allServers as $oId => $oConf) {
+                    if (($oConf['cstrike_dir'] ?? '') !== $serverInfo['cstrike_dir']) {
+                        $otherPluginsDir = ($oConf['cstrike_dir'] ?? '') . '/addons/amxmodx/plugins';
+                        $otherScriptingDir = ($oConf['cstrike_dir'] ?? '') . '/addons/amxmodx/scripting';
+                        if (is_dir($otherPluginsDir) && file_exists($binPath)) {
+                            @copy($binPath, $otherPluginsDir . '/' . $amxxName);
+                            @touch($otherPluginsDir . '/' . $amxxName, time() + 5);
+                            $syncedCount++;
+                        }
+                        if (is_dir($otherScriptingDir) && file_exists($srcPath)) {
+                            @copy($srcPath, $otherScriptingDir . '/' . $smaFile);
+                        }
+                    }
+                }
+            }
+
+            // Restart server if requested
+            $restarted = false;
+            if ($restartAfter) {
+                self::controlService($serverInfo['service_name'], 'restart');
+                $restarted = true;
+            }
+
+            $binSize = file_exists($binPath) ? filesize($binPath) : 0;
+            $msg = "Plugin [{$amxxName}] compiled successfully! (" . number_format($binSize) . " bytes)";
+            if ($syncedCount > 0) {
+                $msg .= " → Synced to {$syncedCount} other instances.";
+            }
+            if ($restarted) {
+                $msg .= " → 🔄 Server restarted!";
+            }
+
+            return [
+                'success' => true,
+                'message' => $msg,
+                'output' => $output,
+                'binary' => $amxxName,
+                'binary_size' => $binSize,
+                'restarted' => $restarted,
+                'exit_code' => $exitCode,
+            ];
+        } else {
+            return [
+                'success' => false,
+                'message' => "Compilation failed for [{$smaFile}]. See compiler output below.",
+                'output' => $output,
+                'binary' => $amxxName,
+                'binary_size' => 0,
+                'restarted' => false,
+                'exit_code' => $exitCode,
+            ];
+        }
+    }
 }
+

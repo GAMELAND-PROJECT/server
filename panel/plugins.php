@@ -196,6 +196,34 @@ foreach ($plugins as $p) {
 <?php endif; ?>
 
 <!-- ══════════════════════════════════════════════════════
+     LEVEL 3: ONLINE WEB IDE & 1-CLICK CLOUD COMPILER
+═══════════════════════════════════════════════════════════ -->
+<div class="card" style="border: 1px solid rgba(56,189,248,0.4); background: linear-gradient(135deg, rgba(56,189,248,0.1), rgba(99,102,241,0.07)); margin-bottom: 1.25rem; box-shadow: 0 4px 20px rgba(56,189,248,0.15);">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+        <div style="display:flex; align-items:center; gap:0.9rem;">
+            <div style="width:48px; height:48px; border-radius:10px; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); display:flex; align-items:center; justify-content:center; font-size:1.6rem;">
+                ⚡
+            </div>
+            <div>
+                <div style="font-size:1.15rem; font-weight:800; color:#38bdf8; display:flex; align-items:center; gap:0.5rem;">
+                    <span>ادیتور آنلاین سورس کد با کامپایلر ابری (Web IDE &amp; 1-Click Compiler)</span>
+                    <span style="font-size:0.7rem; background:#0369a1; color:#fff; padding:2px 7px; border-radius:4px; font-weight:700;">سطح ۳ فعال</span>
+                </div>
+                <div style="font-size:0.83rem; color:var(--text-muted); margin-top:0.25rem;">
+                    ویرایش آنلاین و مستقیم سورس‌های <code style="color:#7dd3fc;">clanwar_system.sma</code> و <code style="color:#7dd3fc;">mix_system.sma</code>، فایل‌های زبان و کانفیگ‌ها + کامپایل ۱-کلیکه ابری و پشتیبان‌گیری خودکار.
+                </div>
+            </div>
+        </div>
+        <div style="display:flex; gap:0.6rem; align-items:center;">
+            <a href="editor.php?file=addons/amxmodx/scripting/clanwar_system.sma" class="btn"
+               style="background:linear-gradient(135deg,#0284c7,#4f46e5); color:#fff; font-weight:700; padding:0.65rem 1.2rem; border-radius:8px; text-decoration:none; box-shadow:0 3px 12px rgba(2,132,199,0.35); font-size:0.88rem;">
+                🚀 باز کردن ادیتور آنلاین (Launch Web IDE) →
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
      GITHUB REPO SYNC & DEPLOY WIDGET
 ═══════════════════════════════════════════════════════════ -->
 <div class="card" style="border: 1px solid rgba(6,182,212,0.45); background: linear-gradient(135deg, rgba(6,182,212,0.07), rgba(79,70,229,0.05));">
@@ -709,6 +737,7 @@ function escHtml(str) {
                         <?php if ($isSpecialSec): ?>
                         <th style="width:130px;">Build Status</th>
                         <?php endif; ?>
+                        <th style="width:105px; text-align:center;">Web IDE</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -756,6 +785,14 @@ function escHtml(str) {
                             <?php endif; ?>
                         </td>
                         <?php endif; ?>
+                        <td style="text-align:center;">
+                            <a href="editor.php?file=addons/amxmodx/scripting/<?php echo urlencode($smaName); ?>"
+                               class="btn btn-sm"
+                               style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-size:0.74rem; padding:2px 8px; border-radius:4px; text-decoration:none; font-weight:600; white-space:nowrap;"
+                               title="ویرایش در ادیتور آنلاین">
+                               ✏️ سورس IDE
+                            </a>
+                        </td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
