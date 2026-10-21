@@ -64,7 +64,8 @@ enum TeamScore
 
 #define MIX_VOTE_MENU_ID         "GAMELAND_CW_Vote"
 #define KNIFE_SIDE_MENU_ID       "GAMELAND_CW_Knife_Side"
-#define CW_ADMIN_MENU_ID         "GAMELAND_CW_Admin_Menu" 
+#define CW_ADMIN_MENU_ID         "GAMELAND_CW_Admin_Menu"
+#define ADMIN_MIX_MENU_ID        "GAMELAND_CW_Admin_Mix" 
 
 #define VOTE_STAY   1
 #define VOTE_SWITCH 2
@@ -380,6 +381,8 @@ public plugin_init()
     RegisterHookChain(RG_CSGameRules_RestartRound, "RG_CSGameRules_RestartRound_Post", .post = true)
     RegisterHookChain(RG_PlantBomb, "RG_PlantBomb_Post", .post = true)
     RegisterHookChain(RG_CGrenade_DefuseBombEnd, "RG_CGrenade_DefuseBombEnd_Post", .post = true)
+    RegisterHookChain(RG_CBasePlayer_HasRestrictItem, "RG_CBasePlayer_HasRestrictItem_Pre", .post = false)
+    register_clcmd("drop", "Cmd_BlockDrop")
     RegisterHookChain(RG_CBasePlayer_MakeBomber, "RG_CBasePlayer_MakeBomber_Pre", .post = false)
     RegisterHookChain(RG_CBasePlayer_Observer_IsValidTarget, "RG_Observer_IsValidTarget_Pre", .post = false)
     RegisterHookChain(RG_HandleMenu_ChooseTeam, "RG_HandleMenu_ChooseTeam_Pre", .post = false)
@@ -522,6 +525,7 @@ public plugin_init()
     register_menucmd(register_menuid(MIX_VOTE_MENU_ID, 1), MENU_KEY_1 | MENU_KEY_2, "HandleMixVoteMenu")
     register_menucmd(register_menuid(KNIFE_SIDE_MENU_ID, 1), MENU_KEY_1 | MENU_KEY_2, "HandleKnifeSideMenu")
     register_menucmd(register_menuid(CW_ADMIN_MENU_ID, 1), 1023, "HandleClanWarNativeMenu")
+    register_menucmd(register_menuid(ADMIN_MIX_MENU_ID, 1), MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_0, "HandleAdminMixMenu")
 
     // Start with Warmup if configured
     if(g_bForceWarmup)
@@ -1365,7 +1369,7 @@ public RG_CBasePlayer_Spawn_Post(id)
 public RG_CSGameRules_CheckWinConditions_Pre()
 {
     // Supercede win condition checks completely during warmup, countdown, captain election or drafting
-    if(g_bReviveMode || g_iMatchState == STATE_WARMUP || g_iMatchState == STATE_CAPTAIN_COUNTDOWN || g_iMatchState == STATE_CAPTAIN_VOTE || g_iMatchState == STATE_PICKING || g_bPickMode)
+    if(g_bReviveMode || g_iMatchState == STATE_WARMUP || g_iMatchState == STATE_KNIFE || g_iMatchState == STATE_CAPTAIN_COUNTDOWN || g_iMatchState == STATE_CAPTAIN_VOTE || g_iMatchState == STATE_PICKING || g_bPickMode)
     {
         SetHookChainReturn(ATYPE_BOOL, false)
         return HC_SUPERCEDE
@@ -1450,14 +1454,23 @@ public RG_CBasePlayer_Killed_Post(iVictim, iKiller, iGib)
                 else
                     g_iKnifeWinnerTeam = TEAM_CT
 
-                client_print_color(0, print_team_default, "^4%s %L", g_szChatPrefix, LANG_SERVER, "KNIFE_ROUND_WON_BY_X_TEAM", g_iKnifeWinnerTeam == TEAM_CT ? "CT" : "TERRORIST")
-
                 if(g_iKnifeWinnerTeam == TEAM_CT)
+                {
                     rg_send_audio(0, "radio/ctwin.wav")
+                    client_print_color(0, print_team_blue, "^4%s ^1تیم ^3آبی (Counter-Terrorist) ^1برنده نایف راند شد!", g_szChatPrefix)
+                    set_dhudmessage(45, 145, 255, -1.0, 0.30, 0, 0.0, 3.0, 0.05, 0.1)
+                    show_dhudmessage(0, "تیم آبی (Counter-Terrorist) برنده نایف راند شد!^nدر حال باز کردن منوی انتخاب ساید...")
+                }
                 else
+                {
                     rg_send_audio(0, "radio/terwin.wav")
+                    client_print_color(0, print_team_red, "^4%s ^1تیم ^3قرمز (Terrorist) ^1برنده نایف راند شد!", g_szChatPrefix)
+                    set_dhudmessage(255, 45, 45, -1.0, 0.30, 0, 0.0, 3.0, 0.05, 0.1)
+                    show_dhudmessage(0, "تیم قرمز (Terrorist) برنده نایف راند شد!^nدر حال باز کردن منوی انتخاب ساید...")
+                }
 
-                rg_round_end(4.0, g_iKnifeWinnerTeam == TEAM_CT ? WINSTATUS_CTS : WINSTATUS_TERRORISTS, ROUND_TERRORISTS_ESCAPED, "Knife Round Finished", "")
+                // Delay opening vote menu slightly to let death animation and sounds finish cleanly
+                // CRITICAL: Do NOT call rg_round_end() here to prevent ReGameDLL crash / double-round restart
                 set_task(0.8, "Task_StartKnifeVoteDelayed")
             }
         }
@@ -1612,6 +1625,51 @@ public RG_CBasePlayer_MakeBomber_Pre(const this)
         return HC_SUPERCEDE
     }
     return HC_CONTINUE
+}
+
+// -----------------------------------------------------------------------------
+// Knife-Only Enforcement: Block gun buying, pickup, equip, and knife dropping
+// -----------------------------------------------------------------------------
+public RG_CBasePlayer_HasRestrictItem_Pre(const id, ItemID:item, ItemRestType:type)
+{
+    if(g_iMatchState == STATE_KNIFE)
+    {
+        // Only Knife and Kevlar are allowed during Knife Round!
+        if(item != ITEM_KNIFE && item != ITEM_KEVLAR)
+        {
+            SetHookChainReturn(ATYPE_BOOL, true)
+            return HC_SUPERCEDE
+        }
+    }
+    return HC_CONTINUE
+}
+
+public Cmd_BlockDrop(id)
+{
+    if(g_iMatchState == STATE_KNIFE)
+    {
+        return PLUGIN_HANDLED
+    }
+    return PLUGIN_CONTINUE
+}
+
+stock CleanGroundWeapons()
+{
+    new ent = MaxClients + 1
+    while((ent = rg_find_ent_by_class(ent, "weaponbox")) > 0)
+    {
+        set_entvar(ent, var_flags, FL_KILLME)
+    }
+    ent = MaxClients + 1
+    while((ent = rg_find_ent_by_class(ent, "armoury_entity")) > 0)
+    {
+        set_entvar(ent, var_flags, FL_KILLME)
+    }
+    ent = MaxClients + 1
+    while((ent = rg_find_ent_by_class(ent, "weapon_shield")) > 0)
+    {
+        set_entvar(ent, var_flags, FL_KILLME)
+    }
 }
 
 public Task_RevivePlayer(id)
@@ -2880,6 +2938,24 @@ public StartKnifeRound()
 
     remove_task(TASK_KNIFE_VOTE)
     remove_task(TASK_LIVE_PULSE)
+    remove_task(TASK_LIVE_COUNTDOWN)
+
+    CleanGroundWeapons()
+
+    // Strip weapons and reset account to 0 for all players
+    new iPlayers[MAX_PLAYERS], iNum
+    get_players(iPlayers, iNum, "ch")
+    for(new i = 0; i < iNum; i++)
+    {
+        new id = iPlayers[i]
+        rg_add_account(id, 0, AS_SET)
+        if(is_user_alive(id))
+        {
+            rg_remove_all_items(id)
+            rg_give_item(id, "weapon_knife")
+            rg_set_user_armor(id, 100, ARMOR_KEVLAR)
+        }
+    }
 
     server_cmd("sv_restart 1")
 
@@ -2913,49 +2989,96 @@ StartKnifeVote()
         }
     }
 
+    UpdateKnifeVoteHUD()
     set_task(1.0, "Task_KnifeVoteCountdown", TASK_KNIFE_VOTE, .flags = "b")
+}
+
+UpdateKnifeVoteHUD()
+{
+    // Channel 1: Pure Vibrant RED for Terrorist
+    set_hudmessage(255, 30, 30, -1.0, 0.20, 0, 0.0, 1.1, 0.0, 0.1, 1)
+    show_hudmessage(0, "[ Terrorist (ساید قرمز) : %d رای ]", g_iVoteTR)
+
+    // Channel 2: Pure Vibrant BLUE for Counter-Terrorist
+    set_hudmessage(30, 140, 255, -1.0, 0.24, 0, 0.0, 1.1, 0.0, 0.1, 2)
+    show_hudmessage(0, "[ Counter-Terrorist (ساید آبی) : %d رای ]", g_iVoteCT)
+
+    // Channel 3: Pure Crisp WHITE Timer
+    set_hudmessage(255, 255, 255, -1.0, 0.28, 0, 0.0, 1.1, 0.0, 0.1, 3)
+    show_hudmessage(0, "مهلت رای‌گیری ساید تیم برنده: %d ثانیه", g_iKnifeVoteTimer)
 }
 
 ShowKnifeSideMenu(id)
 {
-    if(!is_user_connected(id) || is_user_bot(id) || g_bPlayerKnifeVoted[id])
+    if(!is_user_connected(id) || is_user_bot(id))
         return
 
     new szMenu[512]
     new iLen = 0
 
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y[GAMELAND] Knife Winner - Pick Starting Side \r[%d sec]\w^n", g_iKnifeVoteTimer)
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\d(Single vote - Your click is final!)^n^n")
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y1. \r[ Terrorist ] \d(Red Side) \d(%d vote%s)^n", g_iVoteTR, g_iVoteTR == 1 ? "" : "s")
-    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y2. \w[ Counter-Terrorist ] \y(Blue Side) \d(%d vote%s)^n", g_iVoteCT, g_iVoteCT == 1 ? "" : "s")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y[GAMELAND] تیم برنده نایف - انتخاب ساید مسابقه \r[%d ثانیه]\w^n", g_iKnifeVoteTimer)
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\d(انتخاب نهایی بر اساس بیشترین رأی تیم انجام می‌شود)^n^n")
+
+    if(g_iPlayerKnifeVote[id] == 1)
+        iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y1. \r[ Terrorist - ساید قرمز ] \y[*] (رأی شما) \d(%d رأی)^n", g_iVoteTR)
+    else
+        iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y1. \r[ Terrorist - ساید قرمز ] \d(%d رأی)^n", g_iVoteTR)
+
+    if(g_iPlayerKnifeVote[id] == 2)
+        iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y2. \w[ Counter-Terrorist - ساید آبی ] \y[*] (رأی شما) \d(%d رأی)^n", g_iVoteCT)
+    else
+        iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y2. \w[ Counter-Terrorist - ساید آبی ] \d(%d رأی)^n", g_iVoteCT)
 
     show_menu(id, MENU_KEY_1 | MENU_KEY_2, szMenu, -1, KNIFE_SIDE_MENU_ID)
 }
 
 public HandleKnifeSideMenu(id, key)
 {
-    if(g_iMatchState != STATE_KNIFE || !task_exists(TASK_KNIFE_VOTE) || !is_user_connected(id) || g_bPlayerKnifeVoted[id])
+    if(!task_exists(TASK_KNIFE_VOTE) || !is_user_connected(id))
         return PLUGIN_HANDLED
 
-    // Single-Vote: mark voted immediately so player cannot click again
-    g_bPlayerKnifeVoted[id] = true
+    // Only players on the knife-winning team can vote
+    if(get_member(id, m_iTeam) != g_iKnifeWinnerTeam)
+        return PLUGIN_HANDLED
 
-    new iChoice = key + 1 // 0 -> 1 (TR), 1 -> 2 (CT)
-    g_iPlayerKnifeVote[id] = iChoice
+    new iChoice = key + 1 // 1 = Terrorist, 2 = CT
+
+    // If player already selected this choice, no change
+    if(g_iPlayerKnifeVote[id] == iChoice)
+    {
+        client_print_color(id, print_team_default, "^4%s ^1رأی شما قبلاً برای این ساید ثبت شده است.", g_szChatPrefix)
+        return PLUGIN_HANDLED
+    }
+
+    // Adjust vote tallies if switching
+    if(g_iPlayerKnifeVote[id] == 1)
+        g_iVoteTR--
+    else if(g_iPlayerKnifeVote[id] == 2)
+        g_iVoteCT--
 
     if(iChoice == 1)
+    {
         g_iVoteTR++
-    else if(iChoice == 2)
+        g_iPlayerKnifeVote[id] = 1
+        g_bPlayerKnifeVoted[id] = true
+        client_print_color(0, print_team_red, "^4%s ^3%s ^1به ^3ساید قرمز (Terrorist) ^1رأی داد! (^3قرمز: %d ^1| آبی: %d)",
+            g_szChatPrefix, g_szUserName[id], g_iVoteTR, g_iVoteCT)
+    }
+    else
+    {
         g_iVoteCT++
+        g_iPlayerKnifeVote[id] = 2
+        g_bPlayerKnifeVoted[id] = true
+        client_print_color(0, print_team_blue, "^4%s ^3%s ^1به ^3ساید آبی (CT) ^1رأی داد! (قرمز: %d | ^3آبی: %d^1)",
+            g_szChatPrefix, g_szUserName[id], g_iVoteTR, g_iVoteCT)
+    }
 
-    // Close player's menu immediately
-    show_menu(id, 0, "^n", 1)
     client_cmd(id, "spk buttons/blip1")
 
-    client_print_color(0, print_team_default, "^4%s ^3%s ^1voted for ^4%s^1! (TR: ^3%d ^1| CT: ^4%d^1)",
-        g_szChatPrefix, g_szUserName[id], (iChoice == 1) ? "Terrorist" : "Counter-Terrorist", g_iVoteTR, g_iVoteCT)
+    // Update glowing Red / Blue HUD message
+    UpdateKnifeVoteHUD()
 
-    // Check if all winning players have finished voting
+    // Refresh menus for all winning team members
     new iPlayers[MAX_PLAYERS], iNum, iWinningTotal = 0, iVotedTotal = 0
     get_players(iPlayers, iNum, "ch")
     for(new i = 0; i < iNum; i++)
@@ -2968,9 +3091,11 @@ public HandleKnifeSideMenu(id, key)
             {
                 iVotedTotal++
             }
+            ShowKnifeSideMenu(p)
         }
     }
 
+    // If all members of the winning team have finished voting, finalize immediately!
     if(iWinningTotal > 0 && iVotedTotal >= iWinningTotal)
     {
         remove_task(TASK_KNIFE_VOTE)
@@ -2992,16 +3117,15 @@ public Task_KnifeVoteCountdown()
         return
     }
 
-    set_hudmessage(0, 200, 255, -1.0, 0.25, 0, 0.0, 0.9, 0.0, 0.1)
-    show_hudmessage(0, "Side Choice Vote: %d seconds left^nTerrorist (Red): %d | Counter-Terrorist (Blue): %d", g_iKnifeVoteTimer, g_iVoteTR, g_iVoteCT)
+    UpdateKnifeVoteHUD()
 
-    // Only update menu for winning team players who have NOT voted yet
+    // Refresh menu countdown for all winning team players
     new iPlayers[MAX_PLAYERS], iNum
     get_players(iPlayers, iNum, "ch")
     for(new i = 0; i < iNum; i++)
     {
         new p = iPlayers[i]
-        if(get_member(p, m_iTeam) == g_iKnifeWinnerTeam && !g_bPlayerKnifeVoted[p])
+        if(get_member(p, m_iTeam) == g_iKnifeWinnerTeam)
         {
             ShowKnifeSideMenu(p)
         }
@@ -3023,28 +3147,68 @@ FinishKnifeVote()
 
     new TeamName:iChosenSide
     if(g_iVoteTR > g_iVoteCT)
+    {
         iChosenSide = TEAM_TERRORIST
+        client_print_color(0, print_team_red, "^4%s ^1نتیجه نهایی رای‌گیری: ^3ساید قرمز (Terrorist) ^1با بیشترین رای (^3%d ^1در برابر ^3%d^1) انتخاب شد!",
+            g_szChatPrefix, g_iVoteTR, g_iVoteCT)
+    }
     else if(g_iVoteCT > g_iVoteTR)
+    {
         iChosenSide = TEAM_CT
+        client_print_color(0, print_team_blue, "^4%s ^1نتیجه نهایی رای‌گیری: ^3ساید آبی (Counter-Terrorist) ^1با بیشترین رای (^3%d ^1در برابر ^3%d^1) انتخاب شد!",
+            g_szChatPrefix, g_iVoteCT, g_iVoteTR)
+    }
     else
+    {
+        // Tie
         iChosenSide = (g_iKnifeWinnerTeam != TEAM_UNASSIGNED) ? g_iKnifeWinnerTeam : TEAM_CT
+        client_print_color(0, print_team_default, "^4%s ^1آرا مساوی شد (%d - %d). تیم برنده در ساید فعلی خود باقی می‌ماند.",
+            g_szChatPrefix, g_iVoteTR, g_iVoteCT)
+    }
 
-    client_print_color(0, print_team_default, "^4%s ^1Winning team chose: ^4%s^1! (TR: ^3%d ^1votes | CT: ^4%d ^1votes)",
-        g_szChatPrefix, (iChosenSide == TEAM_TERRORIST) ? "Terrorist" : "Counter-Terrorist", g_iVoteTR, g_iVoteCT)
+    ExecuteSideChoice(iChosenSide)
+}
 
-    // If the winning team selected a different side than their current one, swap!
-    if(g_iKnifeWinnerTeam != iChosenSide && g_iKnifeWinnerTeam != TEAM_UNASSIGNED)
+ExecuteSideChoice(TeamName:iChosenSide)
+{
+    new bool:bSwapNeeded = (g_iKnifeWinnerTeam != iChosenSide && g_iKnifeWinnerTeam != TEAM_UNASSIGNED)
+
+    if(bSwapNeeded)
     {
-        client_print_color(0, print_team_default, "^4%s ^1Swapping teams to match chosen side!", g_szChatPrefix)
-        rg_swap_all_players()
+        client_print_color(0, print_team_default, "^4%s ^1تغییر ساید تیم‌ها به ^4%s ^1انجام شد!", g_szChatPrefix, (iChosenSide == TEAM_TERRORIST) ? "Terrorist" : "Counter-Terrorist")
+        SafeSwapAllPlayers()
     }
     else
     {
-        client_print_color(0, print_team_default, "^4%s ^1Teams stay on their current sides!", g_szChatPrefix)
+        client_print_color(0, print_team_default, "^4%s ^1تیم‌ها در ساید فعلی خود باقی ماندند.", g_szChatPrefix)
     }
+
+    // Reset scores cleanly
+    g_iScore[CT_SCORE] = 0
+    g_iScore[TERO_SCORE] = 0
+    SyncTeamScores()
 
     // Direct transition into LIVE match countdown
     StartLiveCountdown()
+}
+
+stock SafeSwapAllPlayers()
+{
+    new iPlayers[MAX_PLAYERS], iNum
+    get_players(iPlayers, iNum, "ch")
+    for(new i = 0; i < iNum; i++)
+    {
+        new id = iPlayers[i]
+        new TeamName:iCurrentTeam = get_member(id, m_iTeam)
+        if(iCurrentTeam == TEAM_CT)
+        {
+            rg_set_user_team(id, TEAM_TERRORIST, MODEL_AUTO, true, false)
+        }
+        else if(iCurrentTeam == TEAM_TERRORIST)
+        {
+            rg_set_user_team(id, TEAM_CT, MODEL_AUTO, true, false)
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -3570,20 +3734,73 @@ public Cmd_StartMix(id)
         Cmd_ReviveOff(0)
     }
 
-    if(g_iMatchState == STATE_FIRST_HALF || g_iMatchState == STATE_SECOND_HALF)
+    if(g_iMatchState == STATE_FIRST_HALF || g_iMatchState == STATE_SECOND_HALF ||
+       g_iMatchState == STATE_OVERTIME_FIRST_HALF || g_iMatchState == STATE_OVERTIME_SECOND_HALF)
     {
         client_print_color(id, print_team_default, "^4%s %L", g_szChatPrefix, LANG_SERVER, "MIX_ALREADY_STARTED")
         return PLUGIN_HANDLED
     }
 
-    if(task_exists(TASK_MIX_VOTE))
+    if(g_iMatchState == STATE_KNIFE)
     {
-        client_print_color(id, print_team_default, "^4%s ^1A match vote is already in progress!", g_szChatPrefix)
+        client_print_color(id, print_team_default, "^4%s ^1نایف راند هم‌اکنون در حال اجراست!", g_szChatPrefix)
         return PLUGIN_HANDLED
     }
 
-    client_print_color(0, print_team_default, "^4%s ^1Admin ^4%s ^1started match vote: ^3[1] Knife Round ^1vs ^4[2] Direct Live^1!", g_szChatPrefix, g_szUserName[id])
-    StartMixVote()
+    ShowAdminMixChoiceMenu(id)
+    return PLUGIN_HANDLED
+}
+
+ShowAdminMixChoiceMenu(id)
+{
+    if(!is_user_connected(id) || !HasAdminAccess(id))
+        return
+
+    new szMenu[512]
+    new iLen = 0
+
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y[GAMELAND] شروع مسابقه 5v5\w^n")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\dآیا برای تعیین ساید به نایف راند نیاز دارید؟\w^n^n")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y1. \rاجرای نایف راند \d(Knife Round - برنده ساید را تعیین می‌کند)\w^n")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y2. \yشروع مستقیم مسابقه \d(Direct Live - بدون نایف، ۳ ریستارت)\w^n^n")
+    iLen += formatex(szMenu[iLen], charsmax(szMenu) - iLen, "\y0. \dانصراف\w")
+
+    show_menu(id, MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_0, szMenu, -1, ADMIN_MIX_MENU_ID)
+}
+
+public HandleAdminMixMenu(id, key)
+{
+    if(!is_user_connected(id) || !HasAdminAccess(id))
+        return PLUGIN_HANDLED
+
+    if(g_iMatchState == STATE_FIRST_HALF || g_iMatchState == STATE_SECOND_HALF ||
+       g_iMatchState == STATE_OVERTIME_FIRST_HALF || g_iMatchState == STATE_OVERTIME_SECOND_HALF)
+    {
+        client_print_color(id, print_team_default, "^4%s %L", g_szChatPrefix, LANG_SERVER, "MIX_ALREADY_STARTED")
+        return PLUGIN_HANDLED
+    }
+
+    // Close menu
+    show_menu(id, 0, "^n", 1)
+
+    switch(key)
+    {
+        case 0: // Option 1: Knife Round
+        {
+            client_print_color(0, print_team_default, "^4%s ^1ادمین ^4%s ^1حالت ^3نایف راند [Knife Round] ^1را برای شروع مسابقه انتخاب کرد!", g_szChatPrefix, g_szUserName[id])
+            StartKnifeRound()
+        }
+        case 1: // Option 2: Direct Live
+        {
+            client_print_color(0, print_team_default, "^4%s ^1ادمین ^4%s ^1حالت ^4شروع مستقیم [Direct Live] ^1را انتخاب کرد! مسابقه در حال شروع است...", g_szChatPrefix, g_szUserName[id])
+            StartLiveCountdown()
+        }
+        case 9: // Option 0: Cancel
+        {
+            client_print_color(id, print_team_default, "^4%s ^1منوی شروع مسابقه لغو شد.", g_szChatPrefix)
+        }
+    }
+
     return PLUGIN_HANDLED
 }
 
