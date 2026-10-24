@@ -155,6 +155,19 @@ screen -X -S demo_compressor quit 2>/dev/null || true
 # 3. Pull latest clean updates from GitHub
 echo "[*] Fetching latest updates from GitHub..."
 git fetch origin main
+
+# Unset skip-worktree & assume-unchanged on all protected files so git reset NEVER fails with 'Entry not uptodate'
+git update-index --no-skip-worktree "$USERS_INI" 2>/dev/null || true
+git update-index --no-skip-worktree "$SERVERS_JSON" 2>/dev/null || true
+git update-index --no-skip-worktree "$MAIN_PINI" 2>/dev/null || true
+git update-index --no-skip-worktree "${SCRIPT_DIR}/start.sh" 2>/dev/null || true
+git update-index --no-assume-unchanged "$USERS_INI" 2>/dev/null || true
+git update-index --no-assume-unchanged "$SERVERS_JSON" 2>/dev/null || true
+git update-index --no-assume-unchanged "$MAIN_PINI" 2>/dev/null || true
+git update-index --no-assume-unchanged "${SCRIPT_DIR}/start.sh" 2>/dev/null || true
+
+# Force reset index and working tree cleanly
+git checkout -f 2>/dev/null || true
 git reset --hard origin/main
 
 # 4. Restore persistent data immediately after git reset
