@@ -24,6 +24,8 @@
 
 #include <amxmodx>
 #include <amxmisc>
+#include <engine>
+#include <fakemeta>
 #include <reapi>
 #include <mix_system>
 
@@ -254,6 +256,7 @@ public plugin_init()
     RegisterHookChain(RG_RoundEnd, "RG_RoundEnd_Post", .post = true)
     RegisterHookChain(RG_CSGameRules_CheckWinConditions, "RG_CSGameRules_CheckWinConditions_Pre", .post = false)
     RegisterHookChain(RG_CSGameRules_RestartRound, "RG_CSGameRules_RestartRound_Post", .post = true)
+    RegisterHookChain(RG_CSGameRules_OnRoundFreezeEnd, "RG_CSGameRules_OnRoundFreezeEnd_Post", .post = true)
     RegisterHookChain(RG_PlantBomb, "RG_PlantBomb_Post", .post = true)
     RegisterHookChain(RG_CGrenade_DefuseBombEnd, "RG_CGrenade_DefuseBombEnd_Post", .post = true)
     RegisterHookChain(RG_CBasePlayer_MakeBomber, "RG_CBasePlayer_MakeBomber_Pre", .post = false)
@@ -918,6 +921,10 @@ public RG_CBasePlayer_Spawn_Post(id)
     if(!is_user_alive(id))
         return
 
+    // Anti-Stuck & Safe Spawn Overlap Resolver:
+    // Prevents telefragging, collision traps, and players spawning inside each other (crucial for 18-22+ slot servers)
+    CheckAndResolveSpawnOverlap(id)
+
     if(g_bReviveMode)
     {
         rg_add_account(id, 16000, AS_SET)
@@ -1358,38 +1365,199 @@ stock LoadMapSpawns()
     }
 }
 
-stock TeleportToRandomSpawn(id)
+stock bool:IsPositionOccupiedByPlayer(Float:vecOrigin[3], iIgnorePlayer = 0)
+{
+    new iPlayers[MAX_PLAYERS], iNum
+    get_players(iPlayers, iNum, "a")
+    for(new i = 0; i < iNum; i++)
+    {
+        new p = iPlayers[i]
+        if(p == iIgnorePlayer || !is_user_alive(p))
+            continue
+        new Float:pOrigin[3]
+        get_entvar(p, var_origin, pOrigin)
+        if(get_distance_f(vecOrigin, pOrigin) < 60.0)
+        {
+            return true
+        }
+    }
+    return false
+}
+
+stock bool:IsPositionHullClear(Float:vecOrigin[3], iIgnoreEntity = 0)
+{
+    if(point_contents(vecOrigin) != CONTENTS_EMPTY)
+        return false
+
+    new tr
+    engfunc(EngFunc_TraceHull, vecOrigin, vecOrigin, DONT_IGNORE_MONSTERS, HULL_HUMAN, iIgnoreEntity, tr)
+    if(get_tr2(tr, TR_AllSolid) || get_tr2(tr, TR_StartSolid) || !get_tr2(tr, TR_InOpen))
+        return false
+
+    return true
+}
+
+stock bool:FindSafeSpawnOrigin(id, Float:outOrigin[3], Float:outAngles[3])
 {
     new TeamName:team = get_member(id, m_iTeam)
-    if(team == TEAM_CT && g_iTotalSpawnsCT > 0)
-    {
-        new iIndex = random_num(0, g_iTotalSpawnsCT - 1)
-        new Float:vecOrigin[3]
-        vecOrigin[0] = g_vecSpawnsCT[iIndex][0]
-        vecOrigin[1] = g_vecSpawnsCT[iIndex][1]
-        vecOrigin[2] = g_vecSpawnsCT[iIndex][2] + 10.0
+    new iTotal = (team == TEAM_CT) ? g_iTotalSpawnsCT : g_iTotalSpawnsTR
+    if(iTotal <= 0)
+        return false
 
+    new iStartIdx = random_num(0, iTotal - 1)
+
+    // Pass 1: Try to find a completely clear base spawn point
+    for(new i = 0; i < iTotal; i++)
+    {
+        new idx = (iStartIdx + i) % iTotal
+        new Float:testOrigin[3]
+        if(team == TEAM_CT)
+        {
+            testOrigin[0] = g_vecSpawnsCT[idx][0]
+            testOrigin[1] = g_vecSpawnsCT[idx][1]
+            testOrigin[2] = g_vecSpawnsCT[idx][2] + 10.0
+        }
+        else
+        {
+            testOrigin[0] = g_vecSpawnsTR[idx][0]
+            testOrigin[1] = g_vecSpawnsTR[idx][1]
+            testOrigin[2] = g_vecSpawnsTR[idx][2] + 10.0
+        }
+
+        if(!IsPositionOccupiedByPlayer(testOrigin, id) && IsPositionHullClear(testOrigin, id))
+        {
+            outOrigin[0] = testOrigin[0]
+            outOrigin[1] = testOrigin[1]
+            outOrigin[2] = testOrigin[2]
+            if(team == TEAM_CT)
+            {
+                outAngles[0] = g_vecAnglesCT[idx][0]
+                outAngles[1] = g_vecAnglesCT[idx][1]
+                outAngles[2] = g_vecAnglesCT[idx][2]
+            }
+            else
+            {
+                outAngles[0] = g_vecAnglesTR[idx][0]
+                outAngles[1] = g_vecAnglesTR[idx][1]
+                outAngles[2] = g_vecAnglesTR[idx][2]
+            }
+            return true
+        }
+    }
+
+    // Pass 2: High player density (e.g. 22 slots on 10-spawn map)
+    // Find a clear safe radial offset around the spawn points tested against walls & players
+    static const Float:flOffsets[8][2] = {
+        { 54.0,   0.0 }, { -54.0,   0.0 }, {   0.0,  54.0 }, {   0.0, -54.0 },
+        { 48.0,  48.0 }, { -48.0,  48.0 }, {  48.0, -48.0 }, { -48.0, -48.0 }
+    }
+
+    for(new i = 0; i < iTotal; i++)
+    {
+        new idx = (iStartIdx + i) % iTotal
+        for(new o = 0; o < sizeof(flOffsets); o++)
+        {
+            new Float:testOrigin[3]
+            if(team == TEAM_CT)
+            {
+                testOrigin[0] = g_vecSpawnsCT[idx][0] + flOffsets[o][0]
+                testOrigin[1] = g_vecSpawnsCT[idx][1] + flOffsets[o][1]
+                testOrigin[2] = g_vecSpawnsCT[idx][2] + 10.0
+            }
+            else
+            {
+                testOrigin[0] = g_vecSpawnsTR[idx][0] + flOffsets[o][0]
+                testOrigin[1] = g_vecSpawnsTR[idx][1] + flOffsets[o][1]
+                testOrigin[2] = g_vecSpawnsTR[idx][2] + 10.0
+            }
+
+            if(!IsPositionOccupiedByPlayer(testOrigin, id) && IsPositionHullClear(testOrigin, id))
+            {
+                outOrigin[0] = testOrigin[0]
+                outOrigin[1] = testOrigin[1]
+                outOrigin[2] = testOrigin[2]
+                if(team == TEAM_CT)
+                {
+                    outAngles[0] = g_vecAnglesCT[idx][0]
+                    outAngles[1] = g_vecAnglesCT[idx][1]
+                    outAngles[2] = g_vecAnglesCT[idx][2]
+                }
+                else
+                {
+                    outAngles[0] = g_vecAnglesTR[idx][0]
+                    outAngles[1] = g_vecAnglesTR[idx][1]
+                    outAngles[2] = g_vecAnglesTR[idx][2]
+                }
+                return true
+            }
+        }
+    }
+
+    // Pass 3: Fallback with elevation boost
+    if(team == TEAM_CT)
+    {
+        outOrigin[0] = g_vecSpawnsCT[iStartIdx][0]
+        outOrigin[1] = g_vecSpawnsCT[iStartIdx][1]
+        outOrigin[2] = g_vecSpawnsCT[iStartIdx][2] + 12.0
+        outAngles[0] = g_vecAnglesCT[iStartIdx][0]
+        outAngles[1] = g_vecAnglesCT[iStartIdx][1]
+        outAngles[2] = g_vecAnglesCT[iStartIdx][2]
+    }
+    else
+    {
+        outOrigin[0] = g_vecSpawnsTR[iStartIdx][0]
+        outOrigin[1] = g_vecSpawnsTR[iStartIdx][1]
+        outOrigin[2] = g_vecSpawnsTR[iStartIdx][2] + 12.0
+        outAngles[0] = g_vecAnglesTR[iStartIdx][0]
+        outAngles[1] = g_vecAnglesTR[iStartIdx][1]
+        outAngles[2] = g_vecAnglesTR[iStartIdx][2]
+    }
+    return true
+}
+
+stock TeleportToRandomSpawn(id)
+{
+    new Float:vecOrigin[3], Float:vecAngles[3]
+    if(FindSafeSpawnOrigin(id, vecOrigin, vecAngles))
+    {
         set_entvar(id, var_origin, vecOrigin)
-        set_entvar(id, var_angles, g_vecAnglesCT[iIndex])
-        set_entvar(id, var_v_angle, g_vecAnglesCT[iIndex])
+        set_entvar(id, var_angles, vecAngles)
+        set_entvar(id, var_v_angle, vecAngles)
         set_entvar(id, var_fixangle, 1)
         set_entvar(id, var_velocity, Float:{0.0, 0.0, 0.0})
         rg_reset_maxspeed(id)
     }
-    else if(team == TEAM_TERRORIST && g_iTotalSpawnsTR > 0)
-    {
-        new iIndex = random_num(0, g_iTotalSpawnsTR - 1)
-        new Float:vecOrigin[3]
-        vecOrigin[0] = g_vecSpawnsTR[iIndex][0]
-        vecOrigin[1] = g_vecSpawnsTR[iIndex][1]
-        vecOrigin[2] = g_vecSpawnsTR[iIndex][2] + 10.0
+}
 
-        set_entvar(id, var_origin, vecOrigin)
-        set_entvar(id, var_angles, g_vecAnglesTR[iIndex])
-        set_entvar(id, var_v_angle, g_vecAnglesTR[iIndex])
-        set_entvar(id, var_fixangle, 1)
-        set_entvar(id, var_velocity, Float:{0.0, 0.0, 0.0})
-        rg_reset_maxspeed(id)
+stock CheckAndResolveSpawnOverlap(id)
+{
+    if(!is_user_alive(id))
+        return
+
+    new Float:vOrigin[3]
+    get_entvar(id, var_origin, vOrigin)
+
+    new iPlayers[MAX_PLAYERS], iNum
+    get_players(iPlayers, iNum, "a")
+
+    for(new i = 0; i < iNum; i++)
+    {
+        new other = iPlayers[i]
+        if(other == id || !is_user_alive(other))
+            continue
+
+        new Float:oOrigin[3]
+        get_entvar(other, var_origin, oOrigin)
+
+        // Check if another player overlaps within horizontal 36 units and vertical 64 units
+        if(floatabs(vOrigin[0] - oOrigin[0]) < 36.0 &&
+           floatabs(vOrigin[1] - oOrigin[1]) < 36.0 &&
+           floatabs(vOrigin[2] - oOrigin[2]) < 64.0)
+        {
+            // Found overlap! Relocate this player to a guaranteed safe spot
+            TeleportToRandomSpawn(id)
+            break
+        }
     }
 }
 
@@ -1398,6 +1566,11 @@ public RG_CSGameRules_RestartRound_Post()
     // Reset round score lock and round kills when new round starts!
     g_bRoundScored = false
     remove_task(TASK_END_ROUND)
+
+    // Enable ReGameDLL semiclip during freezetime and warmup so players never block or get stuck on each other
+    set_cvar_num("mp_semiclip", 1)
+    if(get_cvar_pointer("mp_semiclip_actions"))
+        set_cvar_num("mp_semiclip_actions", 0)
 
     for(new i = 1; i <= MAX_PLAYERS; i++)
     {
@@ -1415,6 +1588,21 @@ public RG_CSGameRules_RestartRound_Post()
             g_bHalftimePendingSync = false
             RestoreHalftimePlayerStats()
         }
+    }
+}
+
+public RG_CSGameRules_OnRoundFreezeEnd_Post()
+{
+    // When freezetime ends in competitive match, turn off semiclip for authentic competitive play
+    if(g_iMatchState == STATE_FIRST_HALF || g_iMatchState == STATE_SECOND_HALF ||
+       g_iMatchState == STATE_OVERTIME_FIRST_HALF || g_iMatchState == STATE_OVERTIME_SECOND_HALF)
+    {
+        set_cvar_num("mp_semiclip", 0)
+    }
+    else
+    {
+        // Keep semiclip enabled in WarmUp / Practice mode
+        set_cvar_num("mp_semiclip", 1)
     }
 }
 
@@ -2630,15 +2818,21 @@ public HandleKnifeSideMenu(id, key)
         }
     }
 
-    // If all members of the winning team have finished voting, finalize immediately!
+    // If all members of the winning team have finished voting, finalize cleanly!
     if(iWinningTotal > 0 && iVotedTotal >= iWinningTotal)
     {
         remove_task(TASK_KNIFE_VOTE)
-        FinishKnifeVote()
+        // Delay 0.1s so HandleKnifeSideMenu cleanly finishes and unwinds before vote finalization
+        set_task(0.1, "Task_FinishKnifeVoteDelayed")
         return PLUGIN_HANDLED
     }
 
     return PLUGIN_HANDLED
+}
+
+public Task_FinishKnifeVoteDelayed()
+{
+    FinishKnifeVote()
 }
 
 public Task_KnifeVoteCountdown()
@@ -2706,12 +2900,20 @@ FinishKnifeVote()
 
 ExecuteSideChoice(TeamName:iChosenSide)
 {
+    // CRITICAL FIX: Transition match state out of STATE_KNIFE immediately
+    // to prevent any killed hooks, spectator hooks, or win conditions from re-triggering knife round logic!
+    g_iMatchState = STATE_FIRST_HALF
+    g_bRoundScored = true
+    remove_task(TASK_KNIFE_VOTE)
+    remove_task(TASK_KNIFE_COUNTDOWN)
+
     new bool:bSwapNeeded = (g_iKnifeWinnerTeam != iChosenSide && g_iKnifeWinnerTeam != TEAM_UNASSIGNED)
 
     if(bSwapNeeded)
     {
         client_print_color(0, print_team_default, "^4%s ^1تغییر ساید تیم‌ها به ^4%s ^1انجام شد!", g_szChatPrefix, (iChosenSide == TEAM_TERRORIST) ? "Terrorist" : "Counter-Terrorist")
-        SafeSwapAllPlayers()
+        // CRITICAL FIX: Use native ReAPI rg_swap_all_players() without killing players with rg_set_user_team loop!
+        rg_swap_all_players()
     }
     else
     {
@@ -2723,27 +2925,14 @@ ExecuteSideChoice(TeamName:iChosenSide)
     g_iScore[TERO_SCORE] = 0
     SyncTeamScores()
 
-    // Direct transition into LIVE match countdown
-    StartLiveCountdown()
+    // CRITICAL FIX: Add a small 0.5s task delay before triggering restarts
+    // This allows the menu event and AMX Mod X menu stack to cleanly unwind without race conditions
+    set_task(0.5, "Task_StartLiveCountdownDelayed")
 }
 
-stock SafeSwapAllPlayers()
+public Task_StartLiveCountdownDelayed()
 {
-    new iPlayers[MAX_PLAYERS], iNum
-    get_players(iPlayers, iNum, "ch")
-    for(new i = 0; i < iNum; i++)
-    {
-        new id = iPlayers[i]
-        new TeamName:iCurrentTeam = get_member(id, m_iTeam)
-        if(iCurrentTeam == TEAM_CT)
-        {
-            rg_set_user_team(id, TEAM_TERRORIST, MODEL_AUTO, true, false)
-        }
-        else if(iCurrentTeam == TEAM_TERRORIST)
-        {
-            rg_set_user_team(id, TEAM_CT, MODEL_AUTO, true, false)
-        }
-    }
+    StartLiveCountdown()
 }
 
 // -----------------------------------------------------------------------------

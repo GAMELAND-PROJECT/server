@@ -295,7 +295,15 @@ EOF
 echo "  -> Wrote deploy record: ${CONFIGS_DIR}/.mix_last_build.json (${COMPILED_COUNT} managed plugins)"
 
 echo "[5/5] Optimizing server config for active game mode..."
-if [ "$MAIN_MODE" = "mix5v5" ]; then
+existing_slots=""
+if [ -f "${PROJECT_DIR}/cstrike/server.cfg" ]; then
+    existing_slots=$(grep -E '^[[:space:]]*sv_visiblemaxplayers[[:space:]]+[0-9]+' "${PROJECT_DIR}/cstrike/server.cfg" | head -n1 | awk '{print $2}')
+fi
+
+if [ -n "$existing_slots" ] && [ "$existing_slots" -gt 0 ]; then
+    main_slots="$existing_slots"
+    echo "  -> Preserving existing user-configured slots: ${main_slots}"
+elif [ "$MAIN_MODE" = "mix5v5" ]; then
     main_slots="18"
     echo "  -> 5v5 Match active: set MAX_PLAYERS and sv_visiblemaxplayers to 18"
 elif [ "$MAIN_MODE" = "public" ]; then
@@ -309,7 +317,6 @@ fi
 sed -i -E "s/MAX_PLAYERS=\".*\"/MAX_PLAYERS=\"${main_slots}\"/" "${PROJECT_DIR}/start.sh" 2>/dev/null || true
 [ -f "${PROJECT_DIR}/.env" ] && sed -i -E "s/MAX_PLAYERS=\".*\"/MAX_PLAYERS=\"${main_slots}\"/" "${PROJECT_DIR}/.env" 2>/dev/null || true
 if [ -f "${PROJECT_DIR}/cstrike/server.cfg" ]; then
-    sed -i -E "s/^[[:space:]]*sv_visiblemaxplayers[[:space:]]+[0-9]+/sv_visiblemaxplayers ${main_slots}/" "${PROJECT_DIR}/cstrike/server.cfg" 2>/dev/null || true
     if ! grep -q '^[[:space:]]*sv_visiblemaxplayers' "${PROJECT_DIR}/cstrike/server.cfg"; then
         echo "sv_visiblemaxplayers ${main_slots}" >> "${PROJECT_DIR}/cstrike/server.cfg"
     fi
@@ -464,19 +471,24 @@ sys.exit(1)
         fi
     fi
 
+    existing_inst_slots=""
+    if [ -f "${target_dir}/cstrike/server.cfg" ]; then
+        existing_inst_slots=$(grep -E '^[[:space:]]*sv_visiblemaxplayers[[:space:]]+[0-9]+' "${target_dir}/cstrike/server.cfg" | head -n1 | awk '{print $2}')
+    fi
+
     if [ -f "$inst_pini" ]; then
         if [ "$inst_mode" = "mix5v5" ]; then
             sed -i -E 's/^[[:space:]]*;?[[:space:]]*mix_system\.amxx([[:space:]].*)?$/mix_system.amxx/' "$inst_pini" 2>/dev/null || true
             sed -i -E 's/^[[:space:]]*clanwar_system\.amxx/;\0/' "$inst_pini" 2>/dev/null || true
-            inst_slots=18
+            inst_slots=${existing_inst_slots:-18}
         elif [ "$inst_mode" = "public" ]; then
             sed -i -E 's/^[[:space:]]*clanwar_system\.amxx/;\0/' "$inst_pini" 2>/dev/null || true
             sed -i -E 's/^[[:space:]]*mix_system\.amxx/;\0/' "$inst_pini" 2>/dev/null || true
-            inst_slots=24
+            inst_slots=${existing_inst_slots:-24}
         else
             sed -i -E 's/^[[:space:]]*;?[[:space:]]*clanwar_system\.amxx([[:space:]].*)?$/clanwar_system.amxx/' "$inst_pini" 2>/dev/null || true
             sed -i -E 's/^[[:space:]]*mix_system\.amxx/;\0/' "$inst_pini" 2>/dev/null || true
-            inst_slots=10
+            inst_slots=${existing_inst_slots:-10}
         fi
         chmod 666 "$inst_pini" 2>/dev/null || true
     fi
@@ -490,7 +502,9 @@ sys.exit(1)
         sed -i -E "s/MAX_PLAYERS=\".*\"/MAX_PLAYERS=\"${inst_slots}\"/" "${target_dir}/start.sh" 2>/dev/null || true
     fi
     if [ -f "${target_dir}/cstrike/server.cfg" ]; then
-        sed -i -E "s/^[[:space:]]*sv_visiblemaxplayers[[:space:]]+[0-9]+/sv_visiblemaxplayers ${inst_slots}/" "${target_dir}/cstrike/server.cfg" 2>/dev/null || true
+        if ! grep -q '^[[:space:]]*sv_visiblemaxplayers' "${target_dir}/cstrike/server.cfg"; then
+            echo "sv_visiblemaxplayers ${inst_slots}" >> "${target_dir}/cstrike/server.cfg"
+        fi
     fi
 
     chmod +x "${target_dir}/hlds_linux" "${target_dir}/hlds_run" "${target_dir}"/*.sh 2>/dev/null || true

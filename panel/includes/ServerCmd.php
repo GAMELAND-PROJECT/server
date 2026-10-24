@@ -1549,6 +1549,12 @@ class ServerCmd {
         $newSlots = 24;
         $modeLabel = '';
 
+        $cfgFile = ($serverInfo['cstrike_dir'] ?? '') . '/server.cfg';
+        $existingCustomSlots = 0;
+        if (is_file($cfgFile) && preg_match('/^\s*sv_visiblemaxplayers\s+([0-9]+)/m', (string)@file_get_contents($cfgFile), $mSlots)) {
+            $existingCustomSlots = (int)$mSlots[1];
+        }
+
         if ($targetMode === 'clanwar') {
             $newSlots = 10;
             $modeLabel = '⚔️ Clan War Mode (10 Slots)';
@@ -1567,8 +1573,9 @@ class ServerCmd {
             $enabled = array_values(array_filter($enabled, fn($f) => $f !== 'mix_system.amxx'));
 
         } elseif ($targetMode === 'mix5v5') {
-            $newSlots = 18;
-            $modeLabel = '🎮 5v5 Match Server Mode (18 Slots)';
+            // Preserve user-configured custom slots (e.g. 22 slots) if set, otherwise default to 18
+            $newSlots = ($existingCustomSlots > 0 && $existingCustomSlots !== 10) ? $existingCustomSlots : 18;
+            $modeLabel = "🎮 5v5 Match Server Mode ({$newSlots} Slots)";
 
             // Enable mix_system.amxx
             if (!in_array('mix_system.amxx', $enabled, true)) {
@@ -1584,8 +1591,8 @@ class ServerCmd {
             $enabled = array_values(array_filter($enabled, fn($f) => $f !== 'clanwar_system.amxx'));
 
         } elseif ($targetMode === 'public') {
-            $newSlots = 24;
-            $modeLabel = '🎯 Classic Public Mode (24 Slots)';
+            $newSlots = ($existingCustomSlots > 0 && $existingCustomSlots > 10) ? $existingCustomSlots : 24;
+            $modeLabel = "🎯 Classic Public Mode ({$newSlots} Slots)";
 
             // Disable both mix_system and clanwar_system
             $enabled = array_values(array_filter($enabled, fn($f) => $f !== 'mix_system.amxx' && $f !== 'clanwar_system.amxx'));
@@ -2323,7 +2330,23 @@ class ServerCmd {
 
         $serverMode = self::getCurrentServerMode($serverInfo);
         $serverId = $serverInfo['id'] ?? 'main';
-        $slots = ($serverMode === 'clanwar') ? 10 : (($serverMode === 'public') ? 24 : 18);
+
+        // Check if server.cfg already has a custom sv_visiblemaxplayers setting (e.g. 22 slots)
+        $cfg = $serverInfo['cstrike_dir'] . '/server.cfg';
+        $userSlots = 0;
+        if (is_file($cfg)) {
+            $cfgContent = (string)@file_get_contents($cfg);
+            if (preg_match('/^\s*sv_visiblemaxplayers\s+([0-9]+)/m', $cfgContent, $mSlots)) {
+                $userSlots = (int)$mSlots[1];
+            }
+        }
+
+        // If user configured custom slots (e.g. 22 slots), strictly preserve it!
+        if ($userSlots > 0 && ($serverMode !== 'clanwar' || $userSlots === 10)) {
+            $slots = $userSlots;
+        } else {
+            $slots = ($serverMode === 'clanwar') ? 10 : (($serverMode === 'public') ? 24 : 18);
+        }
 
         // Core helper candidates that remain enabled for all modes
         $candidates = [
@@ -2394,16 +2417,11 @@ class ServerCmd {
             @file_put_contents($pluginsIni, $content);
         }
 
-        // Auto-heal sv_visiblemaxplayers in server.cfg to strictly match mode slots
-        $cfg = $serverInfo['cstrike_dir'] . '/server.cfg';
+        // Auto-heal sv_visiblemaxplayers in server.cfg ONLY if missing entirely
         if (is_file($cfg)) {
             $cfgContent = (string)@file_get_contents($cfg);
-            if (preg_match('/^\s*sv_visiblemaxplayers\s+[0-9]+/m', $cfgContent)) {
-                $newCfg = preg_replace('/^\s*sv_visiblemaxplayers\s+[0-9]+/m', "sv_visiblemaxplayers {$slots}", $cfgContent);
-            } else {
+            if (!preg_match('/^\s*sv_visiblemaxplayers\s+[0-9]+/m', $cfgContent)) {
                 $newCfg = rtrim($cfgContent) . "\nsv_visiblemaxplayers {$slots}\n";
-            }
-            if ($newCfg !== $cfgContent) {
                 @file_put_contents($cfg, $newCfg);
             }
         }

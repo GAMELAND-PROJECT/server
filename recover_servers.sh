@@ -96,7 +96,19 @@ def detect_mode_and_slots(server_dir, env_data):
                     mode = "public"
         except Exception:
             pass
-    def_slots = 10 if mode == "clanwar" else (18 if mode == "mix5v5" else 24)
+    cfg_slots = 0
+    scfg = os.path.join(server_dir, "cstrike", "server.cfg")
+    if os.path.isfile(scfg):
+        try:
+            with open(scfg, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    m = re.match(r'^\s*sv_visiblemaxplayers\s+(\d+)', line)
+                    if m:
+                        cfg_slots = int(m.group(1))
+                        break
+        except Exception:
+            pass
+    def_slots = cfg_slots if cfg_slots > 0 else (10 if mode == "clanwar" else (18 if mode == "mix5v5" else 24))
     slots = int(env_data.get("MAX_PLAYERS", def_slots))
     return mode, slots
 

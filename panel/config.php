@@ -98,7 +98,15 @@ if (is_file('/opt/gameland/persistent/main_mode.txt')) {
         }
     }
 }
-$mainSlots = ($mainMode === 'clanwar') ? 10 : (($mainMode === 'mix5v5') ? 18 : 24);
+
+$mainCfg = $detectedServerDir . '/cstrike/server.cfg';
+$mainSlots = 0;
+if (is_file($mainCfg) && preg_match('/^\s*sv_visiblemaxplayers\s+([0-9]+)/m', (string)@file_get_contents($mainCfg), $mSlots)) {
+    $mainSlots = (int)$mSlots[1];
+}
+if ($mainSlots <= 0) {
+    $mainSlots = ($mainMode === 'clanwar') ? 10 : (($mainMode === 'mix5v5') ? 18 : 24);
+}
 
 $SERVERS = [
     'main' => [
@@ -157,6 +165,10 @@ function gameland_normalize_server(array $server, string $fallbackIp): array {
         } else {
             $mode = 'clanwar';
         }
+    }
+    $instCfg = $serverDir . '/cstrike/server.cfg';
+    if ($slots <= 0 && is_file($instCfg) && preg_match('/^\s*sv_visiblemaxplayers\s+([0-9]+)/m', (string)@file_get_contents($instCfg), $mSlots)) {
+        $slots = (int)$mSlots[1];
     }
     if ($slots <= 0) {
         $slots = ($mode === 'clanwar') ? 10 : (($mode === 'mix5v5') ? 18 : 24);
