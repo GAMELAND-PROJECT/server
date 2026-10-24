@@ -166,7 +166,8 @@ git update-index --no-assume-unchanged "$SERVERS_JSON" 2>/dev/null || true
 git update-index --no-assume-unchanged "$MAIN_PINI" 2>/dev/null || true
 git update-index --no-assume-unchanged "${SCRIPT_DIR}/start.sh" 2>/dev/null || true
 
-# Force reset index and working tree cleanly
+# Force reset index and working tree cleanly (remove local file so git reset never conflicts)
+rm -f "$MAIN_PINI" 2>/dev/null || true
 git checkout -f 2>/dev/null || true
 git reset --hard origin/main
 
