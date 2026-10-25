@@ -9,6 +9,10 @@ GREEN='\033[0;32m'
 CYAN='\033[0;36m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+MAGENTA='\033[0;35m'
+WHITE='\033[1;37m'
 BOLD='\033[1m'
 NC='\033[0m'
 
@@ -37,10 +41,22 @@ Usage:
   svgl start [id|main]         Start server
   svgl stop [id|main]          Stop server
   svgl restart [id|main]       Restart server
+  svgl restart-all             Safe staggered restart of ALL servers (2.5s delay)
+  svgl start-all               Sequentially start any stopped servers
+  svgl stop-all                Safely stop all servers cleanly
   svgl status [id|main]        Show service status
   svgl console [id|main]       Attach to tmux console
   svgl logs [id|main]          Follow systemd logs
   svgl tail [id|main]          Follow server log file
+  svgl update                  Safely update server from GitHub (Zero data loss)
+  svgl build [id|main]         Compile and deploy plugins specifically for one server
+  svgl sync-plugins <id>       Copy updated plugins to specific instance (independent)
+  svgl backup [note]           Create full atomic VPS checkpoint snapshot
+  svgl restore [id|latest]     Restore full VPS state from checkpoint
+  svgl checkpoint              Manage VPS checkpoints (create, list, restore, delete)
+  svgl recover                 Recover lost admin accounts with chronological filter
+  svgl sync                    Recover & auto-sync all created server instances
+  svgl capacity                Analyze CPU & RAM to show how many servers can run
   svgl install-template        Install gameland@.service template
 
 The web panel uses the same registry and SVGL commands. No server needs to be
@@ -55,8 +71,33 @@ EOF
 
 ensure_registry() {
     mkdir -p "$INSTANCES_DIR"
+    mkdir -p /opt/gameland/persistent 2>/dev/null || true
     if [[ ! -f "$REGISTRY_FILE" ]]; then
-        printf '{\n  "servers": []\n}\n' > "$REGISTRY_FILE"
+        if [[ -f "/opt/gameland/persistent/servers.json" ]]; then
+            cp -f "/opt/gameland/persistent/servers.json" "$REGISTRY_FILE"
+        else
+            printf '{\n  "servers": []\n}\n' > "$REGISTRY_FILE"
+        fi
+    fi
+    for reg_f in "$REGISTRY_FILE" "/opt/gameland/persistent/servers.json"; do
+        if [[ -f "$reg_f" ]]; then
+            python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1], "r") as f: d = json.load(f)
+    if isinstance(d.get("servers"), list):
+        filtered = [s for s in d["servers"] if s.get("id") and s.get("id") != "main"]
+        if len(filtered) != len(d["servers"]):
+            d["servers"] = filtered
+            with open(sys.argv[1], "w") as f: json.dump(d, f, indent=2)
+except Exception: pass
+' "$reg_f" 2>/dev/null || true
+        fi
+    done
+    if [[ -d "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" ]]; then
+        chmod -R 777 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
+        chmod 666 "${PROJECT_DIR}/cstrike/addons/amxmodx/configs/"*.ini 2>/dev/null || true
+        chown -R www-data:www-data "${PROJECT_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
     fi
 }
 
@@ -114,8 +155,15 @@ log_file_for() {
 }
 
 is_running() {
+    local id="${1:-main}"
+    local svc tmux_name
+    svc="$(service_name_for "$id")"
+    tmux_name="$(tmux_name_for "$id")"
+
     command -v systemctl >/dev/null 2>&1 || return 1
-    systemctl is-active --quiet "$(service_name_for "${1:-main}")" 2>/dev/null
+    systemctl is-active --quiet "$svc" 2>/dev/null || return 1
+    tmux has-session -t "$tmux_name" 2>/dev/null || return 1
+    return 0
 }
 
 control_server() {
@@ -134,7 +182,7 @@ json_escape() {
 }
 
 registry_append() {
-    local id="$1" name="$2" port="$3" dir="$4" rcon="$5"
+    local id="$1" name="$2" port="$3" dir="$4" rcon="$5" mode="${6:-clanwar}" slots="${7:-10}"
     ensure_registry
 
     php -r '
@@ -143,23 +191,35 @@ registry_append() {
         $data = json_decode(@file_get_contents($file), true);
         if (!is_array($data)) $data = ["servers" => []];
         if (!isset($data["servers"]) || !is_array($data["servers"])) $data["servers"] = [];
-        foreach ($data["servers"] as $server) {
+        foreach ($data["servers"] as &$server) {
             if (($server["id"] ?? "") === $id) {
+                $server["name"] = $argv[3];
+                $server["hostname"] = $argv[3];
+                $server["mode"] = $argv[7] ?? "clanwar";
+                $server["slots"] = (int)($argv[8] ?? 10);
                 file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+                @mkdir("/opt/gameland/persistent", 0777, true);
+                @file_put_contents("/opt/gameland/persistent/servers.json", json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
                 exit(0);
             }
         }
         $data["servers"][] = [
             "id" => $id,
             "name" => $argv[3],
+            "hostname" => $argv[3],
             "ip" => "127.0.0.1",
             "port" => (int)$argv[4],
             "rcon_password" => $argv[5],
             "service_name" => "gameland@" . $id . ".service",
             "server_dir" => $argv[6],
+            "mode" => $argv[7] ?? "clanwar",
+            "slots" => (int)($argv[8] ?? 10),
         ];
-        file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
-    ' "$REGISTRY_FILE" "$id" "$name" "$port" "$rcon" "$dir"
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+        file_put_contents($file, $json);
+        @mkdir("/opt/gameland/persistent", 0777, true);
+        @file_put_contents("/opt/gameland/persistent/servers.json", $json);
+    ' "$REGISTRY_FILE" "$id" "$name" "$port" "$rcon" "$dir" "$mode" "$slots"
 }
 
 registry_remove() {
@@ -171,7 +231,10 @@ registry_remove() {
         $data = json_decode(@file_get_contents($file), true);
         if (!is_array($data)) $data = ["servers" => []];
         $data["servers"] = array_values(array_filter($data["servers"] ?? [], fn($s) => ($s["id"] ?? "") !== $id));
-        file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+        file_put_contents($file, $json);
+        @mkdir("/opt/gameland/persistent", 0777, true);
+        @file_put_contents("/opt/gameland/persistent/servers.json", $json);
     ' "$REGISTRY_FILE" "$id"
 }
 
@@ -190,9 +253,9 @@ read_rcon_password() {
 
 create_instance() {
     need_root_for_systemd
-    local id="${1:-}" port="${2:-}" name="${3:-}"
+    local id="${1:-}" port="${2:-}" name="${3:-}" slots="${4:-}" mode="${5:-clanwar}"
     if [[ -z "$id" || -z "$port" ]]; then
-        echo -e "${RED}[ERROR] Usage: svgl add <id> <port> [name]${NC}"
+        echo -e "${RED}[ERROR] Usage: svgl add <id> <port> [name] [slots] [mode]${NC}"
         exit 1
     fi
     if [[ ! "$id" =~ ^[a-zA-Z0-9_-]+$ ]]; then
@@ -204,6 +267,18 @@ create_instance() {
         exit 1
     fi
     name="${name:-GameLand CS 1.6 ${id}}"
+
+    if [[ -z "$slots" || "$slots" -lt 1 ]]; then
+        if [[ "$mode" == "clanwar" ]]; then
+            slots="10"
+        elif [[ "$mode" == "mix5v5" ]]; then
+            slots="18"
+        elif [[ "$mode" == "public" ]]; then
+            slots="24"
+        else
+            slots="10"
+        fi
+    fi
 
     ensure_registry
     if php -r '
@@ -224,7 +299,7 @@ create_instance() {
         exit 1
     fi
 
-    echo -e "${YELLOW}Creating instance '${id}' on port ${port}...${NC}"
+    echo -e "${YELLOW}Creating instance '${id}' on port ${port} (Mode: ${mode}, Slots: ${slots})...${NC}"
     mkdir -p "$INSTANCE_ROOT_DEFAULT"
     if command -v rsync >/dev/null 2>&1; then
         rsync -a \
@@ -249,25 +324,67 @@ INSTANCE_ID="${id}"
 SERVER_DIR="${target}"
 SERVER_IP="0.0.0.0"
 SERVER_PORT="${port}"
-MAX_PLAYERS="12"
+SERVER_NAME="${name}"
+HOSTNAME="${name}"
+MAX_PLAYERS="${slots}"
 MAP="de_dust2"
 TMUX_SESSION="gameland_${id}"
-HLTV_SESSION="gameland_hltv_${id}"
-COMPRESSOR_SESSION="demo_compressor_${id}"
 STEAMCMD_LINUX32="/opt/steamcmd/linux32"
 EOF
 
-    registry_append "$id" "$name" "$port" "$target" "$rcon"
+    # Configure server.cfg
+    if [[ -f "$target/cstrike/server.cfg" ]]; then
+        sed -i -E "s/^[[:space:]]*sv_visiblemaxplayers[[:space:]]+[0-9]+/sv_visiblemaxplayers $slots/" "$target/cstrike/server.cfg" 2>/dev/null || true
+        if ! grep -q 'sv_visiblemaxplayers' "$target/cstrike/server.cfg"; then
+            echo "sv_visiblemaxplayers $slots" >> "$target/cstrike/server.cfg"
+        fi
+        sed -i -E "s/^[[:space:]]*hostname[[:space:]]+.*/hostname \"${name}\"/" "$target/cstrike/server.cfg" 2>/dev/null || true
+        sed -i -E "s/^[[:space:]]*cw_base_hostname[[:space:]]+.*/cw_base_hostname \"${name}\"/" "$target/cstrike/server.cfg" 2>/dev/null || true
+        if ! grep -q 'cw_base_hostname' "$target/cstrike/server.cfg"; then
+            echo "cw_base_hostname \"${name}\"" >> "$target/cstrike/server.cfg"
+        fi
+        sed -i -E "s/^[[:space:]]*mix_base_hostname[[:space:]]+.*/mix_base_hostname \"${name}\"/" "$target/cstrike/server.cfg" 2>/dev/null || true
+        if ! grep -q 'mix_base_hostname' "$target/cstrike/server.cfg"; then
+            echo "mix_base_hostname \"${name}\"" >> "$target/cstrike/server.cfg"
+        fi
+    fi
+
+    # Configure plugins.ini for the selected mode
+    local plugins_ini="$target/cstrike/addons/amxmodx/configs/plugins.ini"
+    if [[ -f "$plugins_ini" ]]; then
+        if [[ "$mode" == "clanwar" ]]; then
+            sed -i -E 's/^[[:space:]]*;?[[:space:]]*clanwar_system\.amxx([[:space:]].*)?$/clanwar_system.amxx/' "$plugins_ini" 2>/dev/null || true
+            if ! grep -q 'clanwar_system\.amxx' "$plugins_ini"; then
+                echo "clanwar_system.amxx" >> "$plugins_ini"
+            fi
+            sed -i -E 's/^[[:space:]]*mix_system\.amxx/;\0/' "$plugins_ini" 2>/dev/null || true
+        elif [[ "$mode" == "mix5v5" ]]; then
+            sed -i -E 's/^[[:space:]]*;?[[:space:]]*mix_system\.amxx([[:space:]].*)?$/mix_system.amxx/' "$plugins_ini" 2>/dev/null || true
+            if ! grep -q 'mix_system\.amxx' "$plugins_ini"; then
+                echo "mix_system.amxx" >> "$plugins_ini"
+            fi
+            sed -i -E 's/^[[:space:]]*clanwar_system\.amxx/;\0/' "$plugins_ini" 2>/dev/null || true
+        elif [[ "$mode" == "public" ]]; then
+            sed -i -E 's/^[[:space:]]*clanwar_system\.amxx/;\0/' "$plugins_ini" 2>/dev/null || true
+            sed -i -E 's/^[[:space:]]*mix_system\.amxx/;\0/' "$plugins_ini" 2>/dev/null || true
+        fi
+    fi
+
+    registry_append "$id" "$name" "$port" "$target" "$rcon" "$mode" "$slots"
     chmod +x "${PROJECT_DIR}/start_instance.sh" "${PROJECT_DIR}/stop_instance.sh" "${PROJECT_DIR}/svgl.sh"
     chmod 775 "$INSTANCES_DIR" "$REGISTRY_FILE" "${INSTANCES_DIR}/${id}.env" 2>/dev/null || true
     if id www-data >/dev/null 2>&1; then
         chown -R www-data:www-data "$target" 2>/dev/null || true
         chown -R www-data:www-data "$INSTANCES_DIR" 2>/dev/null || true
     fi
+    if [[ -f "$TEMPLATE_SERVICE_SRC" ]]; then
+        cp -f "$TEMPLATE_SERVICE_SRC" "$TEMPLATE_SERVICE_DEST" 2>/dev/null || true
+        chmod 644 "$TEMPLATE_SERVICE_DEST" 2>/dev/null || true
+    fi
     systemctl daemon-reload
     systemctl enable "gameland@${id}.service"
 
-    echo -e "${GREEN}[OK] Instance created.${NC}"
+    echo -e "${GREEN}[OK] Instance created with mode '${mode}' and ${slots} slots.${NC}"
     echo "  Service : gameland@${id}.service"
     echo "  Dir     : $target"
     echo "  Port    : $port"
@@ -325,9 +442,16 @@ list_servers() {
             $j = json_decode(@file_get_contents($f), true);
             foreach (($j["servers"] ?? []) as $s) {
                 $id = $s["id"] ?? "";
-                if ($id === "") continue;
-                printf("%-14s %-28s %-8s %-28s ", $id, $s["service_name"] ?? ("gameland@$id.service"), $s["port"] ?? "-", "gameland_$id");
-                system("systemctl is-active --quiet " . escapeshellarg($s["service_name"] ?? "gameland@$id.service") . " && echo running || echo stopped");
+                if ($id === "" || $id === "main") continue;
+                $tmux = "gameland_$id";
+                $svc = $s["service_name"] ?? ("gameland@$id.service");
+                printf("%-14s %-28s %-8s %-28s ", $id, $svc, $s["port"] ?? "-", $tmux);
+                $status = "stopped";
+                $res = @exec("systemctl is-active --quiet " . escapeshellarg($svc) . " 2>/dev/null && tmux has-session -t " . escapeshellarg($tmux) . " 2>/dev/null && echo running || echo stopped");
+                if (trim((string)$res) === "running") {
+                    $status = "running";
+                }
+                echo $status . "\n";
             }
         ' "$REGISTRY_FILE"
     else
@@ -360,7 +484,7 @@ server_rows() {
             $j = json_decode(@file_get_contents($f), true);
             foreach (($j["servers"] ?? []) as $s) {
                 $id = $s["id"] ?? "";
-                if ($id === "") continue;
+                if ($id === "" || $id === "main") continue;
                 $service = $s["service_name"] ?? ("gameland@$id.service");
                 $status = trim(shell_exec("systemctl is-active " . escapeshellarg($service) . " 2>/dev/null")) === "active" ? "running" : "stopped";
                 echo $id . "|" . ($s["name"] ?? $id) . "|" . ($s["port"] ?? "-") . "|" . $service . "|gameland_" . $id . "|" . $status . "\n";
@@ -495,14 +619,22 @@ edit_server_settings() {
         return
     fi
 
-    [[ -n "$new_hostname" ]] && set_cfg_value "${server_dir}/cstrike/server.cfg" "hostname" "$new_hostname"
+    local effective_host="${new_hostname:-$new_name}"
+    if [[ -n "$effective_host" ]]; then
+        set_cfg_value "${server_dir}/cstrike/server.cfg" "hostname" "$effective_host"
+        set_cfg_value "${server_dir}/cstrike/server.cfg" "cw_base_hostname" "$effective_host"
+        set_cfg_value "${server_dir}/cstrike/server.cfg" "mix_base_hostname" "$effective_host"
+    fi
 
     if [[ "$id" == "main" ]]; then
         [[ -n "$new_port" ]] && set_start_value "${server_dir}/start.sh" "SERVER_PORT" "$new_port"
         [[ -n "$new_slots" ]] && set_start_value "${server_dir}/start.sh" "MAX_PLAYERS" "$new_slots"
         [[ -n "$new_map" ]] && set_start_value "${server_dir}/start.sh" "MAP" "$new_map"
+        [[ -n "$new_name" ]] && set_start_value "${server_dir}/start.sh" "SERVER_NAME" "$new_name"
+        [[ -n "$effective_host" ]] && set_start_value "${server_dir}/start.sh" "HOSTNAME" "$effective_host"
     else
-        [[ -n "$new_name" ]] && update_registry_field "$id" "name" "$new_name"
+        [[ -n "$new_name" ]] && { update_registry_field "$id" "name" "$new_name"; set_env_value "$env_file" "SERVER_NAME" "$new_name"; }
+        [[ -n "$effective_host" ]] && { update_registry_field "$id" "hostname" "$effective_host"; set_env_value "$env_file" "HOSTNAME" "$effective_host"; }
         [[ -n "$new_port" ]] && { set_env_value "$env_file" "SERVER_PORT" "$new_port"; update_registry_field "$id" "port" "$new_port"; }
         [[ -n "$new_slots" ]] && set_env_value "$env_file" "MAX_PLAYERS" "$new_slots"
         [[ -n "$new_map" ]] && set_env_value "$env_file" "MAP" "$new_map"
@@ -575,6 +707,72 @@ servers_browser_menu() {
     done
 }
 
+sync_plugins_to_instance() {
+    local id="${1:-}"
+    if [[ -z "$id" ]]; then
+        echo -e "${RED}[ERROR] Usage: svgl sync-plugins <id|all>${NC}"
+        return 1
+    fi
+    if [[ "$id" == "all" ]]; then
+        bash "${PROJECT_DIR}/install_mix.sh" --sync-all
+        return 0
+    fi
+    bash "${PROJECT_DIR}/install_mix.sh" --instance "$id"
+}
+
+build_server_plugins() {
+    local id="${1:-main}"
+    echo -e "${CYAN}==========================================${NC}"
+    echo -e "${BOLD}${GREEN}  Compiling Plugins Exclusively for: ${id}  ${NC}"
+    echo -e "${CYAN}==========================================${NC}"
+
+    if [[ "$id" == "main" || -z "$id" ]]; then
+        bash "${PROJECT_DIR}/install_mix.sh"
+    else
+        bash "${PROJECT_DIR}/install_mix.sh" --instance "$id"
+    fi
+    echo -e "${GREEN}[DONE] Server '${id}' compiled and updated with zero impact on other servers!${NC}"
+}
+
+check_server_capacity() {
+    echo -e "${CYAN}==========================================${NC}"
+    echo -e "${BOLD}${GREEN}   GameLand Server Hardware & Capacity   ${NC}"
+    echo -e "${CYAN}==========================================${NC}"
+    local cores
+    cores=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 1)
+    local model
+    model=$(grep -m1 "model name" /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^[ \t]*//' || echo "Unknown CPU")
+    local mem_total
+    mem_total=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}' || echo 1024)
+    local mem_avail
+    mem_avail=$(free -m 2>/dev/null | awk '/^Mem:/{print $7}' || echo 512)
+    local load
+    load=$(uptime 2>/dev/null | awk -F'load average:' '{print $2}' | sed 's/^[ \t]*//' || echo "N/A")
+
+    echo -e "  ${BOLD}CPU Model:${NC}     $model"
+    echo -e "  ${BOLD}CPU Cores:${NC}     $cores Cores / Threads"
+    echo -e "  ${BOLD}Total RAM:${NC}     $((mem_total / 1024)) GB ($mem_total MB)"
+    echo -e "  ${BOLD}Available RAM:${NC} $((mem_avail / 1024)) GB ($mem_avail MB)"
+    echo -e "  ${BOLD}Current Load:${NC}  $load"
+    echo -e "${CYAN}------------------------------------------${NC}"
+    
+    local max_by_cpu=$((cores * 2))
+    local max_by_ram=$((mem_total / 250))
+    local recommended=$max_by_cpu
+    if [ "$max_by_ram" -lt "$recommended" ]; then
+        recommended=$max_by_ram
+    fi
+    if [ "$recommended" -lt 1 ]; then
+        recommended=1
+    fi
+
+    echo -e "  ${YELLOW}💡 Capacity Analysis for CS 1.6 (1000 FPS / 18 Slots):${NC}"
+    echo -e "  - Each instance uses ~150-250 MB RAM and ~20-35% of a CPU core."
+    echo -e "  - ${GREEN}${BOLD}Recommended Active Servers:${NC} ${GREEN}${recommended} servers${NC} simultaneously"
+    echo -e "  - Maximum servers under light/mix load: ${YELLOW}$((recommended + 2)) servers${NC}"
+    echo -e "${CYAN}==========================================${NC}"
+}
+
 show_menu() {
     clear 2>/dev/null || true
     echo -e "${CYAN}==========================================${NC}"
@@ -589,8 +787,14 @@ show_menu() {
     echo -e "${CYAN}------------------------------------------${NC}"
     echo -e "  1) ${CYAN}Servers${NC} (select and manage)"
     echo -e "  2) ${GREEN}Add New Server Instance${NC}"
-    echo -e "  3) ${YELLOW}Update from GitHub${NC}"
+    echo -e "  3) ${YELLOW}Update from GitHub (Safe Update)${NC}"
     echo -e "  4) List Servers"
+    echo -e "  5) ${CYAN}Recover Admin Accounts${NC} (Smart Filter)"
+    echo -e "  6) ${CYAN}Recover / Sync Server Instances${NC} (Rebuild servers.json)"
+    echo -e "  7) ${PURPLE}Check Server Capacity & Hardware Specs${NC}"
+    echo -e "  8) ${YELLOW}⚡ Restart All Servers (Safe Staggered)${NC}"
+    echo -e "  9) ${GREEN}▶ Start All Offline Servers${NC}"
+    echo -e "  10) ${YELLOW}💾 VPS Checkpoints / Backups${NC}"
     echo -e "  0) Exit"
     echo -e "${CYAN}==========================================${NC}"
 }
@@ -598,7 +802,7 @@ show_menu() {
 interactive_loop() {
     while true; do
         show_menu
-        read -r -p "  Select [0-4]: " choice
+        read -r -p "  Select [0-10]: " choice
         case "$choice" in
             1) servers_browser_menu ;;
             2)
@@ -608,8 +812,25 @@ interactive_loop() {
                 create_instance "$id" "$port" "$name"
                 sleep 3
                 ;;
-            3) cd "$PROJECT_DIR" && git pull; pause_menu ;;
+            3) bash "${PROJECT_DIR}/update.sh"; pause_menu ;;
             4) list_servers; pause_menu ;;
+            5) bash "${PROJECT_DIR}/recover_admins.sh"; pause_menu ;;
+            6) bash "${PROJECT_DIR}/recover_servers.sh"; pause_menu ;;
+            7) check_server_capacity; pause_menu ;;
+            8) bash "${PROJECT_DIR}/restart_all.sh"; pause_menu ;;
+            9) bash "${PROJECT_DIR}/start_all.sh"; pause_menu ;;
+            10)
+                echo -e "\n  1) Create New Checkpoint"
+                echo -e "  2) List Checkpoints"
+                echo -e "  3) Restore Latest Checkpoint"
+                read -r -p "  Select [1-3]: " cp_choice
+                case "$cp_choice" in
+                    1) read -r -p "  Checkpoint label/note: " cp_note; bash "${PROJECT_DIR}/checkpoint.sh" create "$cp_note" ;;
+                    2) bash "${PROJECT_DIR}/checkpoint.sh" list ;;
+                    3) bash "${PROJECT_DIR}/checkpoint.sh" restore latest ;;
+                esac
+                pause_menu
+                ;;
             0) exit 0 ;;
             *) echo -e "${RED}Invalid option.${NC}"; sleep 1 ;;
         esac
@@ -623,18 +844,45 @@ case "$cmd" in
     list) list_servers ;;
     add) shift; create_instance "$@" ;;
     remove|rm) shift; remove_instance "$@" ;;
+    restart-all|restart_all) bash "${PROJECT_DIR}/restart_all.sh" ;;
+    start-all|start_all) bash "${PROJECT_DIR}/start_all.sh" ;;
+    stop-all|stop_all) bash "${PROJECT_DIR}/stop_all.sh" ;;
     start|stop|restart|status)
         action="$cmd"
         id="${2:-main}"
-        if [[ "$action" == "status" ]]; then
+        if [[ "$id" == "all" ]]; then
+            if [[ "$action" == "restart" ]]; then
+                bash "${PROJECT_DIR}/restart_all.sh"
+            elif [[ "$action" == "start" ]]; then
+                bash "${PROJECT_DIR}/start_all.sh"
+            elif [[ "$action" == "stop" ]]; then
+                bash "${PROJECT_DIR}/stop_all.sh"
+            fi
+        elif [[ "$action" == "status" ]]; then
             systemctl status "$(service_name_for "$id")" --no-pager
         else
             control_server "$action" "$id"
         fi
         ;;
     console) attach_console "${2:-main}" ;;
-    logs) journalctl -u "$(service_name_for "${2:-main}")" -f ;;
+    logs)
+        lfile="$(log_file_for "${2:-main}")"
+        if [[ -f "$lfile" ]]; then
+            tail -n 50 -f "$lfile"
+        else
+            journalctl -u "$(service_name_for "${2:-main}")" -f
+        fi
+        ;;
     tail) tail -f "$(log_file_for "${2:-main}")" ;;
+    update) bash "${PROJECT_DIR}/update.sh" ;;
+    build|compile) shift; build_server_plugins "$@" ;;
+    checkpoint) shift; bash "${PROJECT_DIR}/checkpoint.sh" "$@" ;;
+    backup) shift; bash "${PROJECT_DIR}/checkpoint.sh" create "$@" ;;
+    restore) shift; bash "${PROJECT_DIR}/checkpoint.sh" restore "$@" ;;
+    recover|recover-admins) bash "${PROJECT_DIR}/recover_admins.sh" ;;
+    sync|recover-servers) bash "${PROJECT_DIR}/recover_servers.sh" ;;
+    sync-plugins) shift; sync_plugins_to_instance "$@" ;;
+    capacity|specs) check_server_capacity ;;
     install-template) install_template ;;
     *) usage; exit 1 ;;
 esac
