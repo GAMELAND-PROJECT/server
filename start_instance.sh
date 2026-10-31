@@ -192,6 +192,24 @@ done
 # Ensure binary permissions are executable
 chmod +x "${SERVER_DIR}/hlds_linux" "${SERVER_DIR}/hlds_run" "${SERVER_DIR}"/*.sh 2>/dev/null || true
 
+# Self-healing: ensure custom dense smoke sprite & plugin binary are present before booting
+mkdir -p "${SERVER_DIR}/cstrike/sprites" "${SERVER_DIR}/cstrike/addons/amxmodx/plugins" "${SERVER_DIR}/cstrike/addons/amxmodx/configs" 2>/dev/null || true
+if [[ -f "${MANAGER_ROOT}/cstrike/sprites/gas_puff_02.spr" && ! -f "${SERVER_DIR}/cstrike/sprites/gas_puff_02.spr" ]]; then
+    cp -f "${MANAGER_ROOT}/cstrike/sprites/gas_puff_02.spr" "${SERVER_DIR}/cstrike/sprites/gas_puff_02.spr" 2>/dev/null || true
+    chmod 666 "${SERVER_DIR}/cstrike/sprites/gas_puff_02.spr" 2>/dev/null || true
+fi
+if [[ -f "${MANAGER_ROOT}/cstrike/addons/amxmodx/plugins/gameland_dense_smoke.amxx" && ! -f "${SERVER_DIR}/cstrike/addons/amxmodx/plugins/gameland_dense_smoke.amxx" ]]; then
+    cp -f "${MANAGER_ROOT}/cstrike/addons/amxmodx/plugins/gameland_dense_smoke.amxx" "${SERVER_DIR}/cstrike/addons/amxmodx/plugins/gameland_dense_smoke.amxx" 2>/dev/null || true
+    chmod 666 "${SERVER_DIR}/cstrike/addons/amxmodx/plugins/gameland_dense_smoke.amxx" 2>/dev/null || true
+fi
+if [[ -f "${SERVER_DIR}/cstrike/addons/amxmodx/configs/plugins.ini" ]]; then
+    if grep -qE '^[[:space:]]*;+[[:space:]]*gameland_dense_smoke\.amxx([[:space:]]|$)' "${SERVER_DIR}/cstrike/addons/amxmodx/configs/plugins.ini"; then
+        sed -i -E 's/^[[:space:]]*;+[[:space:]]*(gameland_dense_smoke\.amxx.*)$/\1/' "${SERVER_DIR}/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
+    elif ! grep -qE '^[[:space:]]*gameland_dense_smoke\.amxx([[:space:]]|$)' "${SERVER_DIR}/cstrike/addons/amxmodx/configs/plugins.ini"; then
+        echo -e "gameland_dense_smoke.amxx\t; High density opaque smoke grenade (anti-see-through)" >> "${SERVER_DIR}/cstrike/addons/amxmodx/configs/plugins.ini" 2>/dev/null || true
+    fi
+fi
+
 # Rotate log file if > 10MB
 if [[ -f "$LOG_FILE" ]] && [[ "$(stat -c%s "$LOG_FILE")" -gt 10485760 ]]; then
     mv "$LOG_FILE" "${LOG_FILE}.1"
