@@ -1560,7 +1560,8 @@ public Cmd_BlockSpecCmd(id)
 
 public RG_Observer_SetMode_Pre(const id, iMode)
 {
-    if(!is_user_connected(id) || g_iMatchState == STATE_WARMUP)
+    // If player is disconnected, alive, in warmup, or leaving spectator mode (OBS_NONE = 0), never interfere!
+    if(!is_user_connected(id) || is_user_alive(id) || iMode == 0 || g_iMatchState == STATE_WARMUP)
         return HC_CONTINUE
 
     new TeamName:team = get_member(id, m_iTeam)
@@ -1574,9 +1575,18 @@ public RG_Observer_SetMode_Pre(const id, iMode)
         return HC_CONTINUE
     }
 
-    // In competitive 5v5 mix / clanwar: STRICTLY FIRST PERSON ONLY (OBS_IN_EYE = 4)
-    // If the player is already in first-person (OBS_IN_EYE = 4) and presses Ctrl (+duck) or Space (+jump),
-    // SUPERCEDE the call completely so the camera stays solidly inside the teammate without desync/void!
+    // Check if alive teammates exist on this player's team
+    new iPlayers[MAX_PLAYERS], iNum
+    get_players(iPlayers, iNum, "ae", (team == TEAM_CT) ? "CT" : "TERRORIST")
+
+    // If no alive teammates exist (round end, entire team wiped out):
+    // MUST NOT lock or enforce OBS_IN_EYE! Let the engine transition camera modes freely to avoid crash!
+    if(iNum <= 0)
+    {
+        return HC_CONTINUE
+    }
+
+    // Alive teammates exist: in competitive 5v5 mix / clanwar, enforce STRICTLY FIRST PERSON ONLY (OBS_IN_EYE = 4)
     if(iMode != 4)
     {
         new iCurMode = get_entvar(id, var_iuser1)
@@ -1585,7 +1595,7 @@ public RG_Observer_SetMode_Pre(const id, iMode)
             return HC_SUPERCEDE
         }
 
-        SetHookChainArg(1, ATYPE_INTEGER, 4) // Force OBS_IN_EYE (Arg 1)
+        SetHookChainArg(2, ATYPE_INTEGER, 4) // Arg 2 is iMode (Arg 1 is 'this' - NEVER overwrite Arg 1!)
     }
 
     return HC_CONTINUE
@@ -1613,12 +1623,29 @@ public RG_Observer_FindNextPlayer_Pre(const id, bool:bReverse, const szName[])
 
 public RG_Observer_IsValidTarget_Pre(const id, iTargetIndex, bool:bSameTeam)
 {
-    if(g_iMatchState == STATE_WARMUP)
+    if(!is_user_connected(id) || is_user_alive(id) || g_iMatchState == STATE_WARMUP)
         return HC_CONTINUE
 
     new TeamName:iMyTeam = get_member(id, m_iTeam)
     if(iMyTeam != TEAM_TERRORIST && iMyTeam != TEAM_CT)
         return HC_CONTINUE
+
+    // During natural 3.0s death sequence / killer follow cam:
+    // ALLOW observing killer / natural death view! Never reject killer here or ReGameDLL panics into (0,0,0)!
+    new Float:fDeadTime = Float:get_member(id, m_fDeadTime)
+    if(fDeadTime > 0.0 && (get_gametime() - fDeadTime) < 3.0)
+    {
+        return HC_CONTINUE
+    }
+
+    // If no alive teammates exist on our team (e.g. round end team wipe),
+    // let engine handle spectator target resolution naturally to prevent camera loops!
+    new iPlayers[MAX_PLAYERS], iNum
+    get_players(iPlayers, iNum, "ae", (iMyTeam == TEAM_CT) ? "CT" : "TERRORIST")
+    if(iNum <= 0)
+    {
+        return HC_CONTINUE
+    }
 
     // If target is invalid, dead, disconnected, or self: reject!
     if(!iTargetIndex || !is_user_connected(iTargetIndex) || !is_user_alive(iTargetIndex) || iTargetIndex == id)
