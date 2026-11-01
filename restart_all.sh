@@ -20,6 +20,18 @@ echo -e "${CYAN}======================================================${NC}"
 echo -e "${BOLD}${GREEN}   GameLand CS 1.6 - Safe Staggered Multi-Server Restart   ${NC}"
 echo -e "${CYAN}======================================================${NC}"
 
+# 0. Linux Kernel & Socket Buffer Tuning (1000 FPS Hitreg)
+ulimit -n 65535 2>/dev/null || true
+if command -v sysctl >/dev/null 2>&1; then
+    sysctl -w net.core.rmem_max=16777216 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_max=16777216 >/dev/null 2>&1 || true
+    sysctl -w net.core.rmem_default=1048576 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_default=1048576 >/dev/null 2>&1 || true
+    sysctl -w net.core.netdev_max_backlog=10000 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.udp_rmem_min=16384 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.udp_wmem_min=16384 >/dev/null 2>&1 || true
+fi
+
 # 1. Sanitize systemd service files if old dangerous directives exist
 if [ -f "/etc/systemd/system/gameland.service" ]; then
     if grep -qE 'pkill -9 -f hlds_linux|killall -9 hlds_linux' "/etc/systemd/system/gameland.service" 2>/dev/null; then

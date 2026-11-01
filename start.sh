@@ -35,7 +35,17 @@ if [ "$needs_reload" -eq 1 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-cd "$SCRIPT_DIR"
+# ─── Linux Kernel & Network Socket Tuning (1000 FPS Hitreg) ───
+ulimit -n 65535 2>/dev/null || true
+if command -v sysctl >/dev/null 2>&1; then
+    sysctl -w net.core.rmem_max=16777216 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_max=16777216 >/dev/null 2>&1 || true
+    sysctl -w net.core.rmem_default=1048576 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_default=1048576 >/dev/null 2>&1 || true
+    sysctl -w net.core.netdev_max_backlog=10000 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.udp_rmem_min=16384 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.udp_wmem_min=16384 >/dev/null 2>&1 || true
+fi
 
 # ─── تنظیمات سرور ─────────────────────────────
 SERVER_PORT="27015"
@@ -180,6 +190,10 @@ tmux new-session -d -s gameland_server \
             +map ${MAP} \
             +maxplayers ${MAX_PLAYERS} \
             +sv_lan 0 \
+            +sys_ticrate 1100 \
+            -pingboost 3 \
+            -num_edicts 2048 \
+            -noipx \
             2>&1 | tee -a '${LOG_FILE}'; \
         echo '[CRASH] Server stopped! Restarting in 3s...'; \
         sleep 3; \

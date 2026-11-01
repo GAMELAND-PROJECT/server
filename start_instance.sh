@@ -67,6 +67,18 @@ fi
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 
+# ─── Linux Kernel & Network Socket Tuning (1000 FPS Hitreg) ───
+ulimit -n 65535 2>/dev/null || true
+if command -v sysctl >/dev/null 2>&1; then
+    sysctl -w net.core.rmem_max=16777216 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_max=16777216 >/dev/null 2>&1 || true
+    sysctl -w net.core.rmem_default=1048576 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_default=1048576 >/dev/null 2>&1 || true
+    sysctl -w net.core.netdev_max_backlog=10000 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.udp_rmem_min=16384 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.udp_wmem_min=16384 >/dev/null 2>&1 || true
+fi
+
 SERVER_DIR="${SERVER_DIR:?SERVER_DIR is required}"
 SERVER_PORT="${SERVER_PORT:?SERVER_PORT is required}"
 CLIENT_PORT="${CLIENT_PORT:-$((SERVER_PORT == 27015 ? 27005 : SERVER_PORT + 100))}"
@@ -233,6 +245,10 @@ for attempt in 1 2 3; do
                 +map ${MAP} \
                 +maxplayers ${MAX_PLAYERS} \
                 +sv_lan 0 \
+                +sys_ticrate 1100 \
+                -pingboost 3 \
+                -num_edicts 2048 \
+                -noipx \
                 2>&1 | tee -a '${LOG_FILE}'; \
             echo '[CRASH] ${INSTANCE_ID} stopped. Restarting in 3s...'; \
             sleep 3; \
