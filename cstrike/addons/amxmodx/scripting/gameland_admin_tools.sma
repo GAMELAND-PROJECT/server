@@ -1421,6 +1421,11 @@ public CmdMoveAllToSpec(id, level, cid)
 
 public CmdSwapTeams(id, level, cid)
 {
+	if(cvar_exists("amx_mix_state") || is_plugin_loaded("mix_system.amxx") != -1)
+	{
+		return PLUGIN_CONTINUE
+	}
+
 	if(!cmd_access(id, level, cid, 1))
 	{
 		return PLUGIN_HANDLED
@@ -1441,6 +1446,11 @@ public CmdSwapTeams(id, level, cid)
 
 public CmdRestartRound(id, level, cid)
 {
+	if(cvar_exists("amx_mix_state") || is_plugin_loaded("mix_system.amxx") != -1)
+	{
+		return PLUGIN_CONTINUE
+	}
+
 	if(!cmd_access(id, level, cid, 1))
 	{
 		return PLUGIN_HANDLED
